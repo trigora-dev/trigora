@@ -1,0 +1,76 @@
+# =========================
+# Node / Package Managers
+# =========================
+node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Build outputs
+# =========================
+dist/
+build/
+.out/
+.next/
+.cache/
+
+# Turbo
+.turbo/
+
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# TypeScript
+# =========================
+*.tsbuildinfo
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# Cloudflare
+# =========================
+.wrangler/
+wrangler.toml.bak
+
+# =========================
+# Coverage / Testing
+# =========================
+coverage/
+.nyc_output/
+
+# =========================
+# Misc
+# =========================
+*.pem
+*.key
+*.crt
+
+# =========================
+# Local runtime files
+# =========================
+.tmp/
+temp/
