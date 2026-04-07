@@ -1,3 +1,3 @@
 module.exports = {
-    extends: ["@trigora/eslint-config"]
+  extends: ['@trigora/eslint-config'],
 };

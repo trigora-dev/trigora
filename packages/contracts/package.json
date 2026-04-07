@@ -1,12 +1,14 @@
 {
-    "name": "@trigora/contracts",
-    "private": true,
-    "version": "0.0.0",
-    "main": "src/index.ts",
-    "exports": {
-        ".": "./src/index.ts"
-    },
-    "scripts": {
-        "typecheck": "tsc --noEmit"
-    }
+  "name": "@trigora/contracts",
+  "private": true,
+  "version": "0.0.0",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   }
+}

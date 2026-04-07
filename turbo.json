@@ -1,22 +1,44 @@
 {
-    "$schema": "https://turbo.build/schema.json",
-    "tasks": {
-        "dev": {
-            "cache": false,
-            "persistent": true
-        },
-        "build": {
-            "dependsOn": ["^build"],
-            "outputs": ["dist/**"]
-        },
-        "typecheck": {
-            "dependsOn": ["^typecheck"]
-        },
-        "lint": {
-            "dependsOn": ["^lint"]
-        },
-        "clean": {
-            "cache": false
-        }
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "test": {
+      "dependsOn": ["^test"],
+      "inputs": [
+        "vitest.config.ts",
+        "apps/**/src/**/*.ts",
+        "packages/**/src/**/*.ts",
+        "**/*.test.ts",
+        "**/*.spec.ts"
+      ],
+      "outputs": []
+    },
+    "test:coverage": {
+      "dependsOn": ["^test:coverage"],
+      "inputs": [
+        "vitest.config.ts",
+        "apps/**/src/**/*.ts",
+        "packages/**/src/**/*.ts",
+        "**/*.test.ts",
+        "**/*.spec.ts"
+      ],
+      "outputs": ["coverage/**"]
+    },
+    "clean": {
+      "cache": false
     }
+  }
 }

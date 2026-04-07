@@ -1,8 +1,11 @@
 {
-    "name": "@trigora/api",
-    "private": true,
-    "version": "0.0.0",
-    "scripts": {
-        "typecheck": "tsc --noEmit"
-    }
+  "name": "@trigora/api",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  }
 }
