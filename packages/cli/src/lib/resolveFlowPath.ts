@@ -22,5 +22,7 @@ export function resolveFlowPath(flowNameOrPath: string): string {
     }
   }
 
-  throw new Error(`Could not find flow "${flowNameOrPath}".`);
+  const lookedIn = candidates.map((candidate) => `  - ${path.relative(cwd, candidate)}`).join('\n');
+
+  throw new Error(`Could not find flow "${flowNameOrPath}". Looked in:\n${lookedIn}`);
 }

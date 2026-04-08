@@ -2,28 +2,24 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import type { FlowDefinition } from '@trigora/contracts';
+import { validateFlowModule } from './validateFlowModule';
 
 export async function loadFlowModule(filePath: string): Promise<FlowDefinition> {
   const absolutePath = path.resolve(process.cwd(), filePath);
   const moduleUrl = pathToFileURL(absolutePath).href;
   const cacheBustedUrl = `${moduleUrl}?t=${Date.now()}`;
 
-  const importedModule = await import(cacheBustedUrl);
-  const flow = importedModule.default;
+  let importedModule: Record<string, unknown>;
 
-  if (!flow) {
-    throw new Error(`No default export found in "${filePath}". Expected a default exported flow.`);
+  try {
+    importedModule = (await import(cacheBustedUrl)) as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to import flow file "${filePath}": ${error.message}`);
+    }
+
+    throw new Error(`Failed to import flow file "${filePath}".`);
   }
 
-  if (typeof flow !== 'object') {
-    throw new Error(`Default export in "${filePath}" is not a valid flow object.`);
-  }
-
-  if (!('id' in flow) || !('trigger' in flow) || !('run' in flow)) {
-    throw new Error(
-      `Default export in "${filePath}" is missing required flow fields: id, trigger, run.`,
-    );
-  }
-
-  return flow as FlowDefinition;
+  return validateFlowModule(filePath, importedModule.default);
 }

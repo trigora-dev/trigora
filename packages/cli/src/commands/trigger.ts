@@ -7,15 +7,25 @@ type TriggerOptions = {
   payloadPath?: string;
 };
 
-async function loadPayload(path?: string) {
-  if (!path) return {};
+async function loadPayload(filePath?: string) {
+  if (!filePath) return {};
 
-  const raw = await fs.readFile(path, 'utf-8');
+  let raw: string;
+
+  try {
+    raw = await fs.readFile(filePath, 'utf-8');
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to read payload file "${filePath}": ${error.message}`);
+    }
+
+    throw new Error(`Failed to read payload file "${filePath}".`);
+  }
 
   try {
     return JSON.parse(raw);
   } catch {
-    throw new Error(`Invalid JSON in payload file: ${path}`);
+    throw new Error(`Invalid JSON in payload file "${filePath}".`);
   }
 }
 
