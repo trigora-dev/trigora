@@ -1,39 +1,39 @@
 import type { FlowContext, Logger } from '@trigora/contracts';
 
-function createLogger(): Logger {
+function createLogger(flowId: string): Logger {
   return {
     info(message, meta) {
       if (meta !== undefined) {
-        console.log(`[info] ${message}`, meta);
+        console.log(`[${flowId}] INFO ${message}`, meta);
         return;
       }
 
-      console.log(`[info] ${message}`);
+      console.log(`[${flowId}] INFO ${message}`);
     },
 
     warn(message, meta) {
       if (meta !== undefined) {
-        console.warn(`[warn] ${message}`, meta);
+        console.warn(`[${flowId}] WARN ${message}`, meta);
         return;
       }
 
-      console.warn(`[warn] ${message}`);
+      console.warn(`[${flowId}] WARN ${message}`);
     },
 
     error(message, meta) {
       if (meta !== undefined) {
-        console.error(`[error] ${message}`, meta);
+        console.error(`[${flowId}] ERROR ${message}`, meta);
         return;
       }
 
-      console.error(`[error] ${message}`);
+      console.error(`[${flowId}] ERROR ${message}`);
     },
   };
 }
 
-export function createLocalContext(): FlowContext {
+export function createLocalContext(flowId: string): FlowContext {
   return {
     env: {},
-    log: createLogger(),
+    log: createLogger(flowId),
   };
 }

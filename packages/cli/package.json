@@ -11,7 +11,7 @@
     "trigora": "./src/index.ts"
   },
   "scripts": {
-    "dev": "tsx src/index.ts",
+    "start": "tsx src/index.ts",
     "lint": "eslint .",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

@@ -1,32 +1,36 @@
+import { Command } from 'commander';
 import { triggerCommand } from './commands/trigger';
+import { devCommand } from './commands/dev';
+import { resolveFlowPath } from './lib/resolveFlowPath';
 
-async function main(): Promise<void> {
-  const [, , command, filePath] = process.argv;
+const program = new Command();
 
-  if (command === 'trigger') {
-    if (!filePath) {
-      console.error('Usage: trigora trigger <path-to-flow-file>');
-      process.exit(1);
-    }
+program.name('trigora').description('Run code when things happen').version('0.0.0');
 
-    await triggerCommand({ filePath });
-    return;
-  }
+program
+  .command('trigger')
+  .argument('<flow>', 'Flow name or file path')
+  .option('-p, --payload <path>', 'Path to JSON payload file')
+  .action(async (flowNameOrPath, options) => {
+    const filePath = resolveFlowPath(flowNameOrPath);
 
-  console.log('Trigora CLI');
-  console.log('');
-  console.log('Available commands:');
-  console.log('  trigger <path-to-flow-file>');
-}
+    await triggerCommand({
+      filePath,
+      payloadPath: options.payload,
+    });
+  });
 
-main().catch((error) => {
-  console.error('Unexpected CLI error');
+program
+  .command('dev')
+  .argument('<flow>', 'Flow name or file path')
+  .option('-p, --payload <path>', 'Path to JSON payload file')
+  .action(async (flowNameOrPath, options) => {
+    const filePath = resolveFlowPath(flowNameOrPath);
 
-  if (error instanceof Error) {
-    console.error(error.message);
-    process.exit(1);
-  }
+    await devCommand({
+      filePath,
+      payloadPath: options.payload,
+    });
+  });
 
-  console.error(error);
-  process.exit(1);
-});
+program.parse();

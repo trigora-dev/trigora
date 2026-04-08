@@ -6,8 +6,9 @@ import type { FlowDefinition } from '@trigora/contracts';
 export async function loadFlowModule(filePath: string): Promise<FlowDefinition> {
   const absolutePath = path.resolve(process.cwd(), filePath);
   const moduleUrl = pathToFileURL(absolutePath).href;
+  const cacheBustedUrl = `${moduleUrl}?t=${Date.now()}`;
 
-  const importedModule = await import(moduleUrl);
+  const importedModule = await import(cacheBustedUrl);
   const flow = importedModule.default;
 
   if (!flow) {
