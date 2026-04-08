@@ -17,22 +17,12 @@
     },
     "test": {
       "dependsOn": ["^test"],
-      "inputs": [
-        "vitest.config.ts",
-        "packages/**/src/**/*.ts",
-        "**/*.test.ts",
-        "**/*.spec.ts"
-      ],
+      "inputs": ["vitest.config.ts", "packages/**/src/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
       "outputs": []
     },
     "test:coverage": {
       "dependsOn": ["^test:coverage"],
-      "inputs": [
-        "vitest.config.ts",
-        "packages/**/src/**/*.ts",
-        "**/*.test.ts",
-        "**/*.spec.ts"
-      ],
+      "inputs": ["vitest.config.ts", "packages/**/src/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
       "outputs": ["coverage/**"]
     },
     "clean": {

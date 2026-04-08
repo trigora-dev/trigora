@@ -3,6 +3,26 @@
   "private": true,
   "version": "0.0.0",
   "packageManager": "pnpm@10.33.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trigora-dev/trigora"
+  },
+  "homepage": "https://github.com/trigora-dev/trigora",
+  "bugs": {
+    "url": "https://github.com/trigora-dev/trigora/issues"
+  },
+  "keywords": [
+    "automation",
+    "workflow",
+    "event-driven",
+    "developer-tools",
+    "typescript",
+    "cli",
+    "triggers",
+    "cron",
+    "webhooks"
+  ],
+  "license": "MIT",
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
