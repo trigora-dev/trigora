@@ -4,10 +4,10 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { triggerCommand } from './trigger';
+import type { FlowRunFn } from '@trigora/contracts';
 import { createLocalContext } from '../lib/createLocalContext';
 import { loadFlowModule } from '../lib/loadFlowModule';
-import type { FlowRunFn } from '@trigora/contracts';
+import { triggerCommand } from './trigger';
 
 vi.mock('../lib/loadFlowModule', () => ({
   loadFlowModule: vi.fn(),
@@ -93,8 +93,15 @@ describe('triggerCommand', () => {
     const eventArg = getFirstEventArg(run);
     expect(eventArg.payload).toEqual({});
     expect(eventArg.type).toBe('manual');
+    expect(eventArg.id).toMatch(/^evt_local_/);
+    expect(eventArg.timestamp).toEqual(expect.any(String));
 
-    expect(console.log).toHaveBeenCalledWith('[payment] execution started');
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/\[payment\].*RUN starting/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/\[payment\].*RUN.*succeeded \(\d+ms\)/),
+    );
   });
 
   it('loads payload from a JSON file and passes it to the flow', async () => {
@@ -133,7 +140,7 @@ describe('triggerCommand', () => {
     expect(eventArg.payload).toEqual({ userId: '123', amount: 50 });
   });
 
-  it('throws a helpful error for invalid JSON payload files', async () => {
+  it('rejects with a helpful error for invalid JSON payload files', async () => {
     const tempDir = await makeTempDir();
     const payloadPath = path.join(tempDir, 'payload.json');
 
@@ -162,6 +169,39 @@ describe('triggerCommand', () => {
     ).rejects.toThrow(`Invalid JSON in payload file "${payloadPath}".`);
   });
 
+  it('rejects with a helpful error when the payload file cannot be read', async () => {
+    const missingPayloadPath = path.join(
+      os.tmpdir(),
+      `trigora-missing-payload-${Date.now()}.json`,
+    );
+
+    mockedLoadFlowModule.mockResolvedValue({
+      id: 'payment',
+      trigger: { type: 'manual' },
+      run: vi.fn<TestRunFn>(async () => undefined),
+    });
+
+    mockedCreateLocalContext.mockReturnValue({
+      env: {},
+      log: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+
+    await expect(
+      triggerCommand({
+        filePath: './flows/payment.ts',
+        payloadPath: missingPayloadPath,
+      }),
+    ).rejects.toThrow(
+      new RegExp(
+        `^Failed to read payload file "${missingPayloadPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"`,
+      ),
+    );
+  });
+
   it('prints a helpful error when the flow throws', async () => {
     const run = vi.fn<TestRunFn>(async () => {
       throw new Error('something went wrong');
@@ -186,8 +226,11 @@ describe('triggerCommand', () => {
       filePath: './flows/payment.ts',
     });
 
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/\[payment\].*RUN starting/),
+    );
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/^\[payment\] execution failed \(\d+ms\)$/),
+      expect.stringMatching(/\[payment\].*RUN.*failed \(\d+ms\)/),
     );
     expect(console.error).toHaveBeenCalledWith('something went wrong');
   });

@@ -1,32 +1,18 @@
 import type { FlowContext, Logger } from '@trigora/contracts';
+import { colors } from './colors';
 
 function createLogger(flowId: string): Logger {
+  const prefix = colors.flow(`[${flowId}]`);
+
   return {
     info(message, meta) {
-      if (meta !== undefined) {
-        console.log(`[${flowId}] INFO ${message}`, meta);
-        return;
-      }
-
-      console.log(`[${flowId}] INFO ${message}`);
+      console.log(`${prefix} ${colors.info('INFO')} ${message}`, meta ?? '');
     },
-
     warn(message, meta) {
-      if (meta !== undefined) {
-        console.warn(`[${flowId}] WARN ${message}`, meta);
-        return;
-      }
-
-      console.warn(`[${flowId}] WARN ${message}`);
+      console.warn(`${prefix} ${colors.warn('WARN')} ${message}`, meta ?? '');
     },
-
     error(message, meta) {
-      if (meta !== undefined) {
-        console.error(`[${flowId}] ERROR ${message}`, meta);
-        return;
-      }
-
-      console.error(`[${flowId}] ERROR ${message}`);
+      console.error(`${prefix} ${colors.error('ERROR')} ${message}`, meta ?? '');
     },
   };
 }

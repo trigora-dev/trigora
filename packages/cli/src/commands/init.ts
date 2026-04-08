@@ -1,6 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { colors } from '../lib/colors';
+
 type InitOptions = {
   force?: boolean;
 };
@@ -35,12 +37,17 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function writeFile(filePath: string, contents: string, options: InitOptions): Promise<void> {
+async function writeFile(
+  filePath: string,
+  contents: string,
+  options: InitOptions,
+): Promise<void> {
   const exists = await pathExists(filePath);
   const relative = path.relative(process.cwd(), filePath);
+  const initPrefix = colors.dev('[init]');
 
   if (exists && !options.force) {
-    console.log(`• Skipped ${relative} (already exists)`);
+    console.log(`${initPrefix} ${colors.warn(`Skipped ${relative} (already exists)`)}`);
     return;
   }
 
@@ -48,21 +55,23 @@ async function writeFile(filePath: string, contents: string, options: InitOption
   await fs.writeFile(filePath, contents, 'utf-8');
 
   if (exists && options.force) {
-    console.log(`↺ Updated ${relative}`);
+    console.log(`${initPrefix} ${colors.warn(`Updated ${relative}`)}`);
     return;
   }
 
-  console.log(`✓ Created ${relative}`);
+  console.log(`${initPrefix} ${colors.success(`Created ${relative}`)}`);
 }
 
 export async function initCommand(options: InitOptions): Promise<void> {
   const cwd = process.cwd();
+  const initPrefix = colors.dev('[init]');
 
   await writeFile(path.join(cwd, 'flows', 'hello.ts'), HELLO_FLOW_TEMPLATE, options);
   await writeFile(path.join(cwd, 'payload.json'), PAYLOAD_TEMPLATE, options);
   await writeFile(path.join(cwd, '.env.example'), ENV_EXAMPLE_TEMPLATE, options);
 
   console.log('');
-  console.log('Next steps:');
-  console.log('  trigora dev hello --payload payload.json');
+  console.log(`${initPrefix} ${colors.flow('Next steps:')}`);
+  console.log(`${initPrefix} trigora trigger hello --payload payload.json`);
+  console.log(`${initPrefix} trigora dev hello --payload payload.json`);
 }

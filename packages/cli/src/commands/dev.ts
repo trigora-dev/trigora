@@ -1,4 +1,7 @@
 import fs from 'node:fs';
+import path from 'node:path';
+
+import { colors } from '../lib/colors';
 import { triggerCommand } from './trigger';
 
 type DevOptions = {
@@ -7,15 +10,30 @@ type DevOptions = {
 };
 
 export async function devCommand(options: DevOptions): Promise<void> {
-  console.log(`[dev] watching ${options.filePath}`);
+  const relativeFlowPath = path.relative(process.cwd(), options.filePath);
+  const relativePayloadPath = options.payloadPath
+    ? path.relative(process.cwd(), options.payloadPath)
+    : undefined;
+
+  const devPrefix = colors.dev('[dev]');
 
   let isRunning = false;
   let rerunRequested = false;
   let shuttingDown = false;
 
   const watchers: fs.FSWatcher[] = [];
+  const debounceTimers = new Map<string, NodeJS.Timeout>();
 
-  async function run() {
+  function printDivider() {
+    console.log('');
+    console.log('────────── rerun ──────────');
+  }
+
+  function printWatchingState() {
+    console.log(`${devPrefix} watching for changes...`);
+  }
+
+  async function run(reason?: string) {
     if (shuttingDown) return;
 
     if (isRunning) {
@@ -26,48 +44,61 @@ export async function devCommand(options: DevOptions): Promise<void> {
     isRunning = true;
 
     try {
-      console.log('[dev] running flow');
+      if (reason) {
+        console.log(`${devPrefix} ${colors.warn(reason)}`);
+      }
+
+      printDivider();
       await triggerCommand(options);
     } finally {
       isRunning = false;
 
+      if (!shuttingDown) {
+        printWatchingState();
+      }
+
       if (rerunRequested && !shuttingDown) {
         rerunRequested = false;
-        await run();
+        await run('queued changes detected → re-running...');
       }
     }
   }
 
   function shutdown() {
     if (shuttingDown) return;
-
     shuttingDown = true;
 
     for (const watcher of watchers) {
       watcher.close();
     }
 
+    for (const timer of debounceTimers.values()) {
+      clearTimeout(timer);
+    }
+
     process.off('SIGINT', handleSignals);
     process.off('SIGTERM', handleSignals);
 
-    console.log('\n[dev] stopped');
+    console.log(`\n${devPrefix} stopped`);
     process.exit(0);
   }
 
-  const handleSignals = () => {
-    shutdown();
-  };
+  const handleSignals = () => shutdown();
 
-  function watchFile(filePath: string, label: string) {
-    const watcher = fs.watch(filePath, (eventType) => {
-      if (eventType !== 'change' || shuttingDown) return;
+  function scheduleRerun(key: string, reason: string) {
+    const existingTimer = debounceTimers.get(key);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+      debounceTimers.delete(key);
 
       void (async () => {
         try {
-          console.log(`[dev] ${label} changed, re-running...`);
-          await run();
+          await run(reason);
         } catch (error) {
-          console.error('[dev] failed during re-run');
+          console.error(`${devPrefix} ${colors.error('re-run failed')}`);
 
           if (error instanceof Error) {
             console.error(error.message);
@@ -77,6 +108,16 @@ export async function devCommand(options: DevOptions): Promise<void> {
           console.error(error);
         }
       })();
+    }, 100);
+
+    debounceTimers.set(key, timer);
+  }
+
+  function watchFile(filePath: string, label: string) {
+    const watcher = fs.watch(filePath, (eventType) => {
+      if (eventType !== 'change' || shuttingDown) return;
+
+      scheduleRerun(filePath, `${label} changed → re-running...`);
     });
 
     watchers.push(watcher);
@@ -84,6 +125,14 @@ export async function devCommand(options: DevOptions): Promise<void> {
 
   process.on('SIGINT', handleSignals);
   process.on('SIGTERM', handleSignals);
+
+  console.log(`${devPrefix} watching flow: ${relativeFlowPath}`);
+
+  if (relativePayloadPath) {
+    console.log(`${devPrefix} watching payload: ${relativePayloadPath}`);
+  }
+
+  console.log(`${devPrefix} ready`);
 
   await run();
 
