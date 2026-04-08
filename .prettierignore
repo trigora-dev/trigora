@@ -3,3 +3,4 @@ dist
 build
 .next
 .turbo
+*.md

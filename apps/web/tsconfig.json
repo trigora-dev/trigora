@@ -1,4 +1,0 @@
-{
-  "extends": "../../tooling/tsconfig/web.json",
-  "include": ["src"]
-}

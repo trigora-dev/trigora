@@ -19,7 +19,6 @@
       "dependsOn": ["^test"],
       "inputs": [
         "vitest.config.ts",
-        "apps/**/src/**/*.ts",
         "packages/**/src/**/*.ts",
         "**/*.test.ts",
         "**/*.spec.ts"
@@ -30,7 +29,6 @@
       "dependsOn": ["^test:coverage"],
       "inputs": [
         "vitest.config.ts",
-        "apps/**/src/**/*.ts",
         "packages/**/src/**/*.ts",
         "**/*.test.ts",
         "**/*.spec.ts"
