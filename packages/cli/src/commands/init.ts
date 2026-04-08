@@ -37,11 +37,7 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function writeFile(
-  filePath: string,
-  contents: string,
-  options: InitOptions,
-): Promise<void> {
+async function writeFile(filePath: string, contents: string, options: InitOptions): Promise<void> {
   const exists = await pathExists(filePath);
   const relative = path.relative(process.cwd(), filePath);
   const initPrefix = colors.dev('[init]');

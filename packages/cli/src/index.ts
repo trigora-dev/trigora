@@ -2,11 +2,12 @@ import { Command } from 'commander';
 import { devCommand } from './commands/dev';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
+import { colors } from './lib/colors';
 import { resolveFlowPath } from './lib/resolveFlowPath';
 
 const program = new Command();
 
-program.name('trigora').description('Run code when things happen').version('0.0.0');
+program.name('trigora').description('Run code when things happen').version('0.1.0');
 
 program
   .command('init')
@@ -46,7 +47,11 @@ program
 
 program.parseAsync(process.argv).catch((error: unknown) => {
   console.error('');
-  console.error('[error] Trigora command failed');
+
+  const errorPrefix = colors.error('[error]');
+  const name = colors.flow('trigora');
+
+  console.error(`${errorPrefix} ${name} command failed`);
 
   if (error instanceof Error) {
     console.error(error.message);

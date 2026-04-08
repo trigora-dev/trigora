@@ -17,9 +17,7 @@ async function loadPayload(filePath?: string) {
     raw = await fs.readFile(filePath, 'utf-8');
   } catch (error) {
     if (error instanceof Error) {
-      throw new Error(
-        `Failed to read payload file "${filePath}": ${error.message}`,
-      );
+      throw new Error(`Failed to read payload file "${filePath}": ${error.message}`);
     }
 
     throw new Error(`Failed to read payload file "${filePath}".`);

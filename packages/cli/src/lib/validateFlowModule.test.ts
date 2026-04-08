@@ -53,17 +53,13 @@ describe('validateFlowModule', () => {
   it('throws when default export is undefined', () => {
     expect(() => {
       validateFlowModule('flows/hello.ts', undefined);
-    }).toThrow(
-      'No default export found in "flows/hello.ts". Expected a default exported flow.',
-    );
+    }).toThrow('No default export found in "flows/hello.ts". Expected a default exported flow.');
   });
 
   it('throws when default export is not an object', () => {
     expect(() => {
       validateFlowModule('flows/hello.ts', 'not-an-object');
-    }).toThrow(
-      'Invalid flow in "flows/hello.ts": default export must be an object.',
-    );
+    }).toThrow('Invalid flow in "flows/hello.ts": default export must be an object.');
   });
 
   it('throws when id is missing', () => {
@@ -72,9 +68,7 @@ describe('validateFlowModule', () => {
         trigger: { type: 'manual' },
         run: vi.fn(),
       });
-    }).toThrow(
-      'Invalid flow in "flows/hello.ts": "id" must be a non-empty string.',
-    );
+    }).toThrow('Invalid flow in "flows/hello.ts": "id" must be a non-empty string.');
   });
 
   it('throws when id is empty', () => {
@@ -84,9 +78,7 @@ describe('validateFlowModule', () => {
         trigger: { type: 'manual' },
         run: vi.fn(),
       });
-    }).toThrow(
-      'Invalid flow in "flows/hello.ts": "id" must be a non-empty string.',
-    );
+    }).toThrow('Invalid flow in "flows/hello.ts": "id" must be a non-empty string.');
   });
 
   it('throws when run is missing', () => {
@@ -95,9 +87,7 @@ describe('validateFlowModule', () => {
         id: 'hello',
         trigger: { type: 'manual' },
       });
-    }).toThrow(
-      'Invalid flow in "flows/hello.ts": "run" must be a function.',
-    );
+    }).toThrow('Invalid flow in "flows/hello.ts": "run" must be a function.');
   });
 
   it('throws when trigger is missing', () => {
@@ -106,9 +96,7 @@ describe('validateFlowModule', () => {
         id: 'hello',
         run: vi.fn(),
       });
-    }).toThrow(
-      'Invalid flow in "flows/hello.ts": "trigger" must be an object.',
-    );
+    }).toThrow('Invalid flow in "flows/hello.ts": "trigger" must be an object.');
   });
 
   it('throws when trigger.type is missing', () => {
@@ -118,9 +106,7 @@ describe('validateFlowModule', () => {
         trigger: {},
         run: vi.fn(),
       });
-    }).toThrow(
-      'Invalid flow in "flows/hello.ts": "trigger.type" must be a string.',
-    );
+    }).toThrow('Invalid flow in "flows/hello.ts": "trigger.type" must be a string.');
   });
 
   it('throws when trigger type is unsupported', () => {
@@ -137,18 +123,18 @@ describe('validateFlowModule', () => {
 
   it('allows webhook event to be omitted', () => {
     const run = vi.fn();
-  
+
     const flow = validateFlowModule('flows/payment.ts', {
       id: 'payment',
       trigger: { type: 'webhook' },
       run,
     });
-  
+
     expect(flow.id).toBe('payment');
     expect(flow.trigger).toEqual({ type: 'webhook' });
     expect(flow.run).toBe(run);
   });
-  
+
   it('throws when webhook event is not a string', () => {
     expect(() => {
       validateFlowModule('flows/payment.ts', {
@@ -160,16 +146,16 @@ describe('validateFlowModule', () => {
       'Invalid flow in "flows/payment.ts": "trigger.event" must be a string when provided.',
     );
   });
-  
+
   it('allows webhook event to be an empty string', () => {
     const run = vi.fn();
-  
+
     const flow = validateFlowModule('flows/payment.ts', {
       id: 'payment',
       trigger: { type: 'webhook', event: '   ' },
       run,
     });
-  
+
     expect(flow.id).toBe('payment');
     expect(flow.trigger).toEqual({
       type: 'webhook',

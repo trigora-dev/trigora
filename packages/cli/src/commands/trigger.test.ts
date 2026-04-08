@@ -96,9 +96,7 @@ describe('triggerCommand', () => {
     expect(eventArg.id).toMatch(/^evt_local_/);
     expect(eventArg.timestamp).toEqual(expect.any(String));
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/\[payment\].*RUN starting/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\[payment\].*RUN starting/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/\[payment\].*RUN.*succeeded \(\d+ms\)/),
     );
@@ -108,11 +106,7 @@ describe('triggerCommand', () => {
     const tempDir = await makeTempDir();
     const payloadPath = path.join(tempDir, 'payload.json');
 
-    await fs.writeFile(
-      payloadPath,
-      JSON.stringify({ userId: '123', amount: 50 }),
-      'utf-8',
-    );
+    await fs.writeFile(payloadPath, JSON.stringify({ userId: '123', amount: 50 }), 'utf-8');
 
     const run = vi.fn<TestRunFn>(async () => undefined);
 
@@ -170,10 +164,7 @@ describe('triggerCommand', () => {
   });
 
   it('rejects with a helpful error when the payload file cannot be read', async () => {
-    const missingPayloadPath = path.join(
-      os.tmpdir(),
-      `trigora-missing-payload-${Date.now()}.json`,
-    );
+    const missingPayloadPath = path.join(os.tmpdir(), `trigora-missing-payload-${Date.now()}.json`);
 
     mockedLoadFlowModule.mockResolvedValue({
       id: 'payment',
@@ -226,9 +217,7 @@ describe('triggerCommand', () => {
       filePath: './flows/payment.ts',
     });
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/\[payment\].*RUN starting/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\[payment\].*RUN starting/));
     expect(console.error).toHaveBeenCalledWith(
       expect.stringMatching(/\[payment\].*RUN.*failed \(\d+ms\)/),
     );

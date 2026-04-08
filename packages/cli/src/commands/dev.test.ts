@@ -95,10 +95,7 @@ describe('devCommand', () => {
       filePath: '/project/flows/payment.ts',
     });
 
-    expect(mockedFsWatch).toHaveBeenCalledWith(
-      '/project/flows/payment.ts',
-      expect.any(Function),
-    );
+    expect(mockedFsWatch).toHaveBeenCalledWith('/project/flows/payment.ts', expect.any(Function));
 
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[dev]'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('watching flow:'));
@@ -113,18 +110,10 @@ describe('devCommand', () => {
 
     await vi.runAllTimersAsync();
 
-    expect(mockedFsWatch).toHaveBeenCalledWith(
-      '/project/flows/payment.ts',
-      expect.any(Function),
-    );
-    expect(mockedFsWatch).toHaveBeenCalledWith(
-      '/project/payload.json',
-      expect.any(Function),
-    );
+    expect(mockedFsWatch).toHaveBeenCalledWith('/project/flows/payment.ts', expect.any(Function));
+    expect(mockedFsWatch).toHaveBeenCalledWith('/project/payload.json', expect.any(Function));
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('watching payload:'),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('watching payload:'));
   });
 
   it('reruns when the flow file changes', async () => {
@@ -142,9 +131,7 @@ describe('devCommand', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(mockedTriggerCommand).toHaveBeenCalledTimes(2);
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/flow changed.*re-running/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flow changed.*re-running/));
   });
 
   it('reruns when the payload file changes', async () => {
@@ -163,9 +150,7 @@ describe('devCommand', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(mockedTriggerCommand).toHaveBeenCalledTimes(2);
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/payload changed.*re-running/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload changed.*re-running/));
   });
 
   it('ignores non-change watch events', async () => {
@@ -228,9 +213,9 @@ describe('devCommand', () => {
   });
 
   it('prints a helpful error when a rerun fails', async () => {
-    mockedTriggerCommand.mockResolvedValueOnce(undefined).mockRejectedValueOnce(
-      new Error('rerun exploded'),
-    );
+    mockedTriggerCommand
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error('rerun exploded'));
 
     void devCommand({
       filePath: '/project/flows/payment.ts',
@@ -245,9 +230,7 @@ describe('devCommand', () => {
 
     await vi.advanceTimersByTimeAsync(100);
 
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/\[dev\].*re-run failed/),
-    );
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/\[dev\].*re-run failed/));
     expect(console.error).toHaveBeenCalledWith('rerun exploded');
   });
 });
