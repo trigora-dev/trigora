@@ -46,7 +46,8 @@ describe('initCommand', () => {
     expect(helloFlow).toContain("id: 'hello'");
     expect(helloFlow).toContain("trigger: { type: 'manual' }");
     expect(payload).toContain('"message": "Hello, world!"');
-    expect(envExample).toContain('# Add environment variables here');
+    expect(envExample).toContain('# Trigora Cloud');
+    expect(envExample).toContain('TRIGORA_DEPLOY_TOKEN=your-deploy-token');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created flows\/hello\.ts/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created payload\.json/));
@@ -100,7 +101,7 @@ describe('initCommand', () => {
 
     expect(helloFlow).toContain("id: 'hello'");
     expect(payload).toContain('"message": "Hello, world!"');
-    expect(envExample).toContain('# Add environment variables here');
+    expect(envExample).toContain('# Trigora Cloud');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated flows\/hello\.ts/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated payload\.json/));

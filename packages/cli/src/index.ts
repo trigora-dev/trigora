@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
@@ -42,6 +43,17 @@ program
     await devCommand({
       filePath,
       payloadPath: options.payload,
+    });
+  });
+
+program
+  .command('deploy')
+  .argument('[flow]', 'Flow name or file path')
+  .action(async (flowNameOrPath) => {
+    const filePath = flowNameOrPath ? resolveFlowPath(flowNameOrPath) : undefined;
+
+    await deployCommand({
+      filePath,
     });
   });
 
