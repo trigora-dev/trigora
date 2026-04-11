@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createDeployApiClient } from './createDeployApiClient';
+import { createDeployApiClient, TRIGORA_API_BASE_URL } from './createDeployApiClient';
 
 describe('createDeployApiClient', () => {
   const manifest = {
@@ -33,9 +33,14 @@ describe('createDeployApiClient', () => {
       status: 200,
       async json() {
         return {
-          deploymentId: 'dep_123',
+          id: 'dep_123',
           status: 'pending',
-          dashboardUrl: 'https://app.trigora.dev/deployments/dep_123',
+          manifestVersion: 1,
+          manifestJson: manifest,
+          flowCount: 1,
+          baseUrl: 'https://deploy.trigora.dev',
+          createdAt: '2026-04-12T00:00:00.000Z',
+          updatedAt: '2026-04-12T00:00:00.000Z',
         };
       },
       async text() {
@@ -49,12 +54,17 @@ describe('createDeployApiClient', () => {
     });
 
     await expect(client.createDeployment({ manifest, artifact })).resolves.toEqual({
-      deploymentId: 'dep_123',
+      id: 'dep_123',
       status: 'pending',
-      dashboardUrl: 'https://app.trigora.dev/deployments/dep_123',
+      manifestVersion: 1,
+      manifestJson: manifest,
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
     });
 
-    expect(fetch).toHaveBeenCalledWith('https://api.trigora.dev/v1/deployments', {
+    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/deployments`, {
       method: 'POST',
       headers: {
         Authorization: 'Bearer secret-token',
@@ -121,7 +131,7 @@ describe('createDeployApiClient', () => {
     });
 
     await expect(client.createDeployment({ manifest, artifact })).rejects.toThrow(
-      'Trigora deploy API returned an invalid deployment response.',
+      'Internal server error.',
     );
   });
 
@@ -131,8 +141,14 @@ describe('createDeployApiClient', () => {
       status: 200,
       async json() {
         return {
-          deploymentId: 'dep_123',
+          id: 'dep_123',
           status: 'pending',
+          manifestVersion: 1,
+          manifestJson: manifest,
+          flowCount: 1,
+          baseUrl: null,
+          createdAt: '2026-04-12T00:00:00.000Z',
+          updatedAt: '2026-04-12T00:00:00.000Z',
         };
       },
       async text() {

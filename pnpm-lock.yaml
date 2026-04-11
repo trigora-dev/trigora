@@ -40,6 +40,9 @@ importers:
       commander:
         specifier: ^14.0.3
         version: 14.0.3
+      dotenv:
+        specifier: ^17.4.1
+        version: 17.4.1
       esbuild:
         specifier: ^0.27.7
         version: 0.27.7
@@ -1241,6 +1244,13 @@ packages:
         integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==,
       }
     engines: { node: '>=8' }
+
+  dotenv@17.4.1:
+    resolution:
+      {
+        integrity: sha512-k8DaKGP6r1G30Lx8V4+pCsLzKr8vLmV2paqEj1Y55GdAgJuIqpRp5FfajGF8KtwMxCz9qJc6wUIJnm053d/WCw==,
+      }
+    engines: { node: '>=12' }
 
   es-module-lexer@2.0.0:
     resolution:
@@ -2797,6 +2807,8 @@ snapshots:
   deep-is@0.1.4: {}
 
   detect-libc@2.1.2: {}
+
+  dotenv@17.4.1: {}
 
   es-module-lexer@2.0.0: {}
 

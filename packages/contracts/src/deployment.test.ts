@@ -71,9 +71,24 @@ describe('Deployment types', () => {
     };
 
     const response: CreateDeploymentResponse = {
-      deploymentId: 'dep_123',
+      id: 'dep_123',
       status: 'pending',
-      dashboardUrl: 'https://app.trigora.dev/deployments/dep_123',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flows: [
+          {
+            id: 'hello',
+            entrypoint: 'flows/hello.ts',
+            routePath: '/hello',
+            trigger: { type: 'webhook' },
+          },
+        ],
+      },
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
     };
 
     expect(request.artifact.files).toHaveLength(1);

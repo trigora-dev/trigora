@@ -32,8 +32,18 @@ export type CreateDeploymentRequest = {
 
 export type DeploymentStatus = 'pending' | 'active' | 'failed';
 
+export type DeploymentManifestSnapshot = {
+  version: number;
+  flows: DeploymentManifestFlow[];
+};
+
 export type CreateDeploymentResponse = {
-  dashboardUrl?: string;
-  deploymentId: string;
+  id: string;
   status: DeploymentStatus;
+  manifestVersion: number;
+  manifestJson: DeploymentManifestSnapshot;
+  flowCount: number;
+  baseUrl: string | null;
+  createdAt: string;
+  updatedAt: string;
 };

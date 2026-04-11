@@ -4,9 +4,12 @@ import { devCommand } from './commands/dev';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
 import { colors } from './lib/colors';
+import { loadProjectEnv } from './lib/loadProjectEnv';
 import { resolveFlowPath } from './lib/resolveFlowPath';
 
 const program = new Command();
+
+loadProjectEnv();
 
 program.name('trigora').description('Run code when things happen').version('0.1.0');
 

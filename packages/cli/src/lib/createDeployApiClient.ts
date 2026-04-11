@@ -4,7 +4,8 @@ export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
 };
 
-export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
+// export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
+export const TRIGORA_API_BASE_URL = 'http://localhost:8787';
 
 type FetchHeaders = Record<string, string>;
 
@@ -59,6 +60,62 @@ async function readErrorMessage(response: FetchResponse): Promise<string> {
   return `Request failed with status ${response.status}.`;
 }
 
+function isWebhookTrigger(value: unknown): value is { type: 'webhook'; event?: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.type === 'webhook' &&
+    (!('event' in value) || typeof value.event === 'string')
+  );
+}
+
+function isDeploymentFlow(
+  value: unknown,
+): value is CreateDeploymentResponse['manifestJson']['flows'][number] {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof value.id === 'string' &&
+    'entrypoint' in value &&
+    typeof value.entrypoint === 'string' &&
+    'routePath' in value &&
+    typeof value.routePath === 'string' &&
+    'trigger' in value &&
+    isWebhookTrigger(value.trigger)
+  );
+}
+
+function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResponse {
+  return (
+    typeof payload === 'object' &&
+    payload !== null &&
+    'id' in payload &&
+    typeof payload.id === 'string' &&
+    'status' in payload &&
+    (payload.status === 'pending' || payload.status === 'active' || payload.status === 'failed') &&
+    'manifestVersion' in payload &&
+    typeof payload.manifestVersion === 'number' &&
+    'manifestJson' in payload &&
+    typeof payload.manifestJson === 'object' &&
+    payload.manifestJson !== null &&
+    'version' in payload.manifestJson &&
+    typeof payload.manifestJson.version === 'number' &&
+    'flows' in payload.manifestJson &&
+    Array.isArray(payload.manifestJson.flows) &&
+    payload.manifestJson.flows.every(isDeploymentFlow) &&
+    'flowCount' in payload &&
+    typeof payload.flowCount === 'number' &&
+    'baseUrl' in payload &&
+    (typeof payload.baseUrl === 'string' || payload.baseUrl === null) &&
+    'createdAt' in payload &&
+    typeof payload.createdAt === 'string' &&
+    'updatedAt' in payload &&
+    typeof payload.updatedAt === 'string'
+  );
+}
+
 export function createDeployApiClient(config: DeployApiClientConfig): DeployApiClient {
   const fetchImpl = config.fetch ?? globalThis.fetch;
 
@@ -96,27 +153,11 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
 
       const payload = await response.json();
 
-      if (
-        typeof payload !== 'object' ||
-        payload === null ||
-        !('deploymentId' in payload) ||
-        typeof payload.deploymentId !== 'string' ||
-        !('status' in payload) ||
-        (payload.status !== 'pending' && payload.status !== 'active' && payload.status !== 'failed')
-      ) {
-        throw new Error('Trigora deploy API returned an invalid deployment response.');
+      if (!isDeploymentResponse(payload)) {
+        throw new Error('Internal server error.');
       }
 
-      const dashboardUrl =
-        'dashboardUrl' in payload && typeof payload.dashboardUrl === 'string'
-          ? payload.dashboardUrl
-          : undefined;
-
-      return {
-        deploymentId: payload.deploymentId,
-        status: payload.status,
-        dashboardUrl,
-      };
+      return payload;
     },
   };
 }

@@ -4,12 +4,19 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createDeployApiClient } from '../lib/createDeployApiClient';
 import { deployCommand } from './deploy';
+
+vi.mock('../lib/createDeployApiClient', () => ({
+  createDeployApiClient: vi.fn(),
+}));
 
 const originalCwd = process.cwd();
 const originalConsoleLog = console.log;
+const originalEnv = { ...process.env };
 
 const tempDirs: string[] = [];
+const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 
 async function makeTempDir() {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-deploy-command-'));
@@ -19,11 +26,39 @@ async function makeTempDir() {
 
 beforeEach(() => {
   console.log = vi.fn();
+  process.env = {
+    ...originalEnv,
+    TRIGORA_DEPLOY_TOKEN: 'secret-token',
+  };
+  mockedCreateDeployApiClient.mockReset();
+  mockedCreateDeployApiClient.mockReturnValue({
+    createDeployment: vi.fn().mockResolvedValue({
+      id: 'dep_123',
+      status: 'pending',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flows: [
+          {
+            id: 'hello',
+            entrypoint: 'flows/hello.ts',
+            routePath: '/hello',
+            trigger: { type: 'webhook' },
+          },
+        ],
+      },
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    }),
+  });
 });
 
 afterEach(async () => {
   process.chdir(originalCwd);
   console.log = originalConsoleLog;
+  process.env = originalEnv;
 
   await Promise.all(
     tempDirs.splice(0).map(async (dir) => {
@@ -81,11 +116,15 @@ describe('deployCommand', () => {
       expect.stringMatching(/flows\/hello\.ts.*→ route \/hello/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/backend deployment API is not wired into this CLI yet/),
+      expect.stringMatching(/sending deployment package to Trigora Cloud/),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/deployment dep_123 pending/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/base URL: https:\/\/deploy\.trigora\.dev/),
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(
-        /validated deployable webhook flows and assembled a deployment package locally/,
+        /validated deployable webhook flows and sent the deployment package to Trigora Cloud/,
       ),
     );
   });
@@ -232,6 +271,102 @@ describe('deployCommand', () => {
 
     await expect(deployCommand({})).rejects.toThrow(
       'Duplicate flow id "hello" found in "flows/hello.ts" and "flows/nested/hello-copy.ts". Flow ids must be unique for deployment.',
+    );
+  });
+
+  it('sends the deployment package to the Trigora deploy api', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockResolvedValue({
+      id: 'dep_123',
+      status: 'pending',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flows: [
+          {
+            id: 'hello',
+            entrypoint: 'flows/hello.ts',
+            routePath: '/hello',
+            trigger: { type: 'webhook' },
+          },
+        ],
+      },
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    const manifest = await deployCommand({
+      filePath: flowPath,
+    });
+
+    expect(mockedCreateDeployApiClient).toHaveBeenCalledWith({
+      token: 'secret-token',
+    });
+    expect(createDeployment).toHaveBeenCalledWith({
+      manifest,
+      artifact: {
+        version: 1,
+        format: 'esm',
+        target: 'node20',
+        files: [
+          {
+            entrypoint: 'flows/hello.ts',
+            path: 'flows/hello.mjs',
+            contents: expect.any(String),
+          },
+        ],
+      },
+    });
+  });
+
+  it('throws a helpful error when the deploy token is missing', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    delete process.env.TRIGORA_DEPLOY_TOKEN;
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toThrow(
+      'Missing deploy API configuration: TRIGORA_DEPLOY_TOKEN. Set this environment variable before running "trigora deploy".',
     );
   });
 });
