@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   CreateDeploymentRequest,
   CreateDeploymentResponse,
+  DeployedFlowResponse,
   DeploymentArtifact,
   DeploymentFlowResponse,
   DeploymentManifest,
@@ -107,5 +108,19 @@ describe('Deployment types', () => {
     expect(request.artifact.files).toHaveLength(1);
     expect(response.status).toBe('pending');
     expect(response.flows[0]?.url).toBe('https://trigora.dev/f/df_123');
+  });
+
+  it('supports the clearer deployed flow response alias', () => {
+    const deployedFlow: DeployedFlowResponse = {
+      id: 'df_123',
+      flowId: 'hello',
+      routePath: '/hello',
+      status: 'active',
+      url: 'https://trigora.dev/f/df_123',
+    };
+
+    const legacyAlias: DeploymentFlowResponse = deployedFlow;
+
+    expect(legacyAlias.id).toBe('df_123');
   });
 });

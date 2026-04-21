@@ -37,13 +37,28 @@ export type DeploymentManifestSnapshot = {
   flows: DeploymentManifestFlow[];
 };
 
-export type DeploymentFlowResponse = {
+export type DeployedFlowResponse = {
+  /**
+   * Public identifier for the deployed flow instance.
+   * This is distinct from the source flow id in the manifest.
+   */
   id: string;
+  /**
+   * Source flow id from the original deployment manifest.
+   */
   flowId: string;
   routePath: string;
   status: string;
+  /**
+   * Public deployed URL for this flow when available.
+   */
   url: string | null;
 };
+
+/**
+ * @deprecated Prefer `DeployedFlowResponse` for clearer semantics in new code.
+ */
+export type DeploymentFlowResponse = DeployedFlowResponse;
 
 export type CreateDeploymentResponse = {
   id: string;
@@ -52,8 +67,12 @@ export type CreateDeploymentResponse = {
   manifestJson: DeploymentManifestSnapshot;
   flowCount: number;
   baseUrl: string | null;
+  /**
+   * Public deployed URL for single-flow deployments.
+   * Multi-flow deployments should return null and use `flows[*].url`.
+   */
   url: string | null;
-  flows: DeploymentFlowResponse[];
+  flows: DeployedFlowResponse[];
   createdAt: string;
   updatedAt: string;
 };
