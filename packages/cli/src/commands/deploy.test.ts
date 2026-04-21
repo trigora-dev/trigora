@@ -4,12 +4,24 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createDeployApiClient } from '../lib/createDeployApiClient';
+import {
+  createDeployApiClient,
+  DeployApiNetworkError,
+  DeployApiRequestError,
+  DeployApiResponseError,
+} from '../lib/createDeployApiClient';
 import { deployCommand } from './deploy';
 
-vi.mock('../lib/createDeployApiClient', () => ({
-  createDeployApiClient: vi.fn(),
-}));
+vi.mock('../lib/createDeployApiClient', async () => {
+  const actual = await vi.importActual<typeof import('../lib/createDeployApiClient')>(
+    '../lib/createDeployApiClient',
+  );
+
+  return {
+    ...actual,
+    createDeployApiClient: vi.fn(),
+  };
+});
 
 const originalCwd = process.cwd();
 const originalConsoleLog = console.log;
@@ -117,30 +129,18 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Prepared 1 flow for deployment/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Building deployment artifact/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Uploading deployment package/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Activating deployment/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/✔ Deployment complete/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Building deployment artifact/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Uploading deployment package/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Activating deployment/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Endpoint/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Ready to receive events/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
   });
 
   it('discovers and summarizes all webhook flows in the flows directory', async () => {
@@ -244,36 +244,24 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Prepared 2 flows for deployment/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/✔ Deployment complete/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Deployment\s+dep_123/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flows\s+2/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Activated flows/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/1\. hello/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Trigger\s+webhook/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Route\s+\/hello/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_123/),
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Status\s+Ready to receive events/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/2\. orders/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/2\. orders/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Trigger\s+webhook:orders\.created/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Route\s+\/orders/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/orders/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_456/),
     );
@@ -454,5 +442,237 @@ describe('deployCommand', () => {
         filePath: flowPath,
       }),
     ).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
+  });
+
+  it('uses the v1 token error reason for invalid or revoked deploy tokens', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockRejectedValue(
+      new DeployApiRequestError(
+        {
+          code: 'forbidden',
+          message: 'This deploy token is no longer active.',
+        },
+        403,
+      ),
+    );
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toThrow('Deploy token is invalid or no longer active.');
+  });
+
+  it('normalizes nested unauthorized token messages to the v1 reason', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockRejectedValue(
+      new DeployApiRequestError(
+        {
+          code: 'unauthorized',
+          message: 'A valid deploy token is required.',
+        },
+        401,
+      ),
+    );
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toThrow('Deploy token is invalid or no longer active.');
+  });
+
+  it('uses the structured worker_creation step for deploy failures', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockRejectedValue(
+      new DeployApiRequestError(
+        {
+          code: 'internal_error',
+          message: 'Failed to create worker runtime.',
+          step: 'worker_creation',
+        },
+        500,
+      ),
+    );
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toMatchObject({
+      details: expect.arrayContaining([
+        expect.objectContaining({ label: 'Step', value: 'Creating worker runtime' }),
+        expect.objectContaining({ label: 'Reason', value: 'Failed to create worker runtime.' }),
+      ]),
+    });
+  });
+
+  it('uses the structured activating step for deploy failures', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockRejectedValue(
+      new DeployApiRequestError(
+        {
+          code: 'internal_error',
+          message: 'Failed to activate deployment.',
+          step: 'activating',
+        },
+        500,
+      ),
+    );
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toMatchObject({
+      details: expect.arrayContaining([
+        expect.objectContaining({ label: 'Step', value: 'Activating deployment' }),
+        expect.objectContaining({ label: 'Reason', value: 'Failed to activate deployment.' }),
+      ]),
+    });
+  });
+
+  it('shows a network-specific deploy error when the API cannot be reached', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi
+      .fn()
+      .mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED'));
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toThrow('connect ECONNREFUSED');
+  });
+
+  it('shows an unexpected-response error when the deploy API returns an invalid success payload', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockRejectedValue(new DeployApiResponseError());
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toThrow('Trigora Cloud returned an unexpected response.');
   });
 });

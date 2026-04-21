@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createDeployApiClient, TRIGORA_API_BASE_URL } from './createDeployApiClient';
+import {
+  createDeployApiClient,
+  DeployApiNetworkError,
+  DeployApiRequestError,
+  DeployApiResponseError,
+  TRIGORA_API_BASE_URL,
+} from './createDeployApiClient';
 
 describe('createDeployApiClient', () => {
   const manifest = {
@@ -100,7 +106,7 @@ describe('createDeployApiClient', () => {
       status: 401,
       async json() {
         return {
-          message: 'Invalid deploy token.',
+          message: 'Deploy token is invalid or no longer active.',
         };
       },
       async text() {
@@ -113,9 +119,99 @@ describe('createDeployApiClient', () => {
       fetch,
     });
 
-    await expect(client.createDeployment({ manifest, artifact })).rejects.toThrow(
-      'Trigora deploy API request failed: Invalid deploy token.',
-    );
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiRequestError',
+      code: 'unauthorized',
+      message: 'Deploy token is invalid or no longer active.',
+      status: 401,
+    } satisfies Partial<DeployApiRequestError>);
+  });
+
+  it('reads nested backend error payloads', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      async json() {
+        return {
+          error: {
+            code: 'unauthorized',
+            message: 'A valid deploy token is required.',
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'bad-token',
+      fetch,
+    });
+
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiRequestError',
+      code: 'unauthorized',
+      message: 'A valid deploy token is required.',
+      status: 401,
+    } satisfies Partial<DeployApiRequestError>);
+  });
+
+  it('reads structured deploy steps from nested backend errors', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      async json() {
+        return {
+          error: {
+            code: 'internal_error',
+            message: 'Failed to create worker runtime.',
+            step: 'worker_creation',
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiRequestError',
+      code: 'internal_error',
+      message: 'Failed to create worker runtime.',
+      status: 500,
+      step: 'worker_creation',
+    } satisfies Partial<DeployApiRequestError>);
+  });
+
+  it('maps empty unauthorized responses to the v1 deploy token message', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      async json() {
+        throw new Error('Unexpected end of JSON input');
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'bad-token',
+      fetch,
+    });
+
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiRequestError',
+      code: 'unauthorized',
+      message: 'Deploy token is invalid or no longer active.',
+      status: 401,
+    } satisfies Partial<DeployApiRequestError>);
   });
 
   it('wraps network failures with a helpful message', async () => {
@@ -126,9 +222,10 @@ describe('createDeployApiClient', () => {
       fetch,
     });
 
-    await expect(client.createDeployment({ manifest, artifact })).rejects.toThrow(
-      'Failed to reach the Trigora deploy API: connect ECONNREFUSED',
-    );
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiNetworkError',
+      message: 'connect ECONNREFUSED',
+    } satisfies Partial<DeployApiNetworkError>);
   });
 
   it('throws when the API returns an invalid success payload', async () => {
@@ -150,9 +247,10 @@ describe('createDeployApiClient', () => {
       fetch,
     });
 
-    await expect(client.createDeployment({ manifest, artifact })).rejects.toThrow(
-      'Internal server error.',
-    );
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiResponseError',
+      message: 'Trigora Cloud returned an unexpected response.',
+    } satisfies Partial<DeployApiResponseError>);
   });
 
   it('allows overriding the api base url when needed', async () => {

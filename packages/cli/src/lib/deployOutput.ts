@@ -3,7 +3,18 @@ import type {
   DeploymentManifest,
   DeploymentManifestFlow,
 } from '@trigora/contracts';
-import { CliDisplayError, pluralize, printProgress, printSuccessSummary, printWarning } from './cliOutput';
+import {
+  DeployApiNetworkError,
+  DeployApiRequestError,
+  DeployApiResponseError,
+} from './createDeployApiClient';
+import {
+  CliDisplayError,
+  pluralize,
+  printProgress,
+  printSuccessSummary,
+  printWarning,
+} from './cliOutput';
 
 const DEPLOY_SCOPE = 'deploy';
 
@@ -16,8 +27,36 @@ export const deploySteps = {
   dispatchSetup: 'Configuring dispatch',
 } as const;
 
-function stripPrefix(value: string, prefix: string): string {
-  return value.startsWith(prefix) ? value.slice(prefix.length) : value;
+function getApiFailureDisplayReason(error: DeployApiRequestError): string {
+  if (error.code === 'unauthorized' || error.code === 'forbidden') {
+    return 'Deploy token is invalid or no longer active.';
+  }
+
+  return error.message.trim() || 'Trigora Cloud rejected the deployment request.';
+}
+
+function getDeployFailureStep(error: DeployApiRequestError): string {
+  switch (error.step) {
+    case 'worker_creation':
+      return deploySteps.workerCreation;
+    case 'dispatch_setup':
+      return deploySteps.dispatchSetup;
+    case 'activating':
+      return deploySteps.activating;
+    case 'uploading_package':
+    default:
+      return deploySteps.uploadingPackage;
+  }
+}
+
+function createDeployRequestFailure(error: DeployApiRequestError, reason: string): CliDisplayError {
+  const normalizedReason = reason.trim() || 'Trigora Cloud rejected the deployment request.';
+
+  return createDeployFailure(
+    getDeployFailureStep(error),
+    normalizedReason,
+    'Try again in a moment.',
+  );
 }
 
 function formatWebhookTrigger(flow: DeploymentManifestFlow): string {
@@ -51,7 +90,10 @@ function formatTriggerLabel(flow: DeploymentManifestFlow): string {
   }
 }
 
-function getFlowStatus(flow: DeploymentManifestFlow, status: CreateDeploymentResponse['status']): string {
+function getFlowStatus(
+  flow: DeploymentManifestFlow,
+  status: CreateDeploymentResponse['status'],
+): string {
   if (status !== 'active') {
     return 'Activation is in progress';
   }
@@ -76,16 +118,16 @@ function getOptionalEndpoint(flow: CreateDeploymentResponse['flows'][number]): s
 function getDeployedFlowLookup(
   deployment: CreateDeploymentResponse,
 ): Map<string, CreateDeploymentResponse['flows'][number]> {
-  return new Map(
-    deployment.flows.map((flow) => [`${flow.flowId}:${flow.routePath}`, flow]),
-  );
+  return new Map(deployment.flows.map((flow) => [`${flow.flowId}:${flow.routePath}`, flow]));
 }
 
 function formatFlowDetailLines(
   items: Array<{ label: string; value: string | undefined }>,
   indent = '   ',
 ): string[] {
-  const visibleItems = items.filter((item): item is { label: string; value: string } => Boolean(item.value));
+  const visibleItems = items.filter((item): item is { label: string; value: string } =>
+    Boolean(item.value),
+  );
 
   if (visibleItems.length === 0) {
     return [];
@@ -116,17 +158,14 @@ function formatActivatedFlows(
         { label: 'Schedule', value: trigger.type === 'cron' ? trigger.cron : undefined },
         {
           label: 'Queue',
-          value:
-            trigger.type === 'queue'
-              ? trigger.queue ?? trigger.topic
-              : undefined,
+          value: trigger.type === 'queue' ? (trigger.queue ?? trigger.topic) : undefined,
         },
         {
           label: 'Status',
           value:
             deployedFlow?.status === 'active'
               ? getFlowStatus(flow, deployment.status)
-              : deployedFlow?.status ?? getFlowStatus(flow, deployment.status),
+              : (deployedFlow?.status ?? getFlowStatus(flow, deployment.status)),
         },
       ]),
     ];
@@ -250,6 +289,36 @@ export function toTokenFailure(): CliDisplayError {
 }
 
 export function toApiFailure(error: unknown): CliDisplayError {
+  if (error instanceof DeployApiRequestError) {
+    const reason = getApiFailureDisplayReason(error);
+
+    if (error.code === 'unauthorized' || error.code === 'forbidden') {
+      return createDeployFailure(
+        deploySteps.uploadingPackage,
+        reason,
+        'Check your deploy token and try again.',
+      );
+    }
+
+    return createDeployRequestFailure(error, reason);
+  }
+
+  if (error instanceof DeployApiNetworkError) {
+    return createDeployFailure(
+      deploySteps.uploadingPackage,
+      error.message,
+      'Check your network connection and try again.',
+    );
+  }
+
+  if (error instanceof DeployApiResponseError) {
+    return createDeployFailure(
+      deploySteps.activating,
+      'Trigora Cloud returned an unexpected response.',
+      'Try again in a moment.',
+    );
+  }
+
   if (!(error instanceof Error)) {
     return createDeployFailure(
       deploySteps.uploadingPackage,
@@ -258,59 +327,5 @@ export function toApiFailure(error: unknown): CliDisplayError {
     );
   }
 
-  const message = error.message;
-
-  if (message.startsWith('Failed to reach the Trigora deploy API: ')) {
-    return createDeployFailure(
-      deploySteps.uploadingPackage,
-      stripPrefix(message, 'Failed to reach the Trigora deploy API: '),
-      'Check your network connection and try again.',
-    );
-  }
-
-  if (message.startsWith('Trigora deploy API request failed: ')) {
-    const reason = stripPrefix(message, 'Trigora deploy API request failed: ');
-    const normalizedReason = reason.trim() || 'Trigora Cloud rejected the deployment request.';
-    const lowerReason = normalizedReason.toLowerCase();
-
-    if (lowerReason.includes('worker')) {
-      return createDeployFailure(
-        deploySteps.workerCreation,
-        normalizedReason,
-        'Try again in a moment.',
-      );
-    }
-
-    if (lowerReason.includes('dispatch')) {
-      return createDeployFailure(
-        deploySteps.dispatchSetup,
-        normalizedReason,
-        'Try again in a moment.',
-      );
-    }
-
-    if (lowerReason.includes('activat') || lowerReason.includes('deployment failed')) {
-      return createDeployFailure(
-        deploySteps.activating,
-        normalizedReason,
-        'Try again in a moment.',
-      );
-    }
-
-    return createDeployFailure(
-      deploySteps.uploadingPackage,
-      normalizedReason,
-      'Check your deploy token and try again.',
-    );
-  }
-
-  if (message === 'Internal server error.') {
-    return createDeployFailure(
-      deploySteps.activating,
-      'Trigora Cloud returned an unexpected response.',
-      'Try again in a moment.',
-    );
-  }
-
-  return createDeployFailure(deploySteps.uploadingPackage, message, 'Try again in a moment.');
+  return createDeployFailure(deploySteps.uploadingPackage, error.message, 'Try again in a moment.');
 }

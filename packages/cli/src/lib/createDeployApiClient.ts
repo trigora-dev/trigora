@@ -1,5 +1,21 @@
 import type { CreateDeploymentRequest, CreateDeploymentResponse } from '@trigora/contracts';
 
+export type ApiErrorCode =
+  | 'bad_request'
+  | 'conflict'
+  | 'deployment_not_found'
+  | 'forbidden'
+  | 'internal_error'
+  | 'not_found'
+  | 'rate_limited'
+  | 'unauthorized';
+
+export type ApiErrorStep =
+  | 'uploading_package'
+  | 'worker_creation'
+  | 'dispatch_setup'
+  | 'activating';
+
 export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
 };
@@ -30,34 +46,177 @@ type DeployApiClientConfig = {
   token: string;
 };
 
+type ApiErrorResponse = {
+  code?: ApiErrorCode;
+  message: string;
+  step?: ApiErrorStep;
+};
+
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.replace(/\/+$/, '');
 }
 
-function isErrorPayload(value: unknown): value is { message: string } {
+function isApiErrorCode(value: unknown): value is ApiErrorCode {
+  return (
+    value === 'bad_request' ||
+    value === 'conflict' ||
+    value === 'deployment_not_found' ||
+    value === 'forbidden' ||
+    value === 'internal_error' ||
+    value === 'not_found' ||
+    value === 'rate_limited' ||
+    value === 'unauthorized'
+  );
+}
+
+function isApiErrorStep(value: unknown): value is ApiErrorStep {
+  return (
+    value === 'uploading_package' ||
+    value === 'worker_creation' ||
+    value === 'dispatch_setup' ||
+    value === 'activating'
+  );
+}
+
+function isErrorPayload(
+  value: unknown,
+): value is { code?: ApiErrorCode; message: string; step?: ApiErrorStep } {
   return (
     typeof value === 'object' &&
     value !== null &&
     'message' in value &&
-    typeof value.message === 'string'
+    typeof value.message === 'string' &&
+    (!('code' in value) || value.code === undefined || isApiErrorCode(value.code)) &&
+    (!('step' in value) || value.step === undefined || isApiErrorStep(value.step))
   );
 }
 
-async function readErrorMessage(response: FetchResponse): Promise<string> {
+function isNestedErrorPayload(
+  value: unknown,
+): value is { error: { code?: ApiErrorCode; message: string; step?: ApiErrorStep } } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'error' in value &&
+    typeof value.error === 'object' &&
+    value.error !== null &&
+    'message' in value.error &&
+    typeof value.error.message === 'string' &&
+    (!('code' in value.error) ||
+      value.error.code === undefined ||
+      isApiErrorCode(value.error.code)) &&
+    (!('step' in value.error) || value.error.step === undefined || isApiErrorStep(value.error.step))
+  );
+}
+
+function getErrorCodeFromStatus(status: number): ApiErrorCode | undefined {
+  switch (status) {
+    case 400:
+      return 'bad_request';
+    case 401:
+      return 'unauthorized';
+    case 403:
+      return 'forbidden';
+    case 404:
+      return 'not_found';
+    case 409:
+      return 'conflict';
+    case 429:
+      return 'rate_limited';
+    case 500:
+      return 'internal_error';
+    default:
+      return undefined;
+  }
+}
+
+function withFallbackErrorCode(response: ApiErrorResponse, status: number): ApiErrorResponse {
+  return {
+    code: response.code ?? getErrorCodeFromStatus(status),
+    message: response.message,
+    step: response.step,
+  };
+}
+
+function getFallbackErrorResponse(status: number): ApiErrorResponse {
+  const code = getErrorCodeFromStatus(status);
+
+  if (code === 'unauthorized' || code === 'forbidden') {
+    return {
+      code,
+      message: 'Deploy token is invalid or no longer active.',
+    };
+  }
+
+  return withFallbackErrorCode(
+    {
+      message: `Request failed with status ${status}.`,
+    },
+    status,
+  );
+}
+
+async function readErrorResponse(response: FetchResponse): Promise<ApiErrorResponse> {
   const payload = await response.json().catch(async () => {
     const text = await response.text().catch(() => '');
     return text;
   });
 
   if (isErrorPayload(payload)) {
-    return payload.message;
+    return withFallbackErrorCode(
+      {
+        code: payload.code,
+        message: payload.message,
+        step: payload.step,
+      },
+      response.status,
+    );
+  }
+
+  if (isNestedErrorPayload(payload)) {
+    return withFallbackErrorCode(
+      {
+        code: payload.error.code,
+        message: payload.error.message,
+        step: payload.error.step,
+      },
+      response.status,
+    );
   }
 
   if (typeof payload === 'string' && payload.trim()) {
-    return payload;
+    return { message: payload };
   }
 
-  return `Request failed with status ${response.status}.`;
+  return getFallbackErrorResponse(response.status);
+}
+
+export class DeployApiRequestError extends Error {
+  readonly code?: ApiErrorCode;
+  readonly status: number;
+  readonly step?: ApiErrorStep;
+
+  constructor(response: ApiErrorResponse, status: number) {
+    super(response.message);
+    this.name = 'DeployApiRequestError';
+    this.code = response.code;
+    this.status = status;
+    this.step = response.step;
+  }
+}
+
+export class DeployApiNetworkError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DeployApiNetworkError';
+  }
+}
+
+export class DeployApiResponseError extends Error {
+  constructor() {
+    super('Trigora Cloud returned an unexpected response.');
+    this.name = 'DeployApiResponseError';
+  }
 }
 
 function isWebhookTrigger(value: unknown): value is { type: 'webhook'; event?: string } {
@@ -164,21 +323,21 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new Error(`Failed to reach the Trigora deploy API: ${error.message}`);
+          throw new DeployApiNetworkError(error.message);
         }
 
-        throw new Error('Failed to reach the Trigora deploy API.');
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
       }
 
       if (!response.ok) {
-        const message = await readErrorMessage(response);
-        throw new Error(`Trigora deploy API request failed: ${message}`);
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
       }
 
       const payload = await response.json();
 
       if (!isDeploymentResponse(payload)) {
-        throw new Error('Internal server error.');
+        throw new DeployApiResponseError();
       }
 
       return payload;
