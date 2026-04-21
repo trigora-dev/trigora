@@ -49,6 +49,16 @@ beforeEach(() => {
       },
       flowCount: 1,
       baseUrl: 'https://deploy.trigora.dev',
+      url: 'https://trigora.dev/f/df_123',
+      flows: [
+        {
+          id: 'df_123',
+          flowId: 'hello',
+          routePath: '/hello',
+          status: 'active',
+          url: 'https://trigora.dev/f/df_123',
+        },
+      ],
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     }),
@@ -123,10 +133,10 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Base URL/),
+      expect.stringMatching(/Endpoint/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/https:\/\/deploy\.trigora\.dev/),
+      expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Ready to receive events/),
@@ -160,6 +170,23 @@ describe('deployCommand', () => {
       },
       flowCount: 2,
       baseUrl: 'https://deploy.trigora.dev',
+      url: null,
+      flows: [
+        {
+          id: 'df_123',
+          flowId: 'hello',
+          routePath: '/hello',
+          status: 'active',
+          url: 'https://trigora.dev/f/df_123',
+        },
+        {
+          id: 'df_456',
+          flowId: 'orders',
+          routePath: '/orders',
+          status: 'active',
+          url: 'https://trigora.dev/f/df_456',
+        },
+      ],
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
@@ -233,6 +260,9 @@ describe('deployCommand', () => {
       expect.stringMatching(/Route\s+\/hello/),
     );
     expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_123/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Status\s+Ready to receive events/),
     );
     expect(console.log).toHaveBeenCalledWith(
@@ -243,6 +273,9 @@ describe('deployCommand', () => {
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Route\s+\/orders/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_456/),
     );
   });
 
@@ -339,6 +372,16 @@ describe('deployCommand', () => {
       },
       flowCount: 1,
       baseUrl: 'https://deploy.trigora.dev',
+      url: 'https://trigora.dev/f/df_123',
+      flows: [
+        {
+          id: 'df_123',
+          flowId: 'hello',
+          routePath: '/hello',
+          status: 'active',
+          url: 'https://trigora.dev/f/df_123',
+        },
+      ],
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });

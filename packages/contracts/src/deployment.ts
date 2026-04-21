@@ -37,6 +37,14 @@ export type DeploymentManifestSnapshot = {
   flows: DeploymentManifestFlow[];
 };
 
+export type DeploymentFlowResponse = {
+  id: string;
+  flowId: string;
+  routePath: string;
+  status: string;
+  url: string | null;
+};
+
 export type CreateDeploymentResponse = {
   id: string;
   status: DeploymentStatus;
@@ -44,6 +52,8 @@ export type CreateDeploymentResponse = {
   manifestJson: DeploymentManifestSnapshot;
   flowCount: number;
   baseUrl: string | null;
+  url: string | null;
+  flows: DeploymentFlowResponse[];
   createdAt: string;
   updatedAt: string;
 };

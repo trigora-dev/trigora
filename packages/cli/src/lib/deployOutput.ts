@@ -69,13 +69,16 @@ function getFlowStatus(flow: DeploymentManifestFlow, status: CreateDeploymentRes
   }
 }
 
-function getOptionalEndpoint(flow: DeploymentManifestFlow): string | undefined {
-  const candidate = flow as DeploymentManifestFlow & {
-    deployedUrl?: string;
-    endpoint?: string;
-  };
+function getOptionalEndpoint(flow: CreateDeploymentResponse['flows'][number]): string | undefined {
+  return flow.url ?? undefined;
+}
 
-  return candidate.deployedUrl ?? candidate.endpoint;
+function getDeployedFlowLookup(
+  deployment: CreateDeploymentResponse,
+): Map<string, CreateDeploymentResponse['flows'][number]> {
+  return new Map(
+    deployment.flows.map((flow) => [`${flow.flowId}:${flow.routePath}`, flow]),
+  );
 }
 
 function formatFlowDetailLines(
@@ -97,16 +100,19 @@ function formatFlowDetailLines(
 
 function formatActivatedFlows(
   flows: DeploymentManifestFlow[],
-  status: CreateDeploymentResponse['status'],
+  deployment: CreateDeploymentResponse,
 ): string[] {
+  const deployedFlows = getDeployedFlowLookup(deployment);
+
   return flows.flatMap((flow, index) => {
     const trigger = getTriggerLike(flow);
+    const deployedFlow = deployedFlows.get(`${flow.id}:${flow.routePath}`);
     const lines = [
       `${index + 1}. ${flow.id}`,
       ...formatFlowDetailLines([
         { label: 'Trigger', value: formatTriggerLabel(flow) },
         { label: 'Route', value: trigger.type === 'webhook' ? flow.routePath : undefined },
-        { label: 'Endpoint', value: getOptionalEndpoint(flow) },
+        { label: 'Endpoint', value: deployedFlow ? getOptionalEndpoint(deployedFlow) : undefined },
         { label: 'Schedule', value: trigger.type === 'cron' ? trigger.cron : undefined },
         {
           label: 'Queue',
@@ -115,7 +121,13 @@ function formatActivatedFlows(
               ? trigger.queue ?? trigger.topic
               : undefined,
         },
-        { label: 'Status', value: getFlowStatus(flow, status) },
+        {
+          label: 'Status',
+          value:
+            deployedFlow?.status === 'active'
+              ? getFlowStatus(flow, deployment.status)
+              : deployedFlow?.status ?? getFlowStatus(flow, deployment.status),
+        },
       ]),
     ];
 
@@ -151,7 +163,7 @@ export function printDeploymentSummary(
   manifest: DeploymentManifest,
   deployment: CreateDeploymentResponse,
 ): void {
-  const flows = deployment.manifestJson.flows;
+  const flows = manifest.flows;
   const flowCount = flows.length;
   const details =
     flowCount === 1
@@ -168,11 +180,11 @@ export function printDeploymentSummary(
   const sections =
     flowCount === 1
       ? [
-          ...(deployment.baseUrl
+          ...(deployment.url
             ? [
                 {
-                  title: 'Base URL',
-                  lines: [deployment.baseUrl],
+                  title: 'Endpoint',
+                  lines: [deployment.url],
                 },
               ]
             : []),
@@ -180,7 +192,7 @@ export function printDeploymentSummary(
       : [
           {
             title: 'Activated flows',
-            lines: formatActivatedFlows(flows, deployment.status),
+            lines: formatActivatedFlows(flows, deployment),
           },
         ];
 

@@ -39,6 +39,16 @@ describe('createDeployApiClient', () => {
           manifestJson: manifest,
           flowCount: 1,
           baseUrl: 'https://deploy.trigora.dev',
+          url: 'https://trigora.dev/f/df_123',
+          flows: [
+            {
+              id: 'df_123',
+              flowId: 'hello',
+              routePath: '/hello',
+              status: 'pending',
+              url: 'https://trigora.dev/f/df_123',
+            },
+          ],
           createdAt: '2026-04-12T00:00:00.000Z',
           updatedAt: '2026-04-12T00:00:00.000Z',
         };
@@ -60,6 +70,16 @@ describe('createDeployApiClient', () => {
       manifestJson: manifest,
       flowCount: 1,
       baseUrl: 'https://deploy.trigora.dev',
+      url: 'https://trigora.dev/f/df_123',
+      flows: [
+        {
+          id: 'df_123',
+          flowId: 'hello',
+          routePath: '/hello',
+          status: 'pending',
+          url: 'https://trigora.dev/f/df_123',
+        },
+      ],
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
@@ -147,6 +167,16 @@ describe('createDeployApiClient', () => {
           manifestJson: manifest,
           flowCount: 1,
           baseUrl: null,
+          url: null,
+          flows: [
+            {
+              id: 'df_123',
+              flowId: 'hello',
+              routePath: '/hello',
+              status: 'pending',
+              url: null,
+            },
+          ],
           createdAt: '2026-04-12T00:00:00.000Z',
           updatedAt: '2026-04-12T00:00:00.000Z',
         };

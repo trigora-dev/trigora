@@ -4,6 +4,7 @@ import type {
   CreateDeploymentRequest,
   CreateDeploymentResponse,
   DeploymentArtifact,
+  DeploymentFlowResponse,
   DeploymentManifest,
 } from './deployment';
 
@@ -70,6 +71,16 @@ describe('Deployment types', () => {
       },
     };
 
+    const deployedFlows: DeploymentFlowResponse[] = [
+      {
+        id: 'df_123',
+        flowId: 'hello',
+        routePath: '/hello',
+        status: 'active',
+        url: 'https://trigora.dev/f/df_123',
+      },
+    ];
+
     const response: CreateDeploymentResponse = {
       id: 'dep_123',
       status: 'pending',
@@ -87,11 +98,14 @@ describe('Deployment types', () => {
       },
       flowCount: 1,
       baseUrl: 'https://deploy.trigora.dev',
+      url: 'https://trigora.dev/f/df_123',
+      flows: deployedFlows,
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     };
 
     expect(request.artifact.files).toHaveLength(1);
     expect(response.status).toBe('pending');
+    expect(response.flows[0]?.url).toBe('https://trigora.dev/f/df_123');
   });
 });

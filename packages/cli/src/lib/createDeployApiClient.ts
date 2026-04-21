@@ -87,6 +87,25 @@ function isDeploymentFlow(
   );
 }
 
+function isDeploymentFlowResponse(
+  value: unknown,
+): value is CreateDeploymentResponse['flows'][number] {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'id' in value &&
+    typeof value.id === 'string' &&
+    'flowId' in value &&
+    typeof value.flowId === 'string' &&
+    'routePath' in value &&
+    typeof value.routePath === 'string' &&
+    'status' in value &&
+    typeof value.status === 'string' &&
+    'url' in value &&
+    (typeof value.url === 'string' || value.url === null)
+  );
+}
+
 function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResponse {
   return (
     typeof payload === 'object' &&
@@ -109,6 +128,11 @@ function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResp
     typeof payload.flowCount === 'number' &&
     'baseUrl' in payload &&
     (typeof payload.baseUrl === 'string' || payload.baseUrl === null) &&
+    'url' in payload &&
+    (typeof payload.url === 'string' || payload.url === null) &&
+    'flows' in payload &&
+    Array.isArray(payload.flows) &&
+    payload.flows.every(isDeploymentFlowResponse) &&
     'createdAt' in payload &&
     typeof payload.createdAt === 'string' &&
     'updatedAt' in payload &&
