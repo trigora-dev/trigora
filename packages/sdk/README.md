@@ -28,6 +28,31 @@ export default defineFlow({
 
 ---
 
+## Webhook Responses
+
+Webhook flows can return HTTP-friendly values directly from `run`.
+
+```ts
+import { defineFlow } from '@trigora/sdk';
+
+export default defineFlow({
+  id: 'ping',
+  trigger: { type: 'webhook' },
+  async run() {
+    return 'pong';
+  },
+});
+```
+
+Supported return values:
+
+- `Response` for full HTTP control
+- plain objects / arrays / numbers / booleans for JSON responses
+- `string` for text responses
+- `null` or `undefined` for no-content responses
+
+---
+
 ## Flow Structure
 
 ```ts
