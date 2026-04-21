@@ -1,8 +1,9 @@
-import type { FlowDefinition } from '@trigora/contracts';
+import type { FlowDefinition, Trigger } from '@trigora/contracts';
 
 export function defineFlow<
   TPayload = unknown,
   TEnv extends Record<string, string> = Record<string, string>,
->(flow: FlowDefinition<TPayload, TEnv>): FlowDefinition<TPayload, TEnv> {
+  TTrigger extends Trigger = Trigger,
+>(flow: FlowDefinition<TPayload, TEnv, TTrigger>): FlowDefinition<TPayload, TEnv, TTrigger> {
   return flow;
 }

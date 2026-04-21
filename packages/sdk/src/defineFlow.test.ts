@@ -44,4 +44,39 @@ describe('defineFlow', () => {
 
     expect(run).toHaveBeenCalledOnce();
   });
+
+  it('allows webhook flows to return HTTP-friendly values', async () => {
+    const flow = defineFlow({
+      id: 'webhook-flow',
+      trigger: { type: 'webhook' as const },
+      async run() {
+        return {
+          ok: true,
+          userId: '123',
+        };
+      },
+    });
+
+    await expect(
+      flow.run(
+        {
+          id: 'evt_2',
+          type: 'webhook',
+          timestamp: new Date().toISOString(),
+          payload: {},
+        },
+        {
+          env: {},
+          log: {
+            info: () => undefined,
+            warn: () => undefined,
+            error: () => undefined,
+          },
+        },
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      userId: '123',
+    });
+  });
 });

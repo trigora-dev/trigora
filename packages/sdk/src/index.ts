@@ -5,5 +5,7 @@ export type {
   FlowDefinition,
   FlowEvent,
   FlowRunFn,
+  JsonValue,
   Trigger,
+  WebhookFlowResult,
 } from '@trigora/contracts';
