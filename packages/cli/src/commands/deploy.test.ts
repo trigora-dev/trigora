@@ -64,6 +64,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
       updatedAt: '2026-04-12T00:00:00.000Z',
     }),
     disableFlow: vi.fn(),
+    enableFlow: vi.fn(),
     getFlow: vi.fn(),
     listFlows: vi.fn(),
     ...overrides,

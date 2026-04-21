@@ -428,4 +428,43 @@ describe('createDeployApiClient', () => {
       },
     );
   });
+
+  it('enables a flow from the enable endpoint', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          ok: true,
+          flow: {
+            id: managedFlow.id,
+            status: 'ready',
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.enableFlow(managedFlow.id)).resolves.toEqual({
+      id: managedFlow.id,
+      status: 'ready',
+    } satisfies DisableFlowResponse['flow']);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/enable`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
+  });
 });

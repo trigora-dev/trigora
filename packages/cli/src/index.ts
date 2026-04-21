@@ -1,7 +1,12 @@
 import { Command } from 'commander';
 import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
-import { disableFlowCommand, inspectFlowCommand, listFlowsCommand } from './commands/flows';
+import {
+  disableFlowCommand,
+  enableFlowCommand,
+  inspectFlowCommand,
+  listFlowsCommand,
+} from './commands/flows';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
 import { CliDisplayError, isCliDisplayError, renderCliError } from './lib/cliOutput';
@@ -79,6 +84,13 @@ flowsCommand
   .argument('<flowId>', 'Deployed flow ID')
   .action(async (flowId) => {
     await disableFlowCommand(flowId);
+  });
+
+flowsCommand
+  .command('enable')
+  .argument('<flowId>', 'Deployed flow ID')
+  .action(async (flowId) => {
+    await enableFlowCommand(flowId);
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

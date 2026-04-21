@@ -1,4 +1,4 @@
-import type { DisableFlowResponse, FlowRecord } from '@trigora/contracts';
+import type { FlowStatusResponse, FlowRecord } from '@trigora/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,7 +7,12 @@ import {
   DeployApiNetworkError,
   DeployApiRequestError,
 } from '../lib/createDeployApiClient';
-import { disableFlowCommand, inspectFlowCommand, listFlowsCommand } from './flows';
+import {
+  disableFlowCommand,
+  enableFlowCommand,
+  inspectFlowCommand,
+  listFlowsCommand,
+} from './flows';
 
 vi.mock('../lib/createDeployApiClient', async () => {
   const actual = await vi.importActual<typeof import('../lib/createDeployApiClient')>(
@@ -42,7 +47,11 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     disableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
       status: 'disabled',
-    } satisfies DisableFlowResponse['flow']),
+    } satisfies FlowStatusResponse['flow']),
+    enableFlow: vi.fn().mockResolvedValue({
+      id: helloFlow.id,
+      status: 'ready',
+    } satisfies FlowStatusResponse['flow']),
     ...overrides,
   };
 }
@@ -108,6 +117,17 @@ describe('flows commands', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Disabling flow/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow disabled/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+disabled/));
+  });
+
+  it('prints a success summary when a flow is enabled', async () => {
+    await expect(enableFlowCommand(helloFlow.id)).resolves.toEqual({
+      id: helloFlow.id,
+      status: 'ready',
+    });
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Enabling flow/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow enabled/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
   });
 
   it('throws a polished error when the deploy token is missing', async () => {
@@ -177,6 +197,21 @@ describe('flows commands', () => {
     await expect(disableFlowCommand(helloFlow.id)).rejects.toMatchObject({
       details: expect.arrayContaining([
         expect.objectContaining({ label: 'Step', value: 'Disabling flow' }),
+        expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),
+      ]),
+    });
+  });
+
+  it('maps enable failures to the matching enable step', async () => {
+    mockedCreateDeployApiClient.mockReturnValue(
+      createMockApiClient({
+        enableFlow: vi.fn().mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED')),
+      }),
+    );
+
+    await expect(enableFlowCommand(helloFlow.id)).rejects.toMatchObject({
+      details: expect.arrayContaining([
+        expect.objectContaining({ label: 'Step', value: 'Enabling flow' }),
         expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),
       ]),
     });

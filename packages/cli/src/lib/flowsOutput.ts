@@ -17,6 +17,7 @@ const FLOWS_SCOPE = 'flows';
 
 export const flowSteps = {
   disablingFlow: 'Disabling flow',
+  enablingFlow: 'Enabling flow',
   fetchingFlow: 'Fetching flow',
   fetchingFlows: 'Fetching deployed flows',
 } as const;
@@ -121,11 +122,19 @@ export function printFlowSummary(flow: FlowRecord): void {
   );
 }
 
-export function printFlowDisabled(flow: DisableFlowResponse['flow']): void {
-  printSuccessSummary('Flow disabled', [
+function printFlowStatusChange(title: string, flow: DisableFlowResponse['flow']): void {
+  printSuccessSummary(title, [
     { label: 'ID', value: flow.id },
     { label: 'Status', value: flow.status },
   ]);
+}
+
+export function printFlowDisabled(flow: DisableFlowResponse['flow']): void {
+  printFlowStatusChange('Flow disabled', flow);
+}
+
+export function printFlowEnabled(flow: DisableFlowResponse['flow']): void {
+  printFlowStatusChange('Flow enabled', flow);
 }
 
 export function toFlowsTokenFailure(): CliDisplayError {

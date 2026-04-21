@@ -60,7 +60,7 @@ export type GetFlowResponse = {
   flow: FlowRecord;
 };
 
-export type DisableFlowResponse = {
+export type FlowStatusResponse = {
   ok: true;
   flow: {
     id: string;

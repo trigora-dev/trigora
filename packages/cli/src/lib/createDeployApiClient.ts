@@ -4,7 +4,7 @@ import type {
   ApiErrorStep,
   CreateDeploymentRequest,
   CreateDeploymentResponse,
-  DisableFlowResponse,
+  FlowStatusResponse,
   FlowRecord,
   FlowStatus,
   FlowTriggerType,
@@ -14,7 +14,8 @@ import type {
 
 export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
-  disableFlow(flowId: string): Promise<DisableFlowResponse['flow']>;
+  disableFlow(flowId: string): Promise<FlowStatusResponse['flow']>;
+  enableFlow(flowId: string): Promise<FlowStatusResponse['flow']>;
   getFlow(flowId: string): Promise<GetFlowResponse['flow']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
 };
@@ -328,7 +329,7 @@ function readFlowResponse(payload: unknown): GetFlowResponse | undefined {
   return flow ? { flow } : undefined;
 }
 
-function readDisableFlowResponse(payload: unknown): DisableFlowResponse | undefined {
+function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefined {
   if (
     !isRecord(payload) ||
     payload.ok !== true ||
@@ -550,13 +551,45 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       }
 
       const payload = await response.json();
-      const disableFlowResponse = readDisableFlowResponse(payload);
+      const disableFlowResponse = readFlowStatusResponse(payload);
 
       if (!disableFlowResponse) {
         throw new DeployApiResponseError();
       }
 
       return disableFlowResponse.flow;
+    },
+    async enableFlow(flowId) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${flowId}/enable`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const enableFlowResponse = readFlowStatusResponse(payload);
+
+      if (!enableFlowResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return enableFlowResponse.flow;
     },
   };
 }

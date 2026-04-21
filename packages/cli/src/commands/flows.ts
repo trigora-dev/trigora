@@ -1,8 +1,9 @@
-import type { DisableFlowResponse, FlowRecord } from '@trigora/contracts';
+import type { FlowStatusResponse, FlowRecord } from '@trigora/contracts';
 import { createDeployApiClient } from '../lib/createDeployApiClient';
 import {
   flowSteps,
   printFlowDisabled,
+  printFlowEnabled,
   printFlowList,
   printFlowsProgress,
   printFlowSummary,
@@ -61,7 +62,7 @@ export async function inspectFlowCommand(flowId: string): Promise<FlowRecord> {
   return flow;
 }
 
-export async function disableFlowCommand(flowId: string): Promise<DisableFlowResponse['flow']> {
+export async function disableFlowCommand(flowId: string): Promise<FlowStatusResponse['flow']> {
   printFlowsProgress(`${flowSteps.disablingFlow}...`);
 
   const flow = await createFlowsApiClient()
@@ -71,6 +72,20 @@ export async function disableFlowCommand(flowId: string): Promise<DisableFlowRes
     });
 
   printFlowDisabled(flow);
+
+  return flow;
+}
+
+export async function enableFlowCommand(flowId: string): Promise<FlowStatusResponse['flow']> {
+  printFlowsProgress(`${flowSteps.enablingFlow}...`);
+
+  const flow = await createFlowsApiClient()
+    .enableFlow(flowId)
+    .catch((error) => {
+      throw toFlowsApiFailure(error, flowSteps.enablingFlow);
+    });
+
+  printFlowEnabled(flow);
 
   return flow;
 }
