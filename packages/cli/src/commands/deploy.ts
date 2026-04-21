@@ -12,13 +12,14 @@ import {
   toTokenFailure,
   toValidationFailure,
 } from '../lib/deployOutput';
+import { getDeployToken } from '../lib/getDeployToken';
 
 type DeployOptions = {
   filePath?: string;
 };
 
-function getDeployToken(): string {
-  const token = process.env.TRIGORA_DEPLOY_TOKEN?.trim();
+function requireDeployToken(): string {
+  const token = getDeployToken();
 
   if (!token) {
     throw toTokenFailure();
@@ -46,7 +47,7 @@ export async function deployCommand(options: DeployOptions): Promise<DeploymentM
     throw toArtifactFailure(error);
   });
   const apiClient = createDeployApiClient({
-    token: getDeployToken(),
+    token: requireDeployToken(),
   });
 
   printDeployProgress('Uploading deployment package...');

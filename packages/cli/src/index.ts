@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
+import { disableFlowCommand, inspectFlowCommand, listFlowsCommand } from './commands/flows';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
 import { CliDisplayError, isCliDisplayError, renderCliError } from './lib/cliOutput';
@@ -58,6 +59,26 @@ program
     await deployCommand({
       filePath,
     });
+  });
+
+const flowsCommand = program.command('flows').description('Manage deployed flows');
+
+flowsCommand.action(async () => {
+  await listFlowsCommand();
+});
+
+flowsCommand
+  .command('inspect')
+  .argument('<flowId>', 'Deployed flow ID')
+  .action(async (flowId) => {
+    await inspectFlowCommand(flowId);
+  });
+
+flowsCommand
+  .command('disable')
+  .argument('<flowId>', 'Deployed flow ID')
+  .action(async (flowId) => {
+    await disableFlowCommand(flowId);
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {

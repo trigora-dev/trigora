@@ -1,23 +1,22 @@
-import type { CreateDeploymentRequest, CreateDeploymentResponse } from '@trigora/contracts';
-
-export type ApiErrorCode =
-  | 'bad_request'
-  | 'conflict'
-  | 'deployment_not_found'
-  | 'forbidden'
-  | 'internal_error'
-  | 'not_found'
-  | 'rate_limited'
-  | 'unauthorized';
-
-export type ApiErrorStep =
-  | 'uploading_package'
-  | 'worker_creation'
-  | 'dispatch_setup'
-  | 'activating';
+import type {
+  ApiErrorCode,
+  ApiErrorResponse,
+  ApiErrorStep,
+  CreateDeploymentRequest,
+  CreateDeploymentResponse,
+  DisableFlowResponse,
+  FlowRecord,
+  FlowStatus,
+  FlowTriggerType,
+  GetFlowResponse,
+  ListFlowsResponse,
+} from '@trigora/contracts';
 
 export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
+  disableFlow(flowId: string): Promise<DisableFlowResponse['flow']>;
+  getFlow(flowId: string): Promise<GetFlowResponse['flow']>;
+  listFlows(): Promise<ListFlowsResponse['flows']>;
 };
 
 // export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
@@ -46,7 +45,7 @@ type DeployApiClientConfig = {
   token: string;
 };
 
-type ApiErrorResponse = {
+type ApiErrorPayload = {
   code?: ApiErrorCode;
   message: string;
   step?: ApiErrorStep;
@@ -91,9 +90,7 @@ function isErrorPayload(
   );
 }
 
-function isNestedErrorPayload(
-  value: unknown,
-): value is { error: { code?: ApiErrorCode; message: string; step?: ApiErrorStep } } {
+function isNestedErrorPayload(value: unknown): value is ApiErrorResponse {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -130,7 +127,7 @@ function getErrorCodeFromStatus(status: number): ApiErrorCode | undefined {
   }
 }
 
-function withFallbackErrorCode(response: ApiErrorResponse, status: number): ApiErrorResponse {
+function withFallbackErrorCode(response: ApiErrorPayload, status: number): ApiErrorPayload {
   return {
     code: response.code ?? getErrorCodeFromStatus(status),
     message: response.message,
@@ -138,7 +135,7 @@ function withFallbackErrorCode(response: ApiErrorResponse, status: number): ApiE
   };
 }
 
-function getFallbackErrorResponse(status: number): ApiErrorResponse {
+function getFallbackErrorResponse(status: number): ApiErrorPayload {
   const code = getErrorCodeFromStatus(status);
 
   if (code === 'unauthorized' || code === 'forbidden') {
@@ -156,7 +153,7 @@ function getFallbackErrorResponse(status: number): ApiErrorResponse {
   );
 }
 
-async function readErrorResponse(response: FetchResponse): Promise<ApiErrorResponse> {
+async function readErrorResponse(response: FetchResponse): Promise<ApiErrorPayload> {
   const payload = await response.json().catch(async () => {
     const text = await response.text().catch(() => '');
     return text;
@@ -196,7 +193,7 @@ export class DeployApiRequestError extends Error {
   readonly status: number;
   readonly step?: ApiErrorStep;
 
-  constructor(response: ApiErrorResponse, status: number) {
+  constructor(response: ApiErrorPayload, status: number) {
     super(response.message);
     this.name = 'DeployApiRequestError';
     this.code = response.code;
@@ -227,6 +224,129 @@ function isWebhookTrigger(value: unknown): value is { type: 'webhook'; event?: s
     value.type === 'webhook' &&
     (!('event' in value) || typeof value.event === 'string')
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function getOptionalString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
+function isFlowStatus(value: unknown): value is FlowStatus {
+  return value === 'ready' || value === 'disabled' || value === 'failed';
+}
+
+function normalizeFlowTriggerType(value: unknown): FlowTriggerType | undefined {
+  if (value === 'webhook' || value === 'cron' || value === 'queue') {
+    return value;
+  }
+
+  if (isRecord(value) && typeof value.type === 'string') {
+    return normalizeFlowTriggerType(value.type);
+  }
+
+  return undefined;
+}
+
+function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const trigger = normalizeFlowTriggerType(value.trigger);
+  const id = getOptionalString(value.id);
+  const name = getOptionalString(value.name);
+  const createdAt = getOptionalString(value.createdAt);
+  const status = isFlowStatus(value.status) ? value.status : undefined;
+
+  if (!trigger || !id || !name || !createdAt || !status) {
+    return undefined;
+  }
+
+  switch (trigger) {
+    case 'webhook': {
+      const endpoint = getOptionalString(value.endpoint) ?? getOptionalString(value.url);
+
+      if (!endpoint) {
+        return undefined;
+      }
+
+      return {
+        id,
+        name,
+        trigger,
+        status,
+        createdAt,
+        route: getOptionalString(value.route) ?? getOptionalString(value.routePath),
+        endpoint,
+      };
+    }
+    case 'cron':
+      return {
+        id,
+        name,
+        trigger,
+        status,
+        createdAt,
+        schedule: getOptionalString(value.schedule) ?? getOptionalString(value.cron),
+      };
+    case 'queue':
+      return {
+        id,
+        name,
+        trigger,
+        status,
+        createdAt,
+        queue: getOptionalString(value.queue) ?? getOptionalString(value.topic),
+      };
+  }
+}
+
+function readFlowListResponse(payload: unknown): ListFlowsResponse | undefined {
+  if (!isRecord(payload) || !Array.isArray(payload.flows)) {
+    return undefined;
+  }
+
+  const flows = payload.flows.map((value) => normalizeFlowRecord(value));
+
+  if (!flows.every((flow): flow is FlowRecord => Boolean(flow))) {
+    return undefined;
+  }
+
+  return { flows };
+}
+
+function readFlowResponse(payload: unknown): GetFlowResponse | undefined {
+  if (!isRecord(payload) || !('flow' in payload)) {
+    return undefined;
+  }
+
+  const flow = normalizeFlowRecord(payload.flow);
+
+  return flow ? { flow } : undefined;
+}
+
+function readDisableFlowResponse(payload: unknown): DisableFlowResponse | undefined {
+  if (
+    !isRecord(payload) ||
+    payload.ok !== true ||
+    !('flow' in payload) ||
+    !isRecord(payload.flow) ||
+    typeof payload.flow.id !== 'string' ||
+    !isFlowStatus(payload.flow.status)
+  ) {
+    return undefined;
+  }
+
+  return {
+    ok: true,
+    flow: {
+      id: payload.flow.id,
+      status: payload.flow.status,
+    },
+  };
 }
 
 function isDeploymentFlow(
@@ -341,6 +461,102 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       }
 
       return payload;
+    },
+    async listFlows() {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const flowListResponse = readFlowListResponse(payload);
+
+      if (!flowListResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return flowListResponse.flows;
+    },
+    async getFlow(flowId) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${flowId}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const flowResponse = readFlowResponse(payload);
+
+      if (!flowResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return flowResponse.flow;
+    },
+    async disableFlow(flowId) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${flowId}/disable`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const disableFlowResponse = readDisableFlowResponse(payload);
+
+      if (!disableFlowResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return disableFlowResponse.flow;
     },
   };
 }

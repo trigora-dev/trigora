@@ -46,7 +46,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigora/contracts": "0.1.0"
+    "@trigora/contracts": "0.2.0"
   },
   "devDependencies": {
     "tsup": "^8.5.1"

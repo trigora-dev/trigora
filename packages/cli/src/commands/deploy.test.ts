@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createDeployApiClient,
+  type DeployApiClient,
   DeployApiNetworkError,
   DeployApiRequestError,
   DeployApiResponseError,
@@ -30,20 +31,8 @@ const originalEnv = { ...process.env };
 const tempDirs: string[] = [];
 const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 
-async function makeTempDir() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-deploy-command-'));
-  tempDirs.push(dir);
-  return dir;
-}
-
-beforeEach(() => {
-  console.log = vi.fn();
-  process.env = {
-    ...originalEnv,
-    TRIGORA_DEPLOY_TOKEN: 'secret-token',
-  };
-  mockedCreateDeployApiClient.mockReset();
-  mockedCreateDeployApiClient.mockReturnValue({
+function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
+  return {
     createDeployment: vi.fn().mockResolvedValue({
       id: 'dep_123',
       status: 'active',
@@ -74,7 +63,27 @@ beforeEach(() => {
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     }),
-  });
+    disableFlow: vi.fn(),
+    getFlow: vi.fn(),
+    listFlows: vi.fn(),
+    ...overrides,
+  };
+}
+
+async function makeTempDir() {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-deploy-command-'));
+  tempDirs.push(dir);
+  return dir;
+}
+
+beforeEach(() => {
+  console.log = vi.fn();
+  process.env = {
+    ...originalEnv,
+    TRIGORA_DEPLOY_TOKEN: 'secret-token',
+  };
+  mockedCreateDeployApiClient.mockReset();
+  mockedCreateDeployApiClient.mockReturnValue(createMockApiClient());
 });
 
 afterEach(async () => {
@@ -191,9 +200,7 @@ describe('deployCommand', () => {
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(ordersPath), { recursive: true });
     await fs.writeFile(
@@ -374,9 +381,7 @@ describe('deployCommand', () => {
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(
@@ -457,9 +462,7 @@ describe('deployCommand', () => {
       ),
     );
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(
@@ -496,9 +499,7 @@ describe('deployCommand', () => {
       ),
     );
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(
@@ -536,9 +537,7 @@ describe('deployCommand', () => {
       ),
     );
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(
@@ -581,9 +580,7 @@ describe('deployCommand', () => {
       ),
     );
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(
@@ -619,9 +616,7 @@ describe('deployCommand', () => {
       .fn()
       .mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED'));
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(
@@ -650,9 +645,7 @@ describe('deployCommand', () => {
     const flowPath = path.join(tempDir, 'flows', 'hello.ts');
     const createDeployment = vi.fn().mockRejectedValue(new DeployApiResponseError());
 
-    mockedCreateDeployApiClient.mockReturnValue({
-      createDeployment,
-    });
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(flowPath), { recursive: true });
     await fs.writeFile(

@@ -37,6 +37,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@trigora/contracts':
+        specifier: 0.2.0
+        version: 0.2.0
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -66,8 +69,8 @@ importers:
   packages/sdk:
     dependencies:
       '@trigora/contracts':
-        specifier: 0.1.0
-        version: 0.1.0
+        specifier: 0.2.0
+        version: 0.2.0
     devDependencies:
       tsup:
         specifier: ^8.5.1
@@ -848,10 +851,10 @@ packages:
         integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==,
       }
 
-  '@trigora/contracts@0.1.0':
+  '@trigora/contracts@0.2.0':
     resolution:
       {
-        integrity: sha512-XSbGEjtRrW+im//ELcEFsvNmnliDL2iR6z6Ek99i1Z0/kw4PUxmOyA6zbglv0gySJgkd7R1f77moCWbhYs5NpQ==,
+        integrity: sha512-apIgXMCc9VAW41lUtTFqd7sYnr9RZckIUtKCFeEfuvZ0Ub6qW6yRDAvipTZQcuRDcZbDQS2+pc+9dnvhT2vfNw==,
       }
 
   '@turbo/darwin-64@2.9.5':
@@ -2554,7 +2557,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@trigora/contracts@0.1.0': {}
+  '@trigora/contracts@0.2.0': {}
 
   '@turbo/darwin-64@2.9.5':
     optional: true

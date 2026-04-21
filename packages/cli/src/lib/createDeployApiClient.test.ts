@@ -1,3 +1,4 @@
+import type { DisableFlowResponse } from '@trigora/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -31,6 +32,15 @@ describe('createDeployApiClient', () => {
         contents: `const flow = { id: "hello" }; export { flow as default };`,
       },
     ],
+  };
+  const managedFlow = {
+    id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+    name: 'hello',
+    status: 'ready',
+    trigger: 'webhook' as const,
+    route: '/hello',
+    endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
+    createdAt: '2026-04-21T10:00:00.000Z',
   };
 
   it('posts the deployment manifest to the default deploy API', async () => {
@@ -300,5 +310,122 @@ describe('createDeployApiClient', () => {
       },
       body: JSON.stringify({ manifest, artifact }),
     });
+  });
+
+  it('lists deployed flows from the flows endpoint', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          flows: [
+            managedFlow,
+            {
+              id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
+              name: 'nightly-sync',
+              status: 'ready',
+              trigger: 'cron',
+              createdAt: '2026-04-21T11:00:00.000Z',
+              schedule: '0 2 * * *',
+            },
+          ],
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.listFlows()).resolves.toEqual([
+      managedFlow,
+      {
+        id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
+        name: 'nightly-sync',
+        status: 'ready',
+        trigger: 'cron',
+        createdAt: '2026-04-21T11:00:00.000Z',
+        schedule: '0 2 * * *',
+      },
+    ]);
+
+    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/flows`, {
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer secret-token',
+      },
+    });
+  });
+
+  it('reads a single flow from the inspect endpoint', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          flow: managedFlow,
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.getFlow(managedFlow.id)).resolves.toEqual(managedFlow);
+
+    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}`, {
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer secret-token',
+      },
+    });
+  });
+
+  it('disables a flow from the disable endpoint', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          ok: true,
+          flow: {
+            id: managedFlow.id,
+            status: 'disabled',
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.disableFlow(managedFlow.id)).resolves.toEqual({
+      id: managedFlow.id,
+      status: 'disabled',
+    } satisfies DisableFlowResponse['flow']);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/disable`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
   });
 });
