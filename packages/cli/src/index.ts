@@ -3,7 +3,7 @@ import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
-import { colors } from './lib/colors';
+import { CliDisplayError, isCliDisplayError, renderCliError } from './lib/cliOutput';
 import { loadProjectEnv } from './lib/loadProjectEnv';
 import { resolveFlowPath } from './lib/resolveFlowPath';
 
@@ -61,18 +61,19 @@ program
   });
 
 program.parseAsync(process.argv).catch((error: unknown) => {
-  console.error('');
-
-  const errorPrefix = colors.error('[error]');
-  const name = colors.flow('trigora');
-
-  console.error(`${errorPrefix} ${name} command failed`);
-
-  if (error instanceof Error) {
-    console.error(error.message);
-  } else {
-    console.error(error);
+  if (isCliDisplayError(error)) {
+    renderCliError(error);
+    process.exit(1);
   }
+
+  const reason = error instanceof Error ? error.message : String(error);
+
+  renderCliError(
+    new CliDisplayError({
+      title: 'Command failed',
+      details: [{ label: 'Reason', value: reason }],
+    }),
+  );
 
   process.exit(1);
 });

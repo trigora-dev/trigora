@@ -34,7 +34,7 @@ beforeEach(() => {
   mockedCreateDeployApiClient.mockReturnValue({
     createDeployment: vi.fn().mockResolvedValue({
       id: 'dep_123',
-      status: 'pending',
+      status: 'active',
       manifestVersion: 1,
       manifestJson: {
         version: 1,
@@ -103,29 +103,33 @@ describe('deployCommand', () => {
       ],
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/validating flow modules/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/prepared 1 flow\(s\)/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Validating flow modules/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/hello.*\(webhook\).*flows\/hello\.ts.*→ \/hello/),
+      expect.stringMatching(/Prepared 1 flow for deployment/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/built deployment artifact with 1 file\(s\)/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/deployment manifest/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/flows\/hello\.ts.*→ route \/hello/),
+      expect.stringMatching(/Building deployment artifact/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/sending deployment package to Trigora Cloud/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/deployment dep_123 pending/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/base URL: https:\/\/deploy\.trigora\.dev/),
+      expect.stringMatching(/Uploading deployment package/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /validated deployable webhook flows and sent the deployment package to Trigora Cloud/,
-      ),
+      expect.stringMatching(/Activating deployment/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/✔ Deployment complete/),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Base URL/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/https:\/\/deploy\.trigora\.dev/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Ready to receive events/),
     );
   });
 
@@ -133,6 +137,36 @@ describe('deployCommand', () => {
     const tempDir = await makeTempDir();
     const helloPath = path.join(tempDir, 'flows', 'hello.ts');
     const ordersPath = path.join(tempDir, 'flows', 'nested', 'orders.ts');
+    const createDeployment = vi.fn().mockResolvedValue({
+      id: 'dep_123',
+      status: 'active',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flows: [
+          {
+            id: 'hello',
+            entrypoint: 'flows/hello.ts',
+            routePath: '/hello',
+            trigger: { type: 'webhook' },
+          },
+          {
+            id: 'orders',
+            entrypoint: 'flows/nested/orders.ts',
+            routePath: '/orders',
+            trigger: { type: 'webhook', event: 'orders.created' },
+          },
+        ],
+      },
+      flowCount: 2,
+      baseUrl: 'https://deploy.trigora.dev',
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue({
+      createDeployment,
+    });
 
     await fs.mkdir(path.dirname(ordersPath), { recursive: true });
     await fs.writeFile(
@@ -180,24 +214,35 @@ describe('deployCommand', () => {
       ],
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/prepared 2 flow\(s\)/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/hello.*flows\/hello\.ts.*→ \/hello/),
+      expect.stringMatching(/Prepared 2 flows for deployment/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /orders.*webhook:orders\.created.*flows\/nested\/orders\.ts.*→ \/orders/,
-      ),
+      expect.stringMatching(/✔ Deployment complete/),
     );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/deployment manifest/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Deployment\s+dep_123/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flows\s+2/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Activated flows/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/flows\/hello\.ts.*→ route \/hello/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/flows\/nested\/orders\.ts.*→ route \/orders/),
+      expect.stringMatching(/1\. hello/),
     );
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/built deployment artifact with 2 file\(s\)/),
+      expect.stringMatching(/Trigger\s+webhook/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Route\s+\/hello/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Status\s+Ready to receive events/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/2\. orders/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Trigger\s+webhook:orders\.created/),
+    );
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Route\s+\/orders/),
     );
   });
 
@@ -279,7 +324,7 @@ describe('deployCommand', () => {
     const flowPath = path.join(tempDir, 'flows', 'hello.ts');
     const createDeployment = vi.fn().mockResolvedValue({
       id: 'dep_123',
-      status: 'pending',
+      status: 'active',
       manifestVersion: 1,
       manifestJson: {
         version: 1,
@@ -365,8 +410,6 @@ describe('deployCommand', () => {
       deployCommand({
         filePath: flowPath,
       }),
-    ).rejects.toThrow(
-      'Missing deploy API configuration: TRIGORA_DEPLOY_TOKEN. Set this environment variable before running "trigora deploy".',
-    );
+    ).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
   });
 });
