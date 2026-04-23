@@ -1,6 +1,6 @@
 import type { FlowContext } from './context';
 import type { FlowEvent } from './event';
-import type { Trigger, WebhookTrigger } from './trigger';
+import type { CronTrigger, ManualTrigger, Trigger, WebhookTrigger } from './trigger';
 
 /**
  * JSON-compatible values that can be safely serialized for webhook responses.
@@ -35,6 +35,62 @@ export type FlowRunFn<
   ? Promise<WebhookFlowResult> | WebhookFlowResult
   : Promise<void> | void;
 
+type BaseFlowDefinition = {
+  /**
+   * Source identifier for the flow in your project.
+   */
+  id: string;
+};
+
+export type ManualFlowDefinition<
+  TPayload = unknown,
+  TEnv extends Record<string, string> = Record<string, string>,
+> = BaseFlowDefinition & {
+  /**
+   * Trigger configuration that determines how the flow is invoked.
+   */
+  trigger: ManualTrigger;
+  /**
+   * Function called when the flow runs.
+   */
+  run: FlowRunFn<TPayload, TEnv, ManualTrigger>;
+};
+
+export type WebhookFlowDefinition<
+  TPayload = unknown,
+  TEnv extends Record<string, string> = Record<string, string>,
+> = BaseFlowDefinition & {
+  /**
+   * Trigger configuration that determines how the flow is invoked.
+   */
+  trigger: WebhookTrigger;
+  /**
+   * Function called when the flow runs.
+   */
+  run: FlowRunFn<TPayload, TEnv, WebhookTrigger>;
+};
+
+export type CronFlowDefinition<
+  TPayload = unknown,
+  TEnv extends Record<string, string> = Record<string, string>,
+> = BaseFlowDefinition & {
+  /**
+   * Trigger configuration that determines how the flow is invoked.
+   */
+  trigger: CronTrigger;
+  /**
+   * Function called when the flow runs.
+   */
+  run: FlowRunFn<TPayload, TEnv, CronTrigger>;
+};
+
+type FlowDefinitionByTrigger<TPayload, TEnv extends Record<string, string>> =
+  | ManualFlowDefinition<TPayload, TEnv>
+  | WebhookFlowDefinition<TPayload, TEnv>
+  | CronFlowDefinition<TPayload, TEnv>;
+
+type TriggerTypeOf<TTrigger extends Trigger> = TTrigger['type'];
+
 /**
  * A Trigora flow definition.
  *
@@ -46,17 +102,7 @@ export type FlowDefinition<
   TPayload = unknown,
   TEnv extends Record<string, string> = Record<string, string>,
   TTrigger extends Trigger = Trigger,
-> = {
-  /**
-   * Source identifier for the flow in your project.
-   */
-  id: string;
-  /**
-   * Trigger configuration that determines how the flow is invoked.
-   */
-  trigger: TTrigger;
-  /**
-   * Function called when the flow is triggered.
-   */
-  run: FlowRunFn<TPayload, TEnv, TTrigger>;
-};
+> = Extract<
+  FlowDefinitionByTrigger<TPayload, TEnv>,
+  { trigger: { type: TriggerTypeOf<TTrigger> } }
+>;

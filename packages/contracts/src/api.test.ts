@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   ApiErrorResponse,
   CronFlowRecord,
-  DisableFlowResponse,
+  FlowStatusResponse,
   GetFlowResponse,
   ListFlowsResponse,
   QueueFlowRecord,
@@ -78,7 +78,7 @@ describe('API contract types', () => {
   });
 
   it('accepts disable flow responses', () => {
-    const response: DisableFlowResponse = {
+    const response: FlowStatusResponse = {
       ok: true,
       flow: {
         id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',

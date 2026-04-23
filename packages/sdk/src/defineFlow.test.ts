@@ -1,6 +1,47 @@
 import { describe, expect, it, vi } from 'vitest';
 import { defineFlow } from './defineFlow';
 
+void defineFlow({
+  id: 'valid-webhook-flow',
+  trigger: { type: 'webhook' as const, event: 'orders.created' },
+  async run() {
+    return { ok: true };
+  },
+});
+
+void defineFlow({
+  id: 'invalid-webhook-flow',
+  trigger: {
+    type: 'webhook' as const,
+    // @ts-expect-error webhook triggers must not accept cron-only fields
+    cron: '* * * * *',
+  },
+  async run() {
+    return { ok: true };
+  },
+});
+
+void defineFlow({
+  id: 'invalid-manual-flow',
+  trigger: {
+    type: 'manual' as const,
+    // @ts-expect-error manual triggers must not accept webhook-only fields
+    event: 'orders.created',
+  },
+  async run() {},
+});
+
+void defineFlow({
+  id: 'invalid-cron-flow',
+  trigger: {
+    type: 'cron' as const,
+    cron: '0 9 * * *',
+    // @ts-expect-error cron triggers must not accept webhook-only fields
+    event: 'orders.created',
+  },
+  async run() {},
+});
+
 describe('defineFlow', () => {
   it('returns the provided flow definition', async () => {
     const run = vi.fn();
