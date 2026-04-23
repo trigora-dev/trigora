@@ -2,57 +2,98 @@
 
 A flow is the core unit of logic in Trigora.
 
----
+Flows are plain TypeScript or JavaScript modules that export a single flow definition.
 
-## Structure
-
-```ts
-defineFlow({
-  id: string,
-  trigger: Trigger,
-  run: async (event, ctx) => {}
-})
-```
-
----
-
-## Example
+## Basic Shape
 
 ```ts
 import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
-  id: 'payment',
+  id: 'hello',
   trigger: { type: 'manual' },
   async run(event, ctx) {
-    await ctx.log.info('Processing payment', event.payload);
+    await ctx.log.info('Hello from Trigora', {
+      payload: event.payload,
+    });
   },
 });
 ```
 
----
+Every flow has three main parts:
 
-## Key Concepts
+- `id`
+- `trigger`
+- `run`
 
-- **id**: unique identifier
-- **trigger**: defines how the flow starts
-- **run**: executed when triggered
+## `id`
 
----
+`id` is the source identifier for the flow in your project.
 
-## Philosophy
+Guidance:
 
-Flows are:
+- keep it stable once a flow is in use
+- make it descriptive
+- prefer short, readable IDs like `hello`, `nightly-sync`, or `orders-created`
 
-- deterministic
-- testable
-- composable
-- local-first
+For hosted webhook deployments, the flow ID is also used to derive the default route path.
 
----
+## `trigger`
 
-## Best Practices
+`trigger` defines how the flow is intended to run.
 
-- keep flows small and focused
+Current trigger types:
+
+- `manual`
+- `webhook`
+- `cron`
+
+The trigger typing is strict, so invalid extra trigger properties should fail at compile time.
+
+## `run`
+
+`run` contains the flow logic.
+
+It receives:
+
+- `event`
+- `ctx`
+
+Example:
+
+```ts
+async run(event, ctx) {
+  await ctx.log.info('Running flow', {
+    payload: event.payload,
+  });
+}
+```
+
+## Return Values
+
+Return behavior depends on the trigger:
+
+- `webhook` flows can return HTTP-friendly values
+- `manual` flows do not use return values
+- `cron` flows do not use return values
+
+## File Organization
+
+A common project layout is:
+
+```text
+flows/
+  hello.ts
+  nightly-sync.ts
+  orders-created.ts
+```
+
+During deploy, the CLI can discover flow files automatically under `flows/`.
+
+## Good Flow Habits
+
+- keep flows focused on one job
 - validate payloads early
-- use structured logging
+- use clear IDs
+- log meaningful checkpoints
+- test locally before deploying
