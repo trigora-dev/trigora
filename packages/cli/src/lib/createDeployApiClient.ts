@@ -20,8 +20,7 @@ export type DeployApiClient = {
   listFlows(): Promise<ListFlowsResponse['flows']>;
 };
 
-// export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
-export const TRIGORA_API_BASE_URL = 'http://localhost:8787';
+export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
 
 type FetchHeaders = Record<string, string>;
 
