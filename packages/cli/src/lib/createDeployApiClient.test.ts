@@ -1,4 +1,4 @@
-import type { DisableFlowResponse } from '@trigora/contracts';
+import type { FlowStatusResponse } from '@trigora/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -416,7 +416,7 @@ describe('createDeployApiClient', () => {
     await expect(client.disableFlow(managedFlow.id)).resolves.toEqual({
       id: managedFlow.id,
       status: 'disabled',
-    } satisfies DisableFlowResponse['flow']);
+    } satisfies FlowStatusResponse['flow']);
 
     expect(fetch).toHaveBeenCalledWith(
       `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/disable`,
@@ -455,7 +455,7 @@ describe('createDeployApiClient', () => {
     await expect(client.enableFlow(managedFlow.id)).resolves.toEqual({
       id: managedFlow.id,
       status: 'ready',
-    } satisfies DisableFlowResponse['flow']);
+    } satisfies FlowStatusResponse['flow']);
 
     expect(fetch).toHaveBeenCalledWith(
       `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/enable`,

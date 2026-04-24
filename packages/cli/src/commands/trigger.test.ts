@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { FlowRunFn } from '@trigora/contracts';
+import type { FlowRunFn, ManualTrigger } from '@trigora/contracts';
 import { createLocalContext } from '../lib/createLocalContext';
 import { loadFlowModule } from '../lib/loadFlowModule';
 import { triggerCommand } from './trigger';
@@ -25,7 +25,7 @@ const originalConsoleError = console.error;
 
 const tempDirs: string[] = [];
 
-type TestRunFn = FlowRunFn<unknown, Record<string, string>>;
+type TestRunFn = FlowRunFn<unknown, Record<string, string>, ManualTrigger>;
 type TestEvent = Parameters<TestRunFn>[0];
 
 async function makeTempDir() {

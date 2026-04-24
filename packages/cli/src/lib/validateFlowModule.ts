@@ -69,9 +69,24 @@ export function validateFlowModule(filePath: string, value: unknown): FlowDefini
 
   const trigger = validateTrigger(value.trigger, filePath);
 
-  return {
-    id: value.id,
-    trigger,
-    run: value.run as FlowDefinition['run'],
-  };
+  switch (trigger.type) {
+    case 'manual':
+      return {
+        id: value.id,
+        trigger,
+        run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
+      };
+    case 'webhook':
+      return {
+        id: value.id,
+        trigger,
+        run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
+      };
+    case 'cron':
+      return {
+        id: value.id,
+        trigger,
+        run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
+      };
+  }
 }

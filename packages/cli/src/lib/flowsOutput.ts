@@ -1,4 +1,4 @@
-import type { DisableFlowResponse, FlowRecord } from '@trigora/contracts';
+import type { FlowRecord, FlowStatusResponse } from '@trigora/contracts';
 import {
   DeployApiNetworkError,
   DeployApiRequestError,
@@ -122,18 +122,18 @@ export function printFlowSummary(flow: FlowRecord): void {
   );
 }
 
-function printFlowStatusChange(title: string, flow: DisableFlowResponse['flow']): void {
+function printFlowStatusChange(title: string, flow: FlowStatusResponse['flow']): void {
   printSuccessSummary(title, [
     { label: 'ID', value: flow.id },
     { label: 'Status', value: flow.status },
   ]);
 }
 
-export function printFlowDisabled(flow: DisableFlowResponse['flow']): void {
+export function printFlowDisabled(flow: FlowStatusResponse['flow']): void {
   printFlowStatusChange('Flow disabled', flow);
 }
 
-export function printFlowEnabled(flow: DisableFlowResponse['flow']): void {
+export function printFlowEnabled(flow: FlowStatusResponse['flow']): void {
   printFlowStatusChange('Flow enabled', flow);
 }
 
