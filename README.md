@@ -122,6 +122,22 @@ Endpoint:
 https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
 ```
 
+## Try It
+
+Once your webhook flow is deployed, you can send it an HTTP request directly:
+
+```bash
+curl https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
+```
+
+If your flow expects JSON, send a POST request:
+
+```bash
+curl -X POST https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello from Trigora"}'
+```
+
 Hosted commands require a deploy token:
 
 ```bash
@@ -164,7 +180,7 @@ Use it to:
 
 Package README:
 
-- [packages/cli/README.md](/Users/omarabd/Documents/GitHub/trigora/packages/cli/README.md)
+- [packages/cli/README.md](./packages/cli/README.md)
 
 ### `@trigora/sdk`
 
@@ -178,7 +194,7 @@ Use it to:
 
 Package README:
 
-- [packages/sdk/README.md](/Users/omarabd/Documents/GitHub/trigora/packages/sdk/README.md)
+- [packages/sdk/README.md](./packages/sdk/README.md)
 
 ### `@trigora/contracts`
 
@@ -193,7 +209,7 @@ Use it when you need:
 
 Package README:
 
-- [packages/contracts/README.md](/Users/omarabd/Documents/GitHub/trigora/packages/contracts/README.md)
+- [packages/contracts/README.md](./packages/contracts/README.md)
 
 ## Alpha Scope
 

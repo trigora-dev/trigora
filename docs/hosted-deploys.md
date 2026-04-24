@@ -48,6 +48,22 @@ Endpoint:
 https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
 ```
 
+## Try It
+
+Once your webhook flow is deployed, you can send it an HTTP request directly:
+
+```bash
+curl https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
+```
+
+If your flow expects JSON, send a POST request:
+
+```bash
+curl -X POST https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello from Trigora"}'
+```
+
 ## Alpha Limitation
 
 For the current alpha, hosted deploy supports webhook-triggered flows only.

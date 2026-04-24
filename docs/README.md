@@ -11,17 +11,17 @@ Use these guides to:
 
 ## Start Here
 
-- [Getting Started](/Users/omarabd/Documents/GitHub/trigora/docs/getting-started.md)
-- [Local Development](/Users/omarabd/Documents/GitHub/trigora/docs/local-development.md)
-- [Hosted Deploys](/Users/omarabd/Documents/GitHub/trigora/docs/hosted-deploys.md)
-- [Flow Management](/Users/omarabd/Documents/GitHub/trigora/docs/flow-management.md)
+- [Getting Started](./getting-started.md)
+- [Local Development](./local-development.md)
+- [Hosted Deploys](./hosted-deploys.md)
+- [Flow Management](./flow-management.md)
 
 ## Concepts
 
-- [Flows](/Users/omarabd/Documents/GitHub/trigora/docs/concepts/flows.md)
-- [Triggers](/Users/omarabd/Documents/GitHub/trigora/docs/concepts/triggers.md)
-- [Events](/Users/omarabd/Documents/GitHub/trigora/docs/concepts/events.md)
-- [Context](/Users/omarabd/Documents/GitHub/trigora/docs/concepts/context.md)
+- [Flows](./concepts/flows.md)
+- [Triggers](./concepts/triggers.md)
+- [Events](./concepts/events.md)
+- [Context](./concepts/context.md)
 
 ## Alpha Scope
 

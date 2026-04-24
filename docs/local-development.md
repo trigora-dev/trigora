@@ -91,4 +91,4 @@ Local development is especially useful for:
 - refining logs
 - validating trigger configuration
 
-When the flow is ready for a hosted webhook environment, move on to [Hosted Deploys](/Users/omarabd/Documents/GitHub/trigora/docs/hosted-deploys.md).
+When the flow is ready for a hosted webhook environment, move on to [Hosted Deploys](./hosted-deploys.md).

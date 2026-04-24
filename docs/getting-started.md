@@ -75,6 +75,6 @@ npx trigora flows enable <flowId>
 
 ## Next Steps
 
-- read [Local Development](/Users/omarabd/Documents/GitHub/trigora/docs/local-development.md)
-- learn the core concepts in [Flows](/Users/omarabd/Documents/GitHub/trigora/docs/concepts/flows.md) and [Triggers](/Users/omarabd/Documents/GitHub/trigora/docs/concepts/triggers.md)
-- review [Hosted Deploys](/Users/omarabd/Documents/GitHub/trigora/docs/hosted-deploys.md)
+- read [Local Development](./local-development.md)
+- learn the core concepts in [Flows](./concepts/flows.md) and [Triggers](./concepts/triggers.md)
+- review [Hosted Deploys](./hosted-deploys.md)
