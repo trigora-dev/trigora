@@ -1,32 +1,55 @@
 # Trigora
 
-**Run code when things happen.**
+Run code when things happen.
 
-Write flows locally. Deploy them globally. No infrastructure.
+Trigora is a local-first developer toolkit for defining flows in code, running them locally, and deploying hosted webhook flows to Trigora Cloud.
 
-Trigora is a local-first, event-driven automation platform for developers.  
-Define flows in code, test them locally with real data, and deploy the same flows to run globally.
+For the current alpha, Trigora gives you:
 
----
+- a CLI for local development and hosted deploys
+- a small SDK for defining flows
+- shared public contracts for the CLI, API, and consumers
+- hosted flow management commands for listing, inspecting, disabling, and enabling flows
 
-## ⚡ Why Trigora?
+## Install
 
-Automation today is fragmented:
-- scripts
-- cron jobs
-- webhook handlers
-- background workers
+Install the CLI and SDK in your project:
 
-Trigora unifies all of it into one model.
+```bash
+npm install trigora @trigora/sdk
+```
 
-- ✍️ Write flows in TypeScript  
-- ⚡ Run and debug locally  
-- 🧪 Test with real payloads  
-- 🌍 Deploy globally with zero infrastructure  
+If installed locally, run commands with `npx trigora`.
 
----
+## Quick Start
 
-## ✨ Quick example
+Create a starter project:
+
+```bash
+npx trigora init
+```
+
+This creates:
+
+- `flows/hello.ts`
+- `payload.json`
+- `.env.example`
+
+Run the starter flow once:
+
+```bash
+npx trigora trigger hello --payload payload.json
+```
+
+Start local watch mode:
+
+```bash
+npx trigora dev hello --payload payload.json
+```
+
+## Define A Flow
+
+Flows are plain TypeScript or JavaScript modules.
 
 ```ts
 import { defineFlow } from '@trigora/sdk';
@@ -42,141 +65,176 @@ export default defineFlow({
 });
 ```
 
----
+Supported trigger types today:
 
-## 🚀 Get started in 30 seconds
+- `manual`
+- `webhook`
+- `cron`
+
+Webhook flows can return HTTP-friendly values from `run`. Manual and cron flows are for local or background execution and do not use return values.
+
+## Local Development
+
+Trigora is designed to make local development the default workflow.
+
+Run a flow once:
 
 ```bash
-npm install trigora @trigora/sdk
-npx trigora init
+npx trigora trigger hello --payload payload.json
+```
+
+Run a flow in watch mode:
+
+```bash
 npx trigora dev hello --payload payload.json
 ```
 
-- edit your flow  
-- save  
-- it re-runs instantly  
-
-No deploy step. No setup.
-
----
-
-## 🧠 Local-first development
+The CLI can resolve either a flow name or a direct file path. For example:
 
 ```bash
-trigora dev hello --payload payload.json
+npx trigora trigger hello
+npx trigora trigger ./flows/hello.ts
 ```
 
-- run flows locally  
-- test with real payloads  
-- instant feedback loop  
+## Hosted Deploys
 
-This is your primary development workflow.
-
----
-
-## 🌍 Deploy globally (coming soon)
+Deploy hosted flows to Trigora Cloud:
 
 ```bash
-trigora deploy
+npx trigora deploy
 ```
 
-Take the exact same flow you tested locally and run it globally.
+Or deploy a specific flow:
 
-- 🚫 no infrastructure setup  
-- 🌎 globally distributed execution  
-- ⚙️ built-in triggers:
-  - webhooks  
-  - schedules / cron  
-  - queues  
-- 📦 production-ready runtime  
+```bash
+npx trigora deploy hello
+npx trigora deploy ./flows/hello.ts
+```
 
-> **Write once. Run locally. Deploy globally.**
+For alpha, hosted deploys currently support webhook-triggered flows only.
 
----
+Example result:
 
-## 🖥️ Platform (coming soon)
+```text
+✔ Deployment complete
 
-Trigora is evolving into a full platform for event-driven systems.
+Endpoint:
+https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
+```
 
-### UI Dashboard
+## Try It
 
-- view and manage flows  
-- inspect executions and logs  
-- monitor failures and retries  
-- manage triggers and environments  
+Once your webhook flow is deployed, you can send it an HTTP request directly:
 
----
+```bash
+curl https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
+```
 
-### Built-in triggers
+If your flow expects JSON, send a POST request:
 
-- webhooks (instant endpoints per flow)  
-- scheduled jobs / cron  
-- queues and background processing  
+```bash
+curl -X POST https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello from Trigora"}'
+```
 
----
+Hosted commands require a deploy token:
 
-### Observability
+```bash
+TRIGORA_DEPLOY_TOKEN=your-deploy-token
+```
 
-- structured logs  
-- execution history  
-- error tracking  
-- replay events  
+The CLI automatically reads `.env` and `.env.local` when present.
 
----
+## Hosted Flow Management
 
-### Secrets & environments
+The CLI can manage deployed hosted flows for your token:
 
-- secure environment variables  
-- per-flow configuration  
-- multi-environment support  
+```bash
+npx trigora flows
+npx trigora flows inspect <flowId>
+npx trigora flows disable <flowId>
+npx trigora flows enable <flowId>
+```
 
----
+This lets alpha users:
 
-### Edge execution
+- list hosted flows
+- inspect hosted flow details
+- disable a flow without deleting it
+- re-enable a previously disabled flow
 
-Powered by Cloudflare:
+## Packages
 
-- low-latency execution  
-- automatic scaling  
-- no infrastructure management  
+### `trigora`
 
----
+The CLI package.
 
-## 📦 Packages
+Use it to:
 
-- `trigora` — CLI (run + deploy flows)  
-- `@trigora/sdk` — flow definition API  
-- `@trigora/contracts` — shared types  
+- scaffold projects
+- trigger flows locally
+- run flows in watch mode
+- deploy hosted webhook flows
+- manage hosted flows in alpha
 
----
+Package README:
 
-## 🏗️ Repository
+- [packages/cli/README.md](./packages/cli/README.md)
+
+### `@trigora/sdk`
+
+The flow authoring SDK.
+
+Use it to:
+
+- define flows with `defineFlow`
+- get typed triggers, events, and context
+- get trigger-aware return typing for webhook flows
+
+Package README:
+
+- [packages/sdk/README.md](./packages/sdk/README.md)
+
+### `@trigora/contracts`
+
+Shared public contracts.
+
+Use it when you need:
+
+- shared flow and trigger types
+- deployment request and response contracts
+- hosted API error contracts
+- hosted flow management response types
+
+Package README:
+
+- [packages/contracts/README.md](./packages/contracts/README.md)
+
+## Alpha Scope
+
+Current alpha scope:
+
+- local flow development
+- local payload-driven testing
+- hosted webhook deploys
+- hosted flow listing, inspection, disable, and enable
+
+Current limitations:
+
+- hosted deploy currently supports webhook-triggered flows only
+- delete is not available yet from the CLI
+- advanced hosted environment management is not available yet
+
+## Repository
 
 This repository contains the open-source Trigora developer toolkit:
 
-- CLI  
-- SDK  
-- Contracts  
-- Documentation  
+- CLI
+- SDK
+- Contracts
+- documentation and examples
 
----
-
-## 📊 Status
-
-Early development.
-
-- ✅ Local development is stable  
-- 🚧 Global deployment in progress  
-- 🚧 Platform (UI + API) in development  
-
----
-
-## ⭐️ Support
-
-If you find Trigora interesting, consider giving it a star ⭐️
-
----
-
-## 📄 License
+## License
 
 MIT

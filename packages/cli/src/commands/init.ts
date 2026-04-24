@@ -25,7 +25,8 @@ const PAYLOAD_TEMPLATE = `{
 }
 `;
 
-const ENV_EXAMPLE_TEMPLATE = `# Add environment variables here
+const ENV_EXAMPLE_TEMPLATE = `# Trigora Cloud
+TRIGORA_DEPLOY_TOKEN=your-deploy-token
 `;
 
 async function pathExists(filePath: string): Promise<boolean> {

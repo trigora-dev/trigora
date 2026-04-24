@@ -1,10 +1,18 @@
 # Context
 
-The `ctx` object provides runtime utilities available inside a flow.
+The `ctx` object gives a flow access to runtime utilities.
 
----
+It is the second argument passed to `run`.
+
+```ts
+async run(event, ctx) {
+  await ctx.log.info('Hello from Trigora');
+}
+```
 
 ## Logging
+
+Use `ctx.log` for runtime logs:
 
 ```ts
 await ctx.log.info('message');
@@ -12,31 +20,28 @@ await ctx.log.warn('warning');
 await ctx.log.error('error');
 ```
 
-Logs are formatted and printed by the CLI.
+Use logs to capture:
 
----
+- important checkpoints
+- payload or input details when helpful
+- warnings for unexpected but recoverable states
+- failures and debugging context
 
 ## Environment Variables
 
+`ctx.env` provides access to environment variables available to the flow.
+
 ```ts
-ctx.env
+const apiKey = ctx.env.MY_API_KEY;
 ```
 
-Access environment variables passed into the runtime.
+When running locally, you will typically source these values from your shell, `.env`, or `.env.local`.
 
----
+## Keep Context Usage Simple
 
-## Design
+A good rule of thumb is:
 
-The context is intentionally minimal and explicit.  
-All side effects (logging, environment access, integrations) flow through `ctx`.
+- use `event` for the incoming data
+- use `ctx` for logging and environment access
 
----
-
-## Future
-
-Planned additions:
-
-- external service integrations
-- secrets management
-- tracing / observability
+This keeps flows easy to read and predictable to test.

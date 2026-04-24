@@ -1,11 +1,21 @@
 import { Command } from 'commander';
+import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
+import {
+  disableFlowCommand,
+  enableFlowCommand,
+  inspectFlowCommand,
+  listFlowsCommand,
+} from './commands/flows';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
-import { colors } from './lib/colors';
+import { CliDisplayError, isCliDisplayError, renderCliError } from './lib/cliOutput';
+import { loadProjectEnv } from './lib/loadProjectEnv';
 import { resolveFlowPath } from './lib/resolveFlowPath';
 
 const program = new Command();
+
+loadProjectEnv();
 
 program.name('trigora').description('Run code when things happen').version('0.1.0');
 
@@ -45,19 +55,58 @@ program
     });
   });
 
+program
+  .command('deploy')
+  .argument('[flow]', 'Flow name or file path')
+  .action(async (flowNameOrPath) => {
+    const filePath = flowNameOrPath ? resolveFlowPath(flowNameOrPath) : undefined;
+
+    await deployCommand({
+      filePath,
+    });
+  });
+
+const flowsCommand = program.command('flows').description('Manage deployed flows');
+
+flowsCommand.action(async () => {
+  await listFlowsCommand();
+});
+
+flowsCommand
+  .command('inspect')
+  .argument('<flowId>', 'Deployed flow ID')
+  .action(async (flowId) => {
+    await inspectFlowCommand(flowId);
+  });
+
+flowsCommand
+  .command('disable')
+  .argument('<flowId>', 'Deployed flow ID')
+  .action(async (flowId) => {
+    await disableFlowCommand(flowId);
+  });
+
+flowsCommand
+  .command('enable')
+  .argument('<flowId>', 'Deployed flow ID')
+  .action(async (flowId) => {
+    await enableFlowCommand(flowId);
+  });
+
 program.parseAsync(process.argv).catch((error: unknown) => {
-  console.error('');
-
-  const errorPrefix = colors.error('[error]');
-  const name = colors.flow('trigora');
-
-  console.error(`${errorPrefix} ${name} command failed`);
-
-  if (error instanceof Error) {
-    console.error(error.message);
-  } else {
-    console.error(error);
+  if (isCliDisplayError(error)) {
+    renderCliError(error);
+    process.exit(1);
   }
+
+  const reason = error instanceof Error ? error.message : String(error);
+
+  renderCliError(
+    new CliDisplayError({
+      title: 'Command failed',
+      details: [{ label: 'Reason', value: reason }],
+    }),
+  );
 
   process.exit(1);
 });
