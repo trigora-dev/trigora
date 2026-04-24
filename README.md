@@ -2,7 +2,10 @@
 
 Run code when things happen.
 
-Trigora is a local-first developer toolkit for defining flows in code, running them locally, and deploying hosted webhook flows to Trigora Cloud.
+Define flows in code, run them locally, and deploy them globally.
+
+Hosted deploy is currently in private alpha.  
+Request access: https://trigora.dev or https://discord.gg/EJnjjSf4WR
 
 For the current alpha, Trigora gives you:
 
@@ -145,6 +148,9 @@ TRIGORA_DEPLOY_TOKEN=your-deploy-token
 ```
 
 The CLI automatically reads `.env` and `.env.local` when present.
+
+Hosted deploy is currently in private alpha.  
+Request access: https://trigora.dev or https://discord.gg/EJnjjSf4WR
 
 ## Hosted Flow Management
 
