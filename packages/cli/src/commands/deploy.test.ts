@@ -273,6 +273,10 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_456/),
     );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Status\s+Ready to receive events/),
+    );
   });
 
   it('throws a helpful error when no flows exist', async () => {

@@ -180,7 +180,7 @@ function getSummaryTitle(status: CreateDeploymentResponse['status']): string {
 
 function getSummaryFooter(status: CreateDeploymentResponse['status'], flowCount: number): string {
   if (status === 'active') {
-    return flowCount === 1 ? 'Ready to receive events' : '';
+    return 'Ready to receive events';
   }
 
   return 'Activation is in progress';
