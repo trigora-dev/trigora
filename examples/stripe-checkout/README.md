@@ -70,4 +70,4 @@ The returned endpoint can be used as the Stripe webhook URL.
 
 ## Production note
 
-This example does not verify Stripe signatures. Production Stripe webhooks should verify signatures before trusting payloads.
+This example does not verify Stripe signatures. Production Stripe webhooks should verify signatures before trusting payloads. Deployed webhook flows expose `event.request.headers` and `event.request.rawBody` if you want to handle that verification yourself.

@@ -31,14 +31,16 @@ export default defineFlow({
       await ctx.log.info('Ignoring Stripe event', {
         eventType: body.type ?? 'unknown',
       });
-      return;
+
+      return { ok: true, ignored: true };
     }
 
     const session = body.data?.object;
 
     if (!session?.id) {
-      await ctx.log.warn('Stripe checkout session is missing an id');
-      return;
+      await ctx.log.warn('Missing checkout session id');
+
+      return { ok: false, error: 'Missing checkout session id' };
     }
 
     await fulfillOrder(session);
@@ -49,5 +51,11 @@ export default defineFlow({
       currency: session.currency,
       sessionId: session.id,
     });
+
+    return {
+      ok: true,
+      received: true,
+      sessionId: session.id,
+    };
   },
 });

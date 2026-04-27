@@ -69,6 +69,8 @@ That means:
 - `webhook` flows are the supported hosted deployment target today
 - webhook signature verification is not built in yet
 
+Deployed webhook flows do receive `event.request.headers` and `event.request.rawBody`, so you can verify provider signatures yourself when needed.
+
 ## Recommended Flow
 
 A typical alpha workflow looks like this:

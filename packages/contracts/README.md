@@ -63,6 +63,8 @@ These contracts define the core shape of Trigora flows:
 - `JsonValue`
 - `WebhookFlowResult`
 
+For webhook flows, `FlowEvent` can also include `request` metadata with headers, method, URL, and `rawBody` in addition to the parsed `payload`.
+
 Example:
 
 ```ts

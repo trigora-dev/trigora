@@ -38,3 +38,5 @@ Current limitations:
 - webhook signature verification is not built in yet
 - flow deletion is not available yet
 - advanced hosted environment management is not documented or exposed yet
+
+Deployed webhook flows do expose `event.request.headers` and `event.request.rawBody` if you want to verify signatures yourself.

@@ -309,6 +309,8 @@ Current limitations:
 - delete is not available yet from the CLI
 - advanced hosted environment management is not available yet
 
+Deployed webhook flows do expose `event.request.headers` and `event.request.rawBody` if you want to verify signatures yourself.
+
 ## Repository
 
 This repository contains the open-source Trigora developer toolkit:

@@ -164,15 +164,25 @@ This matches how Trigora uses them:
 Flows receive an event object:
 
 ```ts
-type FlowEvent<TPayload = unknown> = {
+type FlowEvent<TPayload = JsonValue> = {
   id: string;
   type: string;
   timestamp: string;
   payload: TPayload;
+  request?: {
+    headers: Record<string, string>;
+    method: string;
+    url: string;
+    rawBody: string;
+  };
 };
 ```
 
-In local manual runs, the payload comes from your JSON payload file when one is provided. In local webhook dev, the payload is the parsed JSON request body.
+In local manual runs, the payload comes from your JSON payload file when one is provided. In local webhook dev and deployed webhook flows, the payload is the parsed JSON request body.
+
+If you do not provide your own payload type, `event.payload` defaults to `JsonValue`.
+
+For webhook flows, request metadata may also be available on `event.request`, including headers, method, URL, and the raw request body. `event.request.rawBody` is useful when you want to verify webhook signatures yourself.
 
 ## Context
 

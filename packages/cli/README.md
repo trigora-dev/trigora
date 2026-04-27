@@ -320,6 +320,8 @@ Not in the CLI yet:
 - full hosted trigger management from the CLI
 - advanced environment management
 
+Deployed webhook flows do expose `event.request.headers` and `event.request.rawBody` if you want to verify signatures yourself.
+
 ## Related Packages
 
 - `trigora` - CLI
