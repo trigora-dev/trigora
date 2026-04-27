@@ -1,45 +1,64 @@
+import type {
+  CronTrigger,
+  ManualFlowDefinition,
+  ManualTrigger,
+  WebhookTrigger,
+} from '@trigora/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { defineFlow } from './defineFlow';
 
 void defineFlow({
   id: 'valid-webhook-flow',
-  trigger: { type: 'webhook' as const, event: 'orders.created' },
+  trigger: { type: 'webhook', event: 'orders.created' },
   async run() {
     return { ok: true };
   },
 });
 
-void defineFlow({
-  id: 'invalid-webhook-flow',
+const invalidWebhookTrigger: WebhookTrigger = {
+  type: 'webhook',
+  // @ts-expect-error webhook triggers must not accept cron-only fields
+  cron: '* * * * *',
+};
+
+const invalidManualTrigger: ManualTrigger = {
+  type: 'manual',
+  // @ts-expect-error manual triggers must not accept webhook-only fields
+  event: 'orders.created',
+};
+
+const invalidManualReturnFlow: ManualFlowDefinition = {
+  id: 'invalid-manual-return-flow',
   trigger: {
-    type: 'webhook' as const,
-    // @ts-expect-error webhook triggers must not accept cron-only fields
-    cron: '* * * * *',
+    type: 'manual',
   },
+  // @ts-expect-error manual flows must not return webhook-style response bodies
   async run() {
     return { ok: true };
   },
-});
+};
+
+const invalidCronTrigger: CronTrigger = {
+  type: 'cron',
+  cron: '0 9 * * *',
+  // @ts-expect-error cron triggers must not accept webhook-only fields
+  event: 'orders.created',
+};
+
+void invalidWebhookTrigger;
+void invalidManualTrigger;
+void invalidManualReturnFlow;
+void invalidCronTrigger;
 
 void defineFlow({
-  id: 'invalid-manual-flow',
-  trigger: {
-    type: 'manual' as const,
-    // @ts-expect-error manual triggers must not accept webhook-only fields
-    event: 'orders.created',
+  id: 'valid-webhook-inference-flow',
+  trigger: { type: 'webhook' },
+  async run() {
+    return {
+      ok: true,
+      received: true,
+    };
   },
-  async run() {},
-});
-
-void defineFlow({
-  id: 'invalid-cron-flow',
-  trigger: {
-    type: 'cron' as const,
-    cron: '0 9 * * *',
-    // @ts-expect-error cron triggers must not accept webhook-only fields
-    event: 'orders.created',
-  },
-  async run() {},
 });
 
 describe('defineFlow', () => {
@@ -48,7 +67,7 @@ describe('defineFlow', () => {
 
     const flow = defineFlow({
       id: 'hello',
-      trigger: { type: 'manual' as const },
+      trigger: { type: 'manual' },
       run,
     });
 
@@ -62,7 +81,7 @@ describe('defineFlow', () => {
 
     const flow = defineFlow({
       id: 'async-flow',
-      trigger: { type: 'manual' as const },
+      trigger: { type: 'manual' },
       run,
     });
 
@@ -89,7 +108,7 @@ describe('defineFlow', () => {
   it('allows webhook flows to return HTTP-friendly values', async () => {
     const flow = defineFlow({
       id: 'webhook-flow',
-      trigger: { type: 'webhook' as const },
+      trigger: { type: 'webhook' },
       async run() {
         return {
           ok: true,

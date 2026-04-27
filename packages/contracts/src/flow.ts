@@ -2,16 +2,14 @@ import type { FlowContext } from './context';
 import type { FlowEvent } from './event';
 import type { CronTrigger, ManualTrigger, Trigger, WebhookTrigger } from './trigger';
 
+export type JsonObject = {
+  [key: string]: JsonValue | undefined;
+};
+
 /**
  * JSON-compatible values that can be safely serialized for webhook responses.
  */
-export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: JsonValue }
-  | JsonValue[];
+export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 
 /**
  * Values a webhook flow can return to shape the HTTP response.
@@ -25,7 +23,7 @@ export type WebhookFlowResult = Response | JsonValue | undefined;
  * - Other trigger types usually return `void`.
  */
 export type FlowRunFn<
-  TPayload = unknown,
+  TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
   TTrigger extends Trigger = Trigger,
 > = (
@@ -43,7 +41,7 @@ type BaseFlowDefinition = {
 };
 
 export type ManualFlowDefinition<
-  TPayload = unknown,
+  TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
 > = BaseFlowDefinition & {
   /**
@@ -57,7 +55,7 @@ export type ManualFlowDefinition<
 };
 
 export type WebhookFlowDefinition<
-  TPayload = unknown,
+  TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
 > = BaseFlowDefinition & {
   /**
@@ -71,7 +69,7 @@ export type WebhookFlowDefinition<
 };
 
 export type CronFlowDefinition<
-  TPayload = unknown,
+  TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
 > = BaseFlowDefinition & {
   /**
@@ -99,7 +97,7 @@ type TriggerTypeOf<TTrigger extends Trigger> = TTrigger['type'];
  * - `run` contains the flow logic
  */
 export type FlowDefinition<
-  TPayload = unknown,
+  TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
   TTrigger extends Trigger = Trigger,
 > = Extract<

@@ -1,4 +1,10 @@
-import type { FlowDefinition, Trigger } from '@trigora/contracts';
+import type {
+  CronFlowDefinition,
+  FlowDefinition,
+  JsonValue,
+  ManualFlowDefinition,
+  WebhookFlowDefinition,
+} from '@trigora/contracts';
 
 /**
  * Define a Trigora flow.
@@ -24,16 +30,27 @@ import type { FlowDefinition, Trigger } from '@trigora/contracts';
  *   id: 'hello',
  *   trigger: { type: 'webhook' },
  *   async run(event, ctx) {
- *     await ctx.log.info('Received event', { payload: event.payload });
+ *     await ctx.log.info('Received event', event.payload);
  *     return { ok: true };
  *   },
  * });
  * ```
  */
 export function defineFlow<
-  TPayload = unknown,
+  TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
-  TTrigger extends Trigger = Trigger,
->(flow: FlowDefinition<TPayload, TEnv, TTrigger>): FlowDefinition<TPayload, TEnv, TTrigger> {
+>(flow: ManualFlowDefinition<TPayload, TEnv>): ManualFlowDefinition<TPayload, TEnv>;
+
+export function defineFlow<
+  TPayload = JsonValue,
+  TEnv extends Record<string, string> = Record<string, string>,
+>(flow: WebhookFlowDefinition<TPayload, TEnv>): WebhookFlowDefinition<TPayload, TEnv>;
+
+export function defineFlow<
+  TPayload = JsonValue,
+  TEnv extends Record<string, string> = Record<string, string>,
+>(flow: CronFlowDefinition<TPayload, TEnv>): CronFlowDefinition<TPayload, TEnv>;
+
+export function defineFlow(flow: FlowDefinition): FlowDefinition {
   return flow;
 }
