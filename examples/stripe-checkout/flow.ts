@@ -20,12 +20,12 @@ async function fulfillOrder(session: StripeCheckoutSession): Promise<void> {
   void session;
 }
 
-export default defineFlow({
+export default defineFlow<StripeCheckoutEvent>({
   id: 'stripe-checkout',
   trigger: { type: 'webhook' },
 
   async run(event, ctx) {
-    const body = event.payload as StripeCheckoutEvent;
+    const body = event.payload;
 
     if (body.type !== 'checkout.session.completed') {
       await ctx.log.info('Ignoring Stripe event', {
