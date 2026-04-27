@@ -11,9 +11,9 @@ const HELLO_FLOW_TEMPLATE = `import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
   id: 'hello',
-  trigger: { type: 'manual' },
+  trigger: { type: 'webhook' },
   async run(event, ctx) {
-    await ctx.log.info('Hello from Trigora', event.payload);
+    await ctx.log.info('Received event', event.payload);
   },
 });
 `;
@@ -67,6 +67,7 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   console.log('');
   console.log(`${initPrefix} ${colors.flow('Next steps:')}`);
+  console.log(`${initPrefix} trigora dev hello`);
   console.log(`${initPrefix} trigora trigger hello --payload payload.json`);
-  console.log(`${initPrefix} trigora dev hello --payload payload.json`);
+  console.log(`${initPrefix} trigora deploy hello`);
 }

@@ -44,7 +44,8 @@ describe('initCommand', () => {
     const envExample = await fs.readFile(path.join(tempDir, '.env.example'), 'utf-8');
 
     expect(helloFlow).toContain("id: 'hello'");
-    expect(helloFlow).toContain("trigger: { type: 'manual' }");
+    expect(helloFlow).toContain("trigger: { type: 'webhook' }");
+    expect(helloFlow).toContain("await ctx.log.info('Received event', event.payload)");
     expect(payload).toContain('"message": "Hello, world!"');
     expect(envExample).toContain('# Trigora Cloud');
     expect(envExample).toContain('TRIGORA_DEPLOY_TOKEN=your-deploy-token');
@@ -116,11 +117,10 @@ describe('initCommand', () => {
 
     expect(console.log).toHaveBeenCalledWith('');
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Next steps:/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora dev hello/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/trigora trigger hello --payload payload\.json/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/trigora dev hello --payload payload\.json/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora deploy hello/));
   });
 });
