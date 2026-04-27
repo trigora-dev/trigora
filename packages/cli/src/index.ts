@@ -9,6 +9,7 @@ import {
 } from './commands/flows';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
+import { resolveDefaultDevFlowPath } from './lib/resolveDefaultDevFlowPath';
 import { CliDisplayError, isCliDisplayError, renderCliError } from './lib/cliOutput';
 import { loadProjectEnv } from './lib/loadProjectEnv';
 import { resolveFlowPath } from './lib/resolveFlowPath';
@@ -44,10 +45,12 @@ program
 
 program
   .command('dev')
-  .argument('<flow>', 'Flow name or file path')
+  .argument('[flow]', 'Flow name or file path')
   .option('-p, --payload <path>', 'Path to JSON payload file')
   .action(async (flowNameOrPath, options) => {
-    const filePath = resolveFlowPath(flowNameOrPath);
+    const filePath = flowNameOrPath
+      ? resolveFlowPath(flowNameOrPath)
+      : await resolveDefaultDevFlowPath();
 
     await devCommand({
       filePath,
