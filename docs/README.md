@@ -28,11 +28,13 @@ Use these guides to:
 Current alpha scope includes:
 
 - local flow development with `trigger` and `dev`
+- local webhook dev server for webhook flows
 - hosted webhook deploys with `deploy`
 - hosted flow listing, inspection, disable, and enable
 
 Current limitations:
 
 - hosted deploy currently supports webhook-triggered flows only
+- webhook signature verification is not built in yet
 - flow deletion is not available yet
 - advanced hosted environment management is not documented or exposed yet

@@ -25,8 +25,8 @@ npx trigora deploy
 Deploy a specific flow by name or path:
 
 ```bash
-npx trigora deploy hello
-npx trigora deploy ./flows/hello.ts
+npx trigora deploy stripe-checkout
+npx trigora deploy ./flows/stripe-checkout.ts
 ```
 
 ## What Deploy Does
@@ -50,18 +50,12 @@ https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
 
 ## Try It
 
-Once your webhook flow is deployed, you can send it an HTTP request directly:
-
-```bash
-curl https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
-```
-
-If your flow expects JSON, send a POST request:
+Once your webhook flow is deployed, send it a JSON `POST` request:
 
 ```bash
 curl -X POST https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21 \
   -H "Content-Type: application/json" \
-  -d '{"message":"Hello from Trigora"}'
+  -d '{"type":"checkout.session.completed","data":{"object":{"id":"cs_test_123","customer_email":"customer@example.com","amount_total":2000,"currency":"usd"}}}'
 ```
 
 ## Alpha Limitation
@@ -73,6 +67,7 @@ That means:
 - `manual` flows are useful for local development and testing
 - `cron` flows can be authored, but are not part of the current hosted deploy path
 - `webhook` flows are the supported hosted deployment target today
+- webhook signature verification is not built in yet
 
 ## Recommended Flow
 
@@ -81,5 +76,5 @@ A typical alpha workflow looks like this:
 1. build and test the flow locally
 2. switch the hosted flow to a webhook trigger if needed
 3. set `TRIGORA_DEPLOY_TOKEN`
-4. run `npx trigora deploy`
+4. run `npx trigora deploy stripe-checkout`
 5. inspect and manage the deployed flow with `trigora flows`

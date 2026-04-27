@@ -22,19 +22,21 @@ If you install locally, run commands with `npx trigora`. The examples below use 
 
 ## Quick Start
 
-Create a project, run a flow once, then start watch mode:
+Create a project, start the local webhook dev server, then deploy:
 
 ```bash
 trigora init
-trigora trigger hello --payload payload.json
-trigora dev hello --payload payload.json
+trigora dev hello
+trigora deploy hello
 ```
 
 `trigora init` creates:
 
 - `flows/hello.ts`
-- `payload.json`
+- `payload.json` - optional sample payload for `trigora trigger` or payload dev mode
 - `.env.example`
+
+`payload.json` is not needed for webhook dev mode. Webhook flows receive payloads from HTTP requests.
 
 ## Project Structure
 
@@ -56,11 +58,9 @@ import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
   id: 'hello',
-  trigger: { type: 'manual' },
+  trigger: { type: 'webhook' },
   async run(event, ctx) {
-    await ctx.log.info('Hello from Trigora', {
-      payload: event.payload,
-    });
+    await ctx.log.info('Received event', event.payload);
   },
 });
 ```
@@ -79,7 +79,7 @@ trigora init --force
 What it does:
 
 - creates a starter flow at `flows/hello.ts`
-- creates a sample `payload.json`
+- creates an optional sample `payload.json` for local payload-driven runs
 - creates `.env.example` with `TRIGORA_DEPLOY_TOKEN`
 - prints suggested next steps
 
@@ -104,24 +104,45 @@ Behavior:
 
 If no payload file is passed, the payload defaults to `{}`.
 
-### `trigora dev <flow>`
+`trigger` runs the flow once with a local JSON payload file. It does not start an HTTP server.
 
-Run a flow locally in watch mode.
+### `trigora dev [flow]`
+
+Run a flow locally in development mode.
 
 ```bash
-trigora dev hello --payload payload.json
-trigora dev ./flows/hello.ts --payload payload.json
+trigora dev hello
+trigora dev ./flows/hello.ts
+trigora dev my-manual-flow --payload payload.json
 ```
 
-Behavior:
+Webhook dev mode:
+
+- starts a local webhook server at `http://localhost:5252`
+- falls forward to the next available port if `5252` is in use
+- accepts `POST /`
+- parses JSON request bodies
+- runs the flow only when a request is received
+- watches the flow file and reloads it on save without executing it
+
+Webhook dev mode does not use `payload.json`; send payloads with HTTP requests instead.
+
+Manual / payload dev mode:
 
 - runs the flow immediately
 - watches the flow file for changes
 - watches the payload file when provided
 - re-runs automatically on save
-- keeps output concise and readable between reruns
 
-This is the main local development workflow.
+Use `payload.json` here when you want sample local input for payload-driven runs.
+
+If exactly one flow file exists under `flows/`, you can omit the flow argument:
+
+```bash
+trigora dev
+```
+
+The CLI resolves either a flow name or a direct file path.
 
 ### `trigora deploy [flow]`
 
@@ -266,7 +287,7 @@ Examples:
 
 ```text
 [hello] RUN starting
-[hello] INFO Hello from Trigora
+[hello] INFO Received event
 [hello] RUN succeeded (3ms)
 ```
 
@@ -294,6 +315,7 @@ Current alpha scope:
 
 Not in the CLI yet:
 
+- webhook signature verification
 - flow deletion
 - full hosted trigger management from the CLI
 - advanced environment management

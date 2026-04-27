@@ -25,9 +25,7 @@ export default defineFlow({
   id: 'hello',
   trigger: { type: 'manual' },
   async run(event, ctx) {
-    await ctx.log.info('Hello from Trigora', {
-      payload: event.payload,
-    });
+    await ctx.log.info('Hello from Trigora', event.payload);
   },
 });
 ```
@@ -75,9 +73,7 @@ export default defineFlow({
   id: 'hello',
   trigger: { type: 'manual' },
   async run(event, ctx) {
-    await ctx.log.info('Triggered manually', {
-      payload: event.payload,
-    });
+    await ctx.log.info('Triggered manually', event.payload);
   },
 });
 ```
@@ -115,9 +111,7 @@ export default defineFlow({
   id: 'nightly-sync',
   trigger: { type: 'cron', cron: '0 2 * * *' },
   async run(event, ctx) {
-    await ctx.log.info('Nightly sync started', {
-      payload: event.payload,
-    });
+    await ctx.log.info('Nightly sync started', event.payload);
   },
 });
 ```
@@ -178,7 +172,7 @@ type FlowEvent<TPayload = unknown> = {
 };
 ```
 
-In local CLI runs, the payload comes from your JSON payload file when one is provided.
+In local manual runs, the payload comes from your JSON payload file when one is provided. In local webhook dev, the payload is the parsed JSON request body.
 
 ## Context
 
@@ -211,7 +205,10 @@ That means most flow authors can stay entirely within `@trigora/sdk`.
 ## Typical Workflow
 
 1. Define a flow with `defineFlow`
-2. Run it locally with `trigora trigger` or `trigora dev`
+2. Run it locally with:
+   - `trigora trigger hello --payload payload.json` for one-off runs
+   - `trigora dev hello --payload payload.json` for manual or payload watch mode
+   - `trigora dev stripe-checkout` for a local webhook server
 3. Deploy webhook flows with `trigora deploy`
 4. Manage hosted flows with `trigora flows`
 

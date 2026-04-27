@@ -4,6 +4,14 @@ Run code when things happen.
 
 Define flows in code, run them locally, and deploy them globally.
 
+Trigora is designed for event-driven code:
+
+- webhooks
+- scheduled jobs
+- background tasks
+
+It lets you build and test these flows locally before deploying them.
+
 Hosted deploy is currently in private alpha.  
 Request access: https://trigora.dev or https://discord.gg/EJnjjSf4WR
 
@@ -32,23 +40,60 @@ Create a starter project:
 npx trigora init
 ```
 
-This creates:
+This creates a starter project with:
 
 - `flows/hello.ts`
-- `payload.json`
+- `payload.json` — optional sample payload for `trigora trigger` or payload dev mode
 - `.env.example`
 
-Run the starter flow once:
+`payload.json` is not needed for webhook dev mode. Webhook flows receive payloads from HTTP requests.
+
+Run the webhook dev server:
 
 ```bash
-npx trigora trigger hello --payload payload.json
+npx trigora dev hello
 ```
 
-Start local watch mode:
+Send a test event:
 
 ```bash
-npx trigora dev hello --payload payload.json
+curl -X POST http://localhost:5252 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello from Trigora"}'
 ```
+
+Deploy the webhook flow:
+
+```bash
+npx trigora deploy hello
+```
+
+## Local Webhook Development
+
+For webhook flows, `trigora dev` starts a local webhook server:
+
+```bash
+# run locally
+npx trigora dev hello
+```
+
+Example output:
+
+```text
+[dev] running hello
+
+Local webhook endpoint:
+http://localhost:5252
+
+Watching flow:
+flows/hello.ts
+
+Ready to receive events.
+```
+
+Edit the flow and Trigora reloads the handler without running it. The next request uses the updated code.
+
+For a real-world webhook example, see [examples/stripe-checkout](./examples/stripe-checkout).
 
 ## Define A Flow
 
@@ -59,11 +104,9 @@ import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
   id: 'hello',
-  trigger: { type: 'manual' },
+  trigger: { type: 'webhook' },
   async run(event, ctx) {
-    await ctx.log.info('Hello from Trigora', {
-      payload: event.payload,
-    });
+    await ctx.log.info('Received event', event.payload);
   },
 });
 ```
@@ -80,23 +123,60 @@ Webhook flows can return HTTP-friendly values from `run`. Manual and cron flows 
 
 Trigora is designed to make local development the default workflow.
 
-Run a flow once:
+### Webhook Dev Server
+
+Use webhook dev mode for flows with `trigger: { type: 'webhook' }`:
+
+```bash
+npx trigora dev hello
+```
+
+This mode:
+
+- starts a local webhook server on `http://localhost:5252`
+- accepts `POST` requests
+- runs the flow only when a request is received
+- watches the flow file
+- reloads the handler on flow edits without running it
+
+Webhook dev mode does not use `payload.json`; send payloads with HTTP requests instead.
+
+The next webhook request uses the updated flow code.
+
+### Manual / Payload Dev Mode
+
+Use payload dev mode for a non-webhook flow:
+
+```bash
+npx trigora dev my-manual-flow --payload payload.json
+```
+
+This mode:
+
+- runs the flow once immediately
+- watches the selected flow file
+- watches the payload file when provided
+- reruns when either file changes
+
+Use `payload.json` here when you want a sample local payload file to drive runs.
+
+### Run Once
+
+Use `trigger` when you want a single local execution with a payload file:
 
 ```bash
 npx trigora trigger hello --payload payload.json
 ```
 
-Run a flow in watch mode:
-
-```bash
-npx trigora dev hello --payload payload.json
-```
+This runs the flow once with a local JSON payload file. It does not start an HTTP server.
 
 The CLI can resolve either a flow name or a direct file path. For example:
 
 ```bash
 npx trigora trigger hello
 npx trigora trigger ./flows/hello.ts
+npx trigora dev hello
+npx trigora dev ./flows/hello.ts
 ```
 
 ## Hosted Deploys
@@ -104,12 +184,7 @@ npx trigora trigger ./flows/hello.ts
 Deploy hosted flows to Trigora Cloud:
 
 ```bash
-npx trigora deploy
-```
-
-Or deploy a specific flow:
-
-```bash
+# deploy
 npx trigora deploy hello
 npx trigora deploy ./flows/hello.ts
 ```
@@ -127,15 +202,17 @@ https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
 
 ## Try It
 
-Once your webhook flow is deployed, you can send it an HTTP request directly:
+Deploy your webhook flow:
 
 ```bash
-curl https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21
+# deploy
+npx trigora deploy hello
 ```
 
-If your flow expects JSON, send a POST request:
+Then send it a request:
 
 ```bash
+# send a request
 curl -X POST https://trigora.dev/f/7f3c2d91-4a9b-4e92-9f16-5d1c0d7c8c21 \
   -H "Content-Type: application/json" \
   -d '{"message":"Hello from Trigora"}'
@@ -148,9 +225,6 @@ TRIGORA_DEPLOY_TOKEN=your-deploy-token
 ```
 
 The CLI automatically reads `.env` and `.env.local` when present.
-
-Hosted deploy is currently in private alpha.  
-Request access: https://trigora.dev or https://discord.gg/EJnjjSf4WR
 
 ## Hosted Flow Management
 
@@ -180,7 +254,8 @@ Use it to:
 
 - scaffold projects
 - trigger flows locally
-- run flows in watch mode
+- run local payload dev mode
+- run a local webhook dev server
 - deploy hosted webhook flows
 - manage hosted flows in alpha
 
@@ -223,12 +298,14 @@ Current alpha scope:
 
 - local flow development
 - local payload-driven testing
+- local webhook dev server
 - hosted webhook deploys
 - hosted flow listing, inspection, disable, and enable
 
 Current limitations:
 
 - hosted deploy currently supports webhook-triggered flows only
+- webhook signature verification is not built in yet
 - delete is not available yet from the CLI
 - advanced hosted environment management is not available yet
 

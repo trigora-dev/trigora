@@ -21,12 +21,30 @@ npx trigora init
 This creates:
 
 - `flows/hello.ts`
-- `payload.json`
+- `payload.json` - optional sample payload for `trigora trigger` or payload dev mode
 - `.env.example`
 
-## 3. Run The Starter Flow
+`payload.json` is not needed for webhook dev mode. Webhook flows receive payloads from HTTP requests.
 
-Run the flow once with the sample payload:
+## 3. Start Local Webhook Development
+
+The starter flow is a webhook flow, so `dev` starts a local server:
+
+```bash
+npx trigora dev hello
+```
+
+Send it a test event:
+
+```bash
+curl -X POST http://localhost:5252 \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello from Trigora"}'
+```
+
+## 4. Run The Same Flow Once
+
+You can still run the same flow once with the sample payload:
 
 ```bash
 npx trigora trigger hello --payload payload.json
@@ -34,35 +52,30 @@ npx trigora trigger hello --payload payload.json
 
 You should see flow logs and a local run summary in the terminal.
 
-## 4. Start Local Watch Mode
+This runs the flow once with a local JSON payload file. It does not start an HTTP server.
 
-Run the same flow in watch mode:
+## 5. Manual / Payload Dev Mode
+
+For a manual or other non-webhook flow, `dev` can also watch both the flow and a payload file:
 
 ```bash
-npx trigora dev hello --payload payload.json
+npx trigora dev my-manual-flow --payload payload.json
 ```
 
-Now Trigora will:
+Use `payload.json` here when you want a sample local payload file to drive runs.
 
-- run the flow immediately
-- watch the flow file for changes
-- watch the payload file for changes
-- re-run automatically when you save
+## 6. Deploy A Hosted Flow
 
-## 5. Deploy A Hosted Flow
-
-The starter flow created by `trigora init` uses a manual trigger for local development.
-
-Before deploying, create or update a flow to use a webhook trigger, then set your deploy token and run:
+The starter flow created by `trigora init` is already a webhook flow, so you can deploy it directly:
 
 ```bash
 TRIGORA_DEPLOY_TOKEN=your-deploy-token
-npx trigora deploy
+npx trigora deploy hello
 ```
 
 For the current alpha, hosted deploys support webhook-triggered flows only.
 
-## 6. Manage Hosted Flows
+## 7. Manage Hosted Flows
 
 After deploying, you can manage hosted flows from the CLI:
 
