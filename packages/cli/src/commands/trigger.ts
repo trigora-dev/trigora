@@ -1,3 +1,4 @@
+import type { JsonValue } from '@trigora/contracts';
 import { createLocalContext } from '../lib/createLocalContext';
 import { colors } from '../lib/colors';
 import { loadJsonFile } from '../lib/loadJsonFile';
@@ -8,7 +9,7 @@ type TriggerOptions = {
   payloadPath?: string;
 };
 
-async function loadPayload(filePath?: string) {
+async function loadPayload(filePath?: string): Promise<JsonValue> {
   if (!filePath) return {};
 
   return loadJsonFile(filePath);

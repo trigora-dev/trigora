@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import type { FlowDefinition } from '@trigora/contracts';
+import type { FlowDefinition, JsonValue } from '@trigora/contracts';
 import { colors } from '../lib/colors';
 import { createLocalContext } from '../lib/createLocalContext';
 import { loadFlowModule } from '../lib/loadFlowModule';
@@ -95,7 +95,7 @@ async function findAvailablePort(startPort: number): Promise<number> {
   }
 }
 
-async function readJsonRequest(req: http.IncomingMessage): Promise<unknown> {
+async function readJsonRequest(req: http.IncomingMessage): Promise<JsonValue> {
   const chunks: Buffer[] = [];
 
   return new Promise((resolve, reject) => {
@@ -301,7 +301,7 @@ async function loadWebhookFlow(filePath: string): Promise<FlowDefinition> {
   return flow;
 }
 
-async function runWebhookFlow(flow: FlowDefinition, body: unknown): Promise<unknown> {
+async function runWebhookFlow(flow: FlowDefinition, body: JsonValue): Promise<unknown> {
   const ctx = createLocalContext(flow.id);
   const event = {
     id: `evt_local_${Date.now()}`,
@@ -492,7 +492,7 @@ async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Pro
       return;
     }
 
-    let parsedBody: unknown;
+    let parsedBody: JsonValue;
 
     try {
       parsedBody = await readJsonRequest(req);

@@ -1,6 +1,7 @@
+import type { JsonValue } from '@trigora/contracts';
 import fs from 'node:fs/promises';
 
-export async function loadJsonFile(filePath: string): Promise<unknown> {
+export async function loadJsonFile(filePath: string): Promise<JsonValue> {
   let raw: string;
 
   try {
