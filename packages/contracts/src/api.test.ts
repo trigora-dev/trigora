@@ -3,10 +3,15 @@ import { describe, expect, it } from 'vitest';
 import type {
   ApiErrorResponse,
   CronFlowRecord,
+  DeleteFlowSecretResponse,
+  FlowSecretRecord,
   FlowStatusResponse,
   GetFlowResponse,
+  ListFlowSecretsResponse,
   ListFlowsResponse,
   QueueFlowRecord,
+  SetFlowSecretRequest,
+  SetFlowSecretResponse,
   WebhookFlowRecord,
 } from './api';
 
@@ -88,5 +93,38 @@ describe('API contract types', () => {
 
     expect(response.ok).toBe(true);
     expect(response.flow.status).toBe('disabled');
+  });
+
+  it('accepts hosted flow secret contracts', () => {
+    const secret: FlowSecretRecord = {
+      name: 'STRIPE_WEBHOOK_SECRET',
+      createdAt: '2026-05-03T12:00:00.000Z',
+      updatedAt: '2026-05-03T12:00:00.000Z',
+    };
+
+    const listResponse: ListFlowSecretsResponse = {
+      secrets: [secret],
+    };
+
+    const setRequest: SetFlowSecretRequest = {
+      name: 'STRIPE_WEBHOOK_SECRET',
+      value: 'super-secret',
+    };
+
+    const setResponse: SetFlowSecretResponse = {
+      ok: true,
+      secret,
+    };
+
+    const deleteResponse: DeleteFlowSecretResponse = {
+      ok: true,
+      deleted: true,
+      name: 'STRIPE_WEBHOOK_SECRET',
+    };
+
+    expect(listResponse.secrets[0]?.name).toBe('STRIPE_WEBHOOK_SECRET');
+    expect(setRequest.name).toBe('STRIPE_WEBHOOK_SECRET');
+    expect(setResponse.secret.updatedAt).toBe('2026-05-03T12:00:00.000Z');
+    expect(deleteResponse.deleted).toBe(true);
   });
 });

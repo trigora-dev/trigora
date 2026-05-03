@@ -67,3 +67,29 @@ export type FlowStatusResponse = {
     status: FlowStatus;
   };
 };
+
+export type FlowSecretRecord = {
+  createdAt: string;
+  name: string;
+  updatedAt: string;
+};
+
+export type ListFlowSecretsResponse = {
+  secrets: FlowSecretRecord[];
+};
+
+export type SetFlowSecretRequest = {
+  name: string;
+  value: string;
+};
+
+export type SetFlowSecretResponse = {
+  ok: true;
+  secret: FlowSecretRecord;
+};
+
+export type DeleteFlowSecretResponse = {
+  ok: true;
+  deleted: true;
+  name: string;
+};

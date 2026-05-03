@@ -33,6 +33,7 @@ This package exports public contracts for:
 - deployment request and response payloads
 - structured API errors
 - hosted flow management responses
+- hosted flow secret responses
 
 Everything is exported from the package root:
 
@@ -41,9 +42,11 @@ import type {
   ApiErrorResponse,
   CreateDeploymentRequest,
   CreateDeploymentResponse,
+  FlowSecretRecord,
   FlowDefinition,
   FlowRecord,
   FlowStatusResponse,
+  ListFlowSecretsResponse,
   Trigger,
 } from '@trigora/contracts';
 ```
@@ -164,6 +167,11 @@ These contracts support hosted flow management responses used by the CLI and oth
 - `ListFlowsResponse`
 - `GetFlowResponse`
 - `FlowStatusResponse`
+- `FlowSecretRecord`
+- `ListFlowSecretsResponse`
+- `SetFlowSecretRequest`
+- `SetFlowSecretResponse`
+- `DeleteFlowSecretResponse`
 
 Example:
 
@@ -186,6 +194,8 @@ const response: ListFlowsResponse = {
 ```
 
 `FlowStatusResponse` is the shared response shape for flow status changes such as disable and enable.
+
+Hosted secret responses expose secret metadata only. Secret values are write-only and should not be returned by the API.
 
 ## When To Use `@trigora/contracts`
 
