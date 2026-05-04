@@ -42,8 +42,11 @@ const helloFlow = {
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn(),
+    deleteFlowSecret: vi.fn(),
     listFlows: vi.fn().mockResolvedValue([helloFlow]),
     getFlow: vi.fn().mockResolvedValue(helloFlow),
+    listFlowSecrets: vi.fn(),
+    setFlowSecret: vi.fn(),
     disableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
       status: 'disabled',

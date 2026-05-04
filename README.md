@@ -246,6 +246,25 @@ This lets alpha users:
 - disable a flow without deleting it
 - re-enable a previously disabled flow
 
+## Secrets
+
+Hosted flows can access secrets through `ctx.env`.
+
+```bash
+npx trigora flows
+npx trigora secrets set STRIPE_WEBHOOK_SECRET --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+npx trigora secrets list --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+npx trigora secrets delete STRIPE_WEBHOOK_SECRET --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+```
+
+Then in code:
+
+```ts
+const secret = ctx.env.STRIPE_WEBHOOK_SECRET;
+```
+
+Use `trigora flows` to find the hosted flow ID first. `trigora secrets set` prompts for the value securely by default, and `--value <value>` is available as an optional non-interactive alternative when needed. Secrets are managed separately from deploys. `trigora deploy` uploads code only.
+
 ## Packages
 
 ### `trigora`

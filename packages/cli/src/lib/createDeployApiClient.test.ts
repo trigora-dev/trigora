@@ -467,4 +467,149 @@ describe('createDeployApiClient', () => {
       },
     );
   });
+
+  it('sets a hosted flow secret without leaking the value in the response shape', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          ok: true,
+          secret: {
+            name: 'STRIPE_WEBHOOK_SECRET',
+            createdAt: '2026-05-03T12:00:00.000Z',
+            updatedAt: '2026-05-03T12:00:00.000Z',
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(
+      client.setFlowSecret(managedFlow.id, {
+        name: 'STRIPE_WEBHOOK_SECRET',
+        value: 'super-secret',
+      }),
+    ).resolves.toEqual({
+      name: 'STRIPE_WEBHOOK_SECRET',
+      createdAt: '2026-05-03T12:00:00.000Z',
+      updatedAt: '2026-05-03T12:00:00.000Z',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/secrets`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer secret-token',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: 'STRIPE_WEBHOOK_SECRET',
+          value: 'super-secret',
+        }),
+      },
+    );
+  });
+
+  it('lists hosted flow secret metadata without returning values', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          secrets: [
+            {
+              name: 'STRIPE_WEBHOOK_SECRET',
+              createdAt: '2026-05-03T12:00:00.000Z',
+              updatedAt: '2026-05-03T12:00:00.000Z',
+            },
+            {
+              name: 'RESEND_API_KEY',
+              createdAt: '2026-05-02T12:00:00.000Z',
+              updatedAt: '2026-05-02T15:00:00.000Z',
+            },
+          ],
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.listFlowSecrets(managedFlow.id)).resolves.toEqual([
+      {
+        name: 'STRIPE_WEBHOOK_SECRET',
+        createdAt: '2026-05-03T12:00:00.000Z',
+        updatedAt: '2026-05-03T12:00:00.000Z',
+      },
+      {
+        name: 'RESEND_API_KEY',
+        createdAt: '2026-05-02T12:00:00.000Z',
+        updatedAt: '2026-05-02T15:00:00.000Z',
+      },
+    ]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/secrets`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
+  });
+
+  it('deletes a hosted flow secret by name', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          ok: true,
+          deleted: true,
+          name: 'STRIPE_WEBHOOK_SECRET',
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.deleteFlowSecret(managedFlow.id, 'STRIPE_WEBHOOK_SECRET')).resolves.toEqual(
+      {
+        ok: true,
+        deleted: true,
+        name: 'STRIPE_WEBHOOK_SECRET',
+      },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/secrets/STRIPE_WEBHOOK_SECRET`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
+  });
 });

@@ -1,0 +1,161 @@
+import type { DeleteFlowSecretResponse, FlowRecord, FlowSecretRecord } from '@trigora/contracts';
+import { createDeployApiClient } from '../lib/createDeployApiClient';
+import { confirmAction, promptForSecretValue } from '../lib/interactive';
+import {
+  printDeletingSecret,
+  isValidSecretName,
+  printNoSecretsFound,
+  printSecretDeleted,
+  printSecretDeletionCanceled,
+  printSettingSecret,
+  printSecretSet,
+  printSecretsList,
+  secretSteps,
+  toEmptySecretValueFailure,
+  toFlowResolutionFailure,
+  toSecretNameFailure,
+  toSecretsApiFailure,
+  toSecretsTokenFailure,
+} from '../lib/secretsOutput';
+import { getDeployToken } from '../lib/getDeployToken';
+
+type SetSecretOptions = {
+  flowId: string;
+  name: string;
+  value?: string;
+};
+
+type ListSecretsOptions = {
+  flowId: string;
+};
+
+type DeleteSecretOptions = {
+  flowId: string;
+  name: string;
+  yes?: boolean;
+};
+
+function requireDeployToken(): string {
+  const token = getDeployToken();
+
+  if (!token) {
+    throw toSecretsTokenFailure();
+  }
+
+  return token;
+}
+
+function createSecretsApiClient() {
+  return createDeployApiClient({
+    token: requireDeployToken(),
+  });
+}
+
+function validateSecretName(name: string): void {
+  if (!isValidSecretName(name)) {
+    throw toSecretNameFailure(name);
+  }
+}
+
+async function resolveHostedFlow(flowId: string): Promise<FlowRecord> {
+  const flow = await createSecretsApiClient()
+    .getFlow(flowId)
+    .catch((error) => {
+      throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
+    });
+
+  if (!flow) {
+    throw toFlowResolutionFailure(flowId);
+  }
+
+  return flow;
+}
+
+async function getSecretValue(name: string, providedValue?: string): Promise<string> {
+  if (providedValue !== undefined) {
+    if (providedValue.length === 0) {
+      throw toEmptySecretValueFailure(name);
+    }
+
+    return providedValue;
+  }
+
+  const value = await promptForSecretValue(name);
+
+  if (value.length === 0) {
+    throw toEmptySecretValueFailure(name);
+  }
+
+  return value;
+}
+
+export async function setSecretCommand(options: SetSecretOptions): Promise<FlowSecretRecord> {
+  validateSecretName(options.name);
+
+  const flow = await resolveHostedFlow(options.flowId);
+  printSettingSecret(options.name, flow);
+  const value = await getSecretValue(options.name, options.value);
+
+  const secret = await createSecretsApiClient()
+    .setFlowSecret(flow.id, {
+      name: options.name,
+      value,
+    })
+    .catch((error) => {
+      throw toSecretsApiFailure(error, secretSteps.settingSecret, 'secret');
+    });
+
+  printSecretSet(options.name);
+
+  return secret;
+}
+
+export async function listSecretsCommand(options: ListSecretsOptions): Promise<FlowSecretRecord[]> {
+  const flow = await resolveHostedFlow(options.flowId);
+
+  const secrets = await createSecretsApiClient()
+    .listFlowSecrets(flow.id)
+    .catch((error) => {
+      throw toSecretsApiFailure(error, secretSteps.fetchingSecrets, 'secret');
+    });
+
+  if (secrets.length === 0) {
+    printNoSecretsFound(flow);
+    return secrets;
+  }
+
+  printSecretsList(flow, secrets);
+
+  return secrets;
+}
+
+export async function deleteSecretCommand(
+  options: DeleteSecretOptions,
+): Promise<DeleteFlowSecretResponse | null> {
+  validateSecretName(options.name);
+
+  const flow = await resolveHostedFlow(options.flowId);
+
+  if (!options.yes) {
+    const confirmed = await confirmAction(
+      `Delete secret "${options.name}" for flow "${flow.name}"?`,
+    );
+
+    if (!confirmed) {
+      printSecretDeletionCanceled(options.name);
+      return null;
+    }
+  }
+
+  printDeletingSecret(options.name, flow);
+
+  const response = await createSecretsApiClient()
+    .deleteFlowSecret(flow.id, options.name)
+    .catch((error) => {
+      throw toSecretsApiFailure(error, secretSteps.deletingSecret, 'secret');
+    });
+
+  printSecretDeleted(options.name);
+
+  return response;
+}

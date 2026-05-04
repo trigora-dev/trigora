@@ -227,6 +227,29 @@ trigora flows enable 402c04b0-62c8-4d0b-942f-0ee2329436a8
 
 Like `disable`, this prints a concise success summary with the flow ID and resulting status.
 
+### `trigora secrets`
+
+Manage hosted flow secrets separately from deploys.
+
+```bash
+trigora flows
+trigora secrets set STRIPE_WEBHOOK_SECRET --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora secrets list --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora secrets delete STRIPE_WEBHOOK_SECRET --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+```
+
+Hosted flows can access these secrets through `ctx.env`:
+
+```ts
+const secret = ctx.env.STRIPE_WEBHOOK_SECRET;
+```
+
+Use `trigora flows` to look up the hosted flow ID first. `trigora secrets set` prompts for the value securely by default. You can pass `--value` for automation when needed, but interactive entry is safer because shell history can leak secrets.
+
+Secret metadata is listed without values, and `trigora secrets delete` asks for confirmation unless you pass `--yes`.
+
+Secrets are managed separately from deploys. `trigora deploy` uploads code only.
+
 ## Authentication
 
 Hosted commands require a deploy token:
@@ -242,6 +265,9 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 - `trigora flows inspect <flowId>`
 - `trigora flows disable <flowId>`
 - `trigora flows enable <flowId>`
+- `trigora secrets set <name> --flow <flowId>`
+- `trigora secrets list --flow <flowId>`
+- `trigora secrets delete <name> --flow <flowId>`
 
 If the token is missing, invalid, or revoked, the CLI returns a clear error message.
 
@@ -257,6 +283,8 @@ Behavior:
 - `.env` is loaded first
 - `.env.local` is loaded after that
 - existing shell environment variables are not overridden
+
+In local `trigora trigger` and `trigora dev` runs, those values are available in `ctx.env`.
 
 This makes it easy to keep `TRIGORA_DEPLOY_TOKEN` and local secrets out of source control.
 

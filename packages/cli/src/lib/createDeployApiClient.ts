@@ -4,20 +4,31 @@ import type {
   ApiErrorStep,
   CreateDeploymentRequest,
   CreateDeploymentResponse,
+  DeleteFlowSecretResponse,
+  FlowSecretRecord,
   FlowStatusResponse,
   FlowRecord,
   FlowStatus,
   FlowTriggerType,
   GetFlowResponse,
+  ListFlowSecretsResponse,
   ListFlowsResponse,
+  SetFlowSecretRequest,
+  SetFlowSecretResponse,
 } from '@trigora/contracts';
 
 export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
+  deleteFlowSecret(flowId: string, name: string): Promise<DeleteFlowSecretResponse>;
   disableFlow(flowId: string): Promise<FlowStatusResponse['flow']>;
   enableFlow(flowId: string): Promise<FlowStatusResponse['flow']>;
   getFlow(flowId: string): Promise<GetFlowResponse['flow']>;
+  listFlowSecrets(flowId: string): Promise<ListFlowSecretsResponse['secrets']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
+  setFlowSecret(
+    flowId: string,
+    request: SetFlowSecretRequest,
+  ): Promise<SetFlowSecretResponse['secret']>;
 };
 
 export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
@@ -349,6 +360,59 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
   };
 }
 
+function isFlowSecretRecord(value: unknown): value is FlowSecretRecord {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    typeof value.createdAt === 'string' &&
+    typeof value.updatedAt === 'string'
+  );
+}
+
+function readFlowSecretsResponse(payload: unknown): ListFlowSecretsResponse | undefined {
+  if (!isRecord(payload) || !Array.isArray(payload.secrets)) {
+    return undefined;
+  }
+
+  const secrets = payload.secrets.filter(isFlowSecretRecord);
+
+  if (secrets.length !== payload.secrets.length) {
+    return undefined;
+  }
+
+  return { secrets };
+}
+
+function readSetFlowSecretResponse(payload: unknown): SetFlowSecretResponse | undefined {
+  if (!isRecord(payload) || payload.ok !== true || !('secret' in payload)) {
+    return undefined;
+  }
+
+  return isFlowSecretRecord(payload.secret)
+    ? {
+        ok: true,
+        secret: payload.secret,
+      }
+    : undefined;
+}
+
+function readDeleteFlowSecretResponse(payload: unknown): DeleteFlowSecretResponse | undefined {
+  if (
+    !isRecord(payload) ||
+    payload.ok !== true ||
+    payload.deleted !== true ||
+    typeof payload.name !== 'string'
+  ) {
+    return undefined;
+  }
+
+  return {
+    ok: true,
+    deleted: true,
+    name: payload.name,
+  };
+}
+
 function isDeploymentFlow(
   value: unknown,
 ): value is CreateDeploymentResponse['manifestJson']['flows'][number] {
@@ -461,6 +525,72 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       }
 
       return payload;
+    },
+    async setFlowSecret(flowId, request) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/secrets`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(request),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const setSecretResponse = readSetFlowSecretResponse(payload);
+
+      if (!setSecretResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return setSecretResponse.secret;
+    },
+    async listFlowSecrets(flowId) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/secrets`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${config.token}`,
+          },
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const secretListResponse = readFlowSecretsResponse(payload);
+
+      if (!secretListResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return secretListResponse.secrets;
     },
     async listFlows() {
       let response: FetchResponse;
@@ -589,6 +719,41 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       }
 
       return enableFlowResponse.flow;
+    },
+    async deleteFlowSecret(flowId, name) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/secrets/${encodeURIComponent(name)}`,
+          {
+            method: 'DELETE',
+            headers: {
+              Authorization: `Bearer ${config.token}`,
+            },
+          },
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const deleteSecretResponse = readDeleteFlowSecretResponse(payload);
+
+      if (!deleteSecretResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return deleteSecretResponse;
     },
   };
 }
