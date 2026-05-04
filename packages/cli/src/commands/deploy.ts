@@ -4,9 +4,8 @@ import { buildDeploymentManifest } from '../lib/buildDeploymentManifest';
 import { createDeployApiClient } from '../lib/createDeployApiClient';
 import {
   createStatusFailure,
-  printDeployProgress,
+  printDeployStart,
   printDeploymentSummary,
-  printPreparedFlows,
   toApiFailure,
   toArtifactFailure,
   toTokenFailure,
@@ -29,8 +28,6 @@ function requireDeployToken(): string {
 }
 
 export async function deployCommand(options: DeployOptions): Promise<DeploymentManifest> {
-  printDeployProgress('Validating flow modules...');
-
   let manifest: DeploymentManifest;
 
   try {
@@ -38,10 +35,7 @@ export async function deployCommand(options: DeployOptions): Promise<DeploymentM
   } catch (error) {
     throw toValidationFailure(error);
   }
-
-  printPreparedFlows(manifest.flows.length);
-
-  printDeployProgress('Building deployment artifact...');
+  printDeployStart(manifest);
 
   const artifact = await buildDeploymentArtifact(manifest).catch((error) => {
     throw toArtifactFailure(error);
@@ -50,13 +44,9 @@ export async function deployCommand(options: DeployOptions): Promise<DeploymentM
     token: requireDeployToken(),
   });
 
-  printDeployProgress('Uploading deployment package...');
-
   const deployment = await apiClient.createDeployment({ manifest, artifact }).catch((error) => {
     throw toApiFailure(error);
   });
-
-  printDeployProgress('Activating deployment...');
 
   if (deployment.status === 'failed') {
     throw createStatusFailure(deployment.status);

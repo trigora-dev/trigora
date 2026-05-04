@@ -88,15 +88,19 @@ type MockNetServer = {
   once: ReturnType<typeof vi.fn>;
 };
 
+function stripAnsi(value: string): string {
+  return value.replace(/\u001B\[[0-9;]*m/g, '');
+}
+
 function getLoggedEndpoint(): string | undefined {
   const consoleLogMock = console.log as unknown as ReturnType<typeof vi.fn>;
 
   return consoleLogMock.mock.calls
-    .map(([value]) => value)
-    .find(
-      (value): value is string =>
-        typeof value === 'string' && value.startsWith('http://localhost:'),
-    );
+    .map(([value]) => (typeof value === 'string' ? stripAnsi(value) : value))
+    .map((value) =>
+      typeof value === 'string' ? value.match(/http:\/\/localhost:\d+/)?.[0] : undefined,
+    )
+    .find((value): value is string => typeof value === 'string');
 }
 
 function getFlowPath(name: string): string {
@@ -333,13 +337,16 @@ describe('devCommand', () => {
     });
 
     expect(mockedFsWatch).toHaveBeenCalledWith(flowPath, expect.any(Function));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\[dev\].*running.*payment/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Watching flow:'));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Watching flow .*payment.*\.\.\./),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*payment/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/File\s+flows\/payment\.ts/));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('flows/payment.ts'));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining('Ready. Edit the flow to rerun.'),
     );
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Watching payload:'));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('Payload'));
   });
 
   it('watches the payload file when provided for non-webhook flows', async () => {
@@ -362,7 +369,7 @@ describe('devCommand', () => {
     expect(mockedFsWatch).toHaveBeenCalledWith(flowPath, expect.any(Function));
     expect(mockedFsWatch).toHaveBeenCalledWith(payloadPath, expect.any(Function));
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Watching payload:'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Payload\s+payload\.json/));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('payload.json'));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringContaining('Ready. Edit the flow or payload to rerun.'),
@@ -393,7 +400,9 @@ describe('devCommand', () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(mockedTriggerCommand).toHaveBeenCalledTimes(2);
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flow changed.*rerunning/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/flow.*changed\. Rerunning\.\.\./),
+    );
   });
 
   it('debounces repeated file changes into a single rerun for non-webhook flows', async () => {
@@ -454,7 +463,7 @@ describe('devCommand', () => {
     await flushMicrotasks();
 
     expect(mockedTriggerCommand).toHaveBeenCalledTimes(2);
-    expect(countLogCalls(/flow changed.*rerunning/)).toBe(1);
+    expect(countLogCalls(/flow.*changed\. Rerunning\.\.\./)).toBe(1);
   });
 
   it('shuts down cleanly on SIGINT for non-webhook flows', async () => {
@@ -483,7 +492,7 @@ describe('devCommand', () => {
     expect(watcherInstances[0]?.close).toHaveBeenCalledOnce();
     expect(watcherInstances[1]?.close).toHaveBeenCalledOnce();
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[dev] stopped'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Stopped'));
     expect(process.exit).toHaveBeenCalledWith(0);
   });
 
@@ -534,7 +543,9 @@ describe('devCommand', () => {
     await flushMicrotasks();
 
     expect(mockedTriggerCommand).toHaveBeenCalledTimes(3);
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/changes queued.*rerunning/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Changes queued\. Rerunning\.\.\./),
+    );
   });
 
   it('starts a local webhook server for webhook flows and runs the flow on POST requests', async () => {
@@ -563,10 +574,13 @@ describe('devCommand', () => {
     await flushMicrotasks();
 
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/\[dev\].*running.*stripe-checkout/),
+      expect.stringMatching(/Watching flow .*stripe-checkout.*\.\.\./),
     );
     expect(getLoggedEndpoint()).toBe('http://localhost:5252');
-    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Watching flow:'));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*stripe-checkout/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/File\s+flows\/stripe-checkout\.ts/),
+    );
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('flows/stripe-checkout.ts'));
     expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Ready to receive events.'));
 
@@ -603,9 +617,9 @@ describe('devCommand', () => {
     });
 
     expect(console.log).toHaveBeenCalledWith('');
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\[request\].*POST.*\//));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Request\s+POST \//));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/\[event\].*checkout\.session\.completed/),
+      expect.stringMatching(/Event\s+checkout\.session\.completed/),
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/\[stripe-checkout\].*INFO.*New purchase/),
@@ -649,7 +663,7 @@ describe('devCommand', () => {
 
     expect(initialRun).not.toHaveBeenCalled();
     expect(updatedRun).not.toHaveBeenCalled();
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flow changed.*reloaded/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flow.*changed\. Reloaded\./));
     expect(console.log).toHaveBeenCalledWith('');
 
     const body = {
@@ -716,7 +730,7 @@ describe('devCommand', () => {
     await flushMicrotasks();
 
     expect(mockedLoadFlowModule).toHaveBeenCalledTimes(2);
-    expect(countLogCalls(/flow changed.*reloaded/)).toBe(1);
+    expect(countLogCalls(/flow.*changed\. Reloaded\./)).toBe(1);
 
     const response = await sendHttpRequest(5252, {
       body: JSON.stringify({ type: 'checkout.session.completed' }),
@@ -773,7 +787,7 @@ describe('devCommand', () => {
     await flushMicrotasks();
 
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/\[dev\].*Port 5252 was in use, using 5253 instead\./),
+      expect.stringMatching(/Port 5252 was in use, using 5253 instead\./),
     );
     expect(getLoggedEndpoint()).toBe('http://localhost:5253');
   });

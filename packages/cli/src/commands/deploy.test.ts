@@ -138,13 +138,9 @@ describe('deployCommand', () => {
       ],
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Validating flow modules/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Prepared 1 flow for deployment/),
+      expect.stringMatching(/Deploying flow .*"hello".*\.\.\./),
     );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Building deployment artifact/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Uploading deployment package/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Activating deployment/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
@@ -154,6 +150,17 @@ describe('deployCommand', () => {
       expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Validating flow modules/));
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringMatching(/Prepared 1 flow for deployment/),
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringMatching(/Building deployment artifact/),
+    );
+    expect(console.log).not.toHaveBeenCalledWith(
+      expect.stringMatching(/Uploading deployment package/),
+    );
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Activating deployment/));
   });
 
   it('discovers and summarizes all webhook flows in the flows directory', async () => {
@@ -252,33 +259,23 @@ describe('deployCommand', () => {
       ],
     });
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Prepared 2 flows for deployment/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Deploying 2 flows/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Deployment\s+dep_123/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flows\s+2/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Activated flows/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_123/),
+      expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
     );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Status\s+Ready to receive events/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/2\. orders/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Trigger\s+webhook:orders\.created/),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/orders/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/df_456/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Status\s+Ready to receive events/),
+      expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_456/),
     );
   });
 

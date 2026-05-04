@@ -50,6 +50,26 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error;
 }
 
+function formatFlowName(flowId: string): string {
+  return colors.flow(colors.heading(`"${flowId}"`));
+}
+
+function printRuntimeDetails(items: Array<{ label: string; value: string | undefined }>): void {
+  const visibleItems = items.filter((item): item is { label: string; value: string } =>
+    Boolean(item.value),
+  );
+
+  if (visibleItems.length === 0) {
+    return;
+  }
+
+  const labelWidth = visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
+
+  for (const item of visibleItems) {
+    console.log(`${colors.label(item.label.padEnd(labelWidth))}  ${item.value}`);
+  }
+}
+
 function getWebhookEventName(body: unknown): string {
   if (typeof body !== 'object' || body === null) {
     return 'webhook';
@@ -155,8 +175,9 @@ async function writeWebhookResponse(
   res.end(JSON.stringify(result));
 }
 
-function logRerunFailure(devPrefix: string, error: unknown): void {
-  console.error(`${devPrefix} ${colors.error('re-run failed')}`);
+function logRerunFailure(error: unknown): void {
+  console.error('');
+  console.error(`${colors.error('✖')} Re-run failed`);
 
   if (error instanceof Error) {
     console.error(error.message);
@@ -166,13 +187,14 @@ function logRerunFailure(devPrefix: string, error: unknown): void {
   console.error(error);
 }
 
-function printDevRerunMessage(devPrefix: string, reason: string): void {
+function printDevRerunMessage(reason: string): void {
   console.log('');
-  console.log(`${devPrefix} ${colors.warn(reason)}`);
+  console.log(colors.label(reason));
 }
 
-function logReloadFailure(devPrefix: string, error: unknown): void {
-  console.error(`${devPrefix} ${colors.error('reload failed')}`);
+function logReloadFailure(error: unknown): void {
+  console.error('');
+  console.error(`${colors.error('✖')} Reload failed`);
 
   if (error instanceof Error) {
     console.error(error.message);
@@ -182,31 +204,24 @@ function logReloadFailure(devPrefix: string, error: unknown): void {
   console.error(error);
 }
 
-function printDevStartup(devPrefix: string, options: DevStartupOptions): void {
-  console.log(`${devPrefix} running ${colors.flow(options.flowId)}`);
+function printDevStartup(options: DevStartupOptions): void {
+  console.log(colors.label(`Watching flow ${formatFlowName(options.flowId)}...`));
   console.log('');
-
-  if (options.endpointUrl) {
-    console.log(colors.label('Local webhook endpoint:'));
-    console.log(colors.flow(options.endpointUrl));
-    console.log('');
-  }
-
-  console.log(colors.label('Watching flow:'));
-  console.log(options.flowPath);
-
-  if (options.payloadPath) {
-    console.log('');
-    console.log(colors.label('Watching payload:'));
-    console.log(options.payloadPath);
-  }
+  printRuntimeDetails([
+    { label: 'Flow', value: formatFlowName(options.flowId) },
+    { label: 'File', value: options.flowPath },
+    { label: 'Payload', value: options.payloadPath },
+    {
+      label: 'Endpoint',
+      value: options.endpointUrl ? colors.link(options.endpointUrl) : undefined,
+    },
+  ]);
 
   console.log('');
   console.log(colors.success(options.readyMessage));
 }
 
 function createWatchManager(options: {
-  devPrefix: string;
   onFileChange: (label: string) => Promise<void>;
   onShutdown?: () => void;
 }): WatchManager {
@@ -241,7 +256,8 @@ function createWatchManager(options: {
     process.off('SIGINT', handleSignals);
     process.off('SIGTERM', handleSignals);
 
-    console.log(`\n${options.devPrefix} stopped`);
+    console.log('');
+    console.log(colors.label('Stopped'));
     process.exit(0);
   }
 
@@ -314,7 +330,9 @@ async function runWebhookFlow(flow: FlowDefinition, body: JsonValue): Promise<un
     return await flow.run(event, ctx);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`${colors.flow(`[${flow.id}]`)} ${colors.error('ERROR')} ${message}`);
+    console.error(
+      `${colors.error('Flow failed')}: ${formatFlowName(flow.id)} ${colors.label(`(${message})`)}`,
+    );
 
     throw new FlowRunError(message);
   }
@@ -325,8 +343,6 @@ async function runStandardDevMode(options: DevOptions, flowId: string): Promise<
   const relativePayloadPath = options.payloadPath
     ? path.relative(process.cwd(), options.payloadPath)
     : undefined;
-
-  const devPrefix = colors.dev('[dev]');
 
   let isRunning = false;
   let rerunRequested = false;
@@ -344,7 +360,7 @@ async function runStandardDevMode(options: DevOptions, flowId: string): Promise<
 
     try {
       if (reason) {
-        printDevRerunMessage(devPrefix, reason);
+        printDevRerunMessage(reason);
       }
 
       console.log('');
@@ -354,25 +370,24 @@ async function runStandardDevMode(options: DevOptions, flowId: string): Promise<
 
       if (rerunRequested && !watchManager.isShuttingDown()) {
         rerunRequested = false;
-        await run('changes queued → rerunning');
+        await run('Changes queued. Rerunning...');
       }
     }
   }
 
   watchManager = createWatchManager({
-    devPrefix,
     onFileChange: async (label) => {
       try {
-        await run(`${label} changed → rerunning`);
+        await run(`${colors.heading(label)} changed. Rerunning...`);
       } catch (error) {
-        logRerunFailure(devPrefix, error);
+        logRerunFailure(error);
       }
     },
   });
 
   watchManager.startSignalHandling();
 
-  printDevStartup(devPrefix, {
+  printDevStartup({
     flowId,
     flowPath: relativeFlowPath,
     payloadPath: relativePayloadPath,
@@ -394,10 +409,6 @@ async function runStandardDevMode(options: DevOptions, flowId: string): Promise<
 
 async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Promise<void> {
   const relativeFlowPath = path.relative(process.cwd(), options.filePath);
-  const devPrefix = colors.dev('[dev]');
-  const requestPrefix = colors.dev('[request]');
-  const eventPrefix = colors.dev('[event]');
-
   let isRunning = false;
   let rerunRequested = false;
   let server: http.Server | undefined;
@@ -435,7 +446,7 @@ async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Pro
 
     try {
       if (nextRun.reason) {
-        printDevRerunMessage(devPrefix, nextRun.reason);
+        printDevRerunMessage(nextRun.reason);
       }
 
       const result = await nextRun.execute();
@@ -453,16 +464,15 @@ async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Pro
   }
 
   watchManager = createWatchManager({
-    devPrefix,
     onShutdown: () => {
       server?.close();
     },
     onFileChange: async (label) => {
       try {
         currentFlow = await loadWebhookFlow(options.filePath);
-        printDevRerunMessage(devPrefix, `${label} changed → reloaded`);
+        printDevRerunMessage(`${colors.heading(label)} changed. Reloaded.`);
       } catch (error) {
-        logReloadFailure(devPrefix, error);
+        logReloadFailure(error);
       }
     },
   });
@@ -473,7 +483,7 @@ async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Pro
 
   if (selectedPort !== DEFAULT_WEBHOOK_PORT) {
     console.log(
-      `${devPrefix} ${colors.warn(`Port ${DEFAULT_WEBHOOK_PORT} was in use, using ${selectedPort} instead.`)}`,
+      colors.warn(`Port ${DEFAULT_WEBHOOK_PORT} was in use, using ${selectedPort} instead.`),
     );
   }
 
@@ -503,9 +513,10 @@ async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Pro
     }
 
     console.log('');
-    console.log(`${requestPrefix} ${colors.info(req.method)} ${requestPath}`);
-    console.log(`${eventPrefix} ${colors.flow(getWebhookEventName(parsedBody))}`);
-    console.log('');
+    printRuntimeDetails([
+      { label: 'Request', value: `${colors.info(req.method)} ${requestPath}` },
+      { label: 'Event', value: colors.flow(getWebhookEventName(parsedBody)) },
+    ]);
 
     try {
       const flow = currentFlow;
@@ -525,7 +536,7 @@ async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Pro
     });
   });
 
-  printDevStartup(devPrefix, {
+  printDevStartup({
     endpointUrl: `http://localhost:${selectedPort}`,
     flowId: flow.id,
     flowPath: relativeFlowPath,

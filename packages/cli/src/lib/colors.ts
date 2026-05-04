@@ -2,11 +2,11 @@ import pc from 'picocolors';
 
 export const colors = {
   flow: pc.cyan, // [flow.id] → stands out (primary signal)
-  dev: pc.dim, // [dev] → subtle, background system logs
+  dev: pc.dim, // subtle progress or background runtime notes
   label: pc.dim,
   heading: pc.bold,
+  link: (value: string) => pc.cyan(pc.underline(value)),
 
-  run: pc.dim, // RUN → low emphasis label
   info: pc.blue, // INFO → informational
   warn: pc.yellow, // WARN → attention
   error: pc.red, // ERROR → critical

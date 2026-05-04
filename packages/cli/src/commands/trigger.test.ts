@@ -96,10 +96,12 @@ describe('triggerCommand', () => {
     expect(eventArg.id).toMatch(/^evt_local_/);
     expect(eventArg.timestamp).toEqual(expect.any(String));
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\[payment\].*RUN starting/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/\[payment\].*RUN.*succeeded \(\d+ms\)/),
+      expect.stringMatching(/Running flow .*payment.*\.\.\./),
     );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Run complete/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*payment/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Duration\s+\d+ms/));
   });
 
   it('loads payload from a JSON file and passes it to the flow', async () => {
@@ -217,10 +219,12 @@ describe('triggerCommand', () => {
       filePath: './flows/payment.ts',
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\[payment\].*RUN starting/));
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/\[payment\].*RUN.*failed \(\d+ms\)/),
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Running flow .*payment.*\.\.\./),
     );
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/✖ Run failed/));
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*payment/));
+    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/Duration\s+\d+ms/));
     expect(console.error).toHaveBeenCalledWith('something went wrong');
   });
 });

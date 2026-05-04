@@ -15,6 +15,30 @@ async function loadPayload(filePath?: string): Promise<JsonValue> {
   return loadJsonFile(filePath);
 }
 
+function formatFlowName(flowId: string): string {
+  return colors.flow(colors.heading(`"${flowId}"`));
+}
+
+function printTriggerStart(flowId: string): void {
+  console.log(colors.label(`Running flow ${formatFlowName(flowId)}...`));
+}
+
+function printTriggerResult(title: string, flowId: string, durationMs: number): void {
+  console.log('');
+  console.log(`${colors.success('✔')} ${title}`);
+  console.log('');
+  console.log(`${colors.label('Flow'.padEnd(8))} ${formatFlowName(flowId)}`);
+  console.log(`${colors.label('Duration'.padEnd(8))} ${durationMs}ms`);
+}
+
+function printTriggerFailure(flowId: string, durationMs: number): void {
+  console.error('');
+  console.error(`${colors.error('✖')} Run failed`);
+  console.error('');
+  console.error(`${colors.label('Flow'.padEnd(8))} ${formatFlowName(flowId)}`);
+  console.error(`${colors.label('Duration'.padEnd(8))} ${durationMs}ms`);
+}
+
 export async function triggerCommand(options: TriggerOptions): Promise<void> {
   const flow = await loadFlowModule(options.filePath);
   const ctx = createLocalContext(flow.id);
@@ -27,10 +51,7 @@ export async function triggerCommand(options: TriggerOptions): Promise<void> {
     payload,
   };
 
-  const prefix = colors.flow(`[${flow.id}]`);
-  const runLabel = colors.run('RUN');
-
-  console.log(`${prefix} ${runLabel} starting`);
+  printTriggerStart(flow.id);
 
   const startedAt = Date.now();
 
@@ -38,10 +59,10 @@ export async function triggerCommand(options: TriggerOptions): Promise<void> {
     await flow.run(event, ctx);
 
     const durationMs = Date.now() - startedAt;
-    console.log(`${prefix} ${runLabel} ${colors.success('succeeded')} (${durationMs}ms)`);
+    printTriggerResult('Run complete', flow.id, durationMs);
   } catch (error) {
     const durationMs = Date.now() - startedAt;
-    console.error(`${prefix} ${runLabel} ${colors.error('failed')} (${durationMs}ms)`);
+    printTriggerFailure(flow.id, durationMs);
 
     if (error instanceof Error) {
       console.error(error.message);

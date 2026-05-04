@@ -50,9 +50,11 @@ describe('initCommand', () => {
     expect(envExample).toContain('# Trigora Cloud');
     expect(envExample).toContain('TRIGORA_DEPLOY_TOKEN=your-deploy-token');
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created flows\/hello\.ts/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created payload\.json/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created \.env\.example/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Project initialized/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flows\/hello\.ts/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload\.json/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\.env\.example/));
   });
 
   it('does not overwrite existing files by default', async () => {
@@ -74,15 +76,10 @@ describe('initCommand', () => {
     expect(payload).toBe('custom payload');
     expect(envExample).toBe('custom env');
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Skipped flows\/hello\.ts \(already exists\)/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Skipped payload\.json \(already exists\)/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Skipped \.env\.example \(already exists\)/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Skipped/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flows\/hello\.ts/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload\.json/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\.env\.example/));
   });
 
   it('overwrites existing files when force is true', async () => {
@@ -104,9 +101,10 @@ describe('initCommand', () => {
     expect(payload).toContain('"message": "Hello, world!"');
     expect(envExample).toContain('# Trigora Cloud');
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated flows\/hello\.ts/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated payload\.json/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated \.env\.example/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flows\/hello\.ts/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload\.json/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\.env\.example/));
   });
 
   it('prints next steps at the end', async () => {
@@ -115,12 +113,11 @@ describe('initCommand', () => {
 
     await initCommand({ force: false });
 
-    expect(console.log).toHaveBeenCalledWith('');
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Next steps:/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora dev hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Next steps/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\..*trigora dev hello/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/trigora trigger hello --payload payload\.json/),
+      expect.stringMatching(/2\..*trigora trigger hello --payload payload\.json/),
     );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora deploy hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/3\..*trigora deploy hello/));
   });
 });

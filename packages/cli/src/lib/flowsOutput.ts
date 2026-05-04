@@ -4,16 +4,8 @@ import {
   DeployApiRequestError,
   DeployApiResponseError,
 } from './createDeployApiClient';
-import {
-  CliDetail,
-  CliDisplayError,
-  pluralize,
-  printProgress,
-  printSuccessSummary,
-} from './cliOutput';
+import { CliDetail, CliDisplayError, pluralize } from './cliOutput';
 import { colors } from './colors';
-
-const FLOWS_SCOPE = 'flows';
 
 export const flowSteps = {
   disablingFlow: 'Disabling flow',
@@ -30,13 +22,70 @@ function formatTriggerLabel(trigger: FlowRecord['trigger']): string {
   return trigger;
 }
 
-function formatDetailLines(
-  items: Array<{ label: string; value: string | undefined }>,
-  indent = '   ',
-): string[] {
-  const visibleItems = items.filter((item): item is { label: string; value: string } =>
-    Boolean(item.value),
-  );
+function formatFlowName(flow: FlowRecord): string {
+  return colors.flow(colors.heading(getFlowName(flow)));
+}
+
+function formatFlowStatus(status: FlowRecord['status']): string {
+  switch (status) {
+    case 'ready':
+      return colors.success(status);
+    case 'disabled':
+      return colors.warn(status);
+    case 'failed':
+      return colors.error(status);
+  }
+}
+
+function formatFlowListValue(label: string, flow: FlowRecord): string | undefined {
+  switch (label) {
+    case 'ID':
+      return colors.label(flow.id);
+    case 'Trigger':
+      return formatTriggerLabel(flow.trigger);
+    case 'Status':
+      return formatFlowStatus(flow.status);
+    case 'Endpoint':
+      return flow.trigger === 'webhook' ? colors.link(flow.endpoint) : undefined;
+    case 'Schedule':
+      return flow.trigger === 'cron' ? flow.schedule : undefined;
+    case 'Queue':
+      return flow.trigger === 'queue' ? flow.queue : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undefined {
+  switch (label) {
+    case 'ID':
+      return colors.label(flow.id);
+    case 'Trigger':
+      return formatTriggerLabel(flow.trigger);
+    case 'Status':
+      return formatFlowStatus(flow.status);
+    case 'Created':
+      return colors.label(flow.createdAt);
+    case 'Endpoint':
+      return flow.trigger === 'webhook' ? colors.link(flow.endpoint) : undefined;
+    case 'Route':
+      return flow.trigger === 'webhook' ? flow.route : undefined;
+    case 'Schedule':
+      return flow.trigger === 'cron' ? flow.schedule : undefined;
+    case 'Queue':
+      return flow.trigger === 'queue' ? flow.queue : undefined;
+    default:
+      return undefined;
+  }
+}
+
+function formatFlowListDetailLines(flow: FlowRecord, indent = '   '): string[] {
+  const labels = ['ID', 'Trigger', 'Status', 'Endpoint', 'Schedule', 'Queue'] as const;
+  const visibleItems = labels
+    .map((label) => ({ label, value: formatFlowListValue(label, flow) }))
+    .filter((item): item is { label: (typeof labels)[number]; value: string } =>
+      Boolean(item.value),
+    );
 
   if (visibleItems.length === 0) {
     return [];
@@ -44,11 +93,37 @@ function formatDetailLines(
 
   const labelWidth = visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
 
-  return visibleItems.map((item) => `${indent}${item.label.padEnd(labelWidth)}  ${item.value}`);
+  return visibleItems.map(
+    (item) => `${indent}${colors.label(item.label.padEnd(labelWidth))}  ${item.value}`,
+  );
 }
 
-function createDetails(items: Array<{ label: string; value: string | undefined }>): CliDetail[] {
-  return items.filter((item): item is CliDetail => Boolean(item.value));
+function formatFlowSummaryDetailLines(flow: FlowRecord, indent = ''): string[] {
+  const labels = [
+    'ID',
+    'Trigger',
+    'Status',
+    'Created',
+    'Endpoint',
+    'Route',
+    'Schedule',
+    'Queue',
+  ] as const;
+  const visibleItems = labels
+    .map((label) => ({ label, value: formatFlowSummaryValue(label, flow) }))
+    .filter((item): item is { label: (typeof labels)[number]; value: string } =>
+      Boolean(item.value),
+    );
+
+  if (visibleItems.length === 0) {
+    return [];
+  }
+
+  const labelWidth = visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
+
+  return visibleItems.map(
+    (item) => `${indent}${colors.label(item.label.padEnd(labelWidth))}  ${item.value}`,
+  );
 }
 
 function createRequestFailure(reason: string, step?: string, hint?: string): CliDisplayError {
@@ -67,28 +142,17 @@ function createRequestFailure(reason: string, step?: string, hint?: string): Cli
   });
 }
 
-export function printFlowsProgress(message: string): void {
-  printProgress(FLOWS_SCOPE, message);
-}
-
 export function printFlowList(flows: FlowRecord[]): void {
   const flowCount = flows.length;
 
-  console.log('');
-  console.log(colors.success(`✔ Found ${flowCount} ${pluralize(flowCount, 'flow')}`));
+  console.log(`${colors.success('✔')} Found ${flowCount} ${pluralize(flowCount, 'flow')}:`);
   console.log('');
 
   for (const [index, flow] of flows.entries()) {
+    const itemPrefix = `  ${index + 1}. `;
     const lines = [
-      `  ${index + 1}. ${getFlowName(flow)}`,
-      ...formatDetailLines([
-        { label: 'ID', value: flow.id },
-        { label: 'Trigger', value: formatTriggerLabel(flow.trigger) },
-        { label: 'Status', value: flow.status },
-        { label: 'Endpoint', value: flow.trigger === 'webhook' ? flow.endpoint : undefined },
-        { label: 'Schedule', value: flow.trigger === 'cron' ? flow.schedule : undefined },
-        { label: 'Queue', value: flow.trigger === 'queue' ? flow.queue : undefined },
-      ]),
+      `${itemPrefix}${formatFlowName(flow)}`,
+      ...formatFlowListDetailLines(flow, ' '.repeat(itemPrefix.length)),
     ];
 
     for (const line of lines) {
@@ -102,31 +166,31 @@ export function printFlowList(flows: FlowRecord[]): void {
 }
 
 export function printNoFlowsFound(): void {
-  printSuccessSummary('No deployed flows found', []);
+  console.log('No deployed flows found.');
 }
 
 export function printFlowSummary(flow: FlowRecord): void {
-  printSuccessSummary(
-    'Flow details',
-    createDetails([
-      { label: 'Name', value: getFlowName(flow) },
-      { label: 'ID', value: flow.id },
-      { label: 'Trigger', value: formatTriggerLabel(flow.trigger) },
-      { label: 'Status', value: flow.status },
-      { label: 'Created', value: flow.createdAt },
-      { label: 'Endpoint', value: flow.trigger === 'webhook' ? flow.endpoint : undefined },
-      { label: 'Route', value: flow.trigger === 'webhook' ? flow.route : undefined },
-      { label: 'Schedule', value: flow.trigger === 'cron' ? flow.schedule : undefined },
-      { label: 'Queue', value: flow.trigger === 'queue' ? flow.queue : undefined },
-    ]),
-  );
+  console.log(formatFlowName(flow));
+  console.log('');
+
+  for (const line of formatFlowSummaryDetailLines(flow)) {
+    console.log(line);
+  }
 }
 
 function printFlowStatusChange(title: string, flow: FlowStatusResponse['flow']): void {
-  printSuccessSummary(title, [
-    { label: 'ID', value: flow.id },
-    { label: 'Status', value: flow.status },
-  ]);
+  const formattedStatus =
+    flow.status === 'ready'
+      ? colors.success(flow.status)
+      : flow.status === 'disabled'
+        ? colors.warn(flow.status)
+        : colors.error(flow.status);
+
+  console.log('');
+  console.log(`${colors.success('✔')} ${title}`);
+  console.log('');
+  console.log(`${colors.label('ID'.padEnd(6))}  ${colors.label(flow.id)}`);
+  console.log(`${colors.label('Status'.padEnd(6))}  ${formattedStatus}`);
 }
 
 export function printFlowDisabled(flow: FlowStatusResponse['flow']): void {

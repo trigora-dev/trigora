@@ -78,14 +78,13 @@ describe('flows commands', () => {
   it('lists deployed flows', async () => {
     await expect(listFlowsCommand()).resolves.toEqual([helloFlow]);
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Fetching deployed flows/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Found 1 flow/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}ID\s+402c04b0/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Trigger\s+webhook/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Status\s+ready/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Endpoint\s+https:\/\/trigora\.dev\/f\/402c04b0/),
+      expect.stringMatching(/^\s{5}Endpoint\s+https:\/\/trigora\.dev\/f\/402c04b0/),
     );
   });
 
@@ -98,17 +97,19 @@ describe('flows commands', () => {
 
     await expect(listFlowsCommand()).resolves.toEqual([]);
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ No deployed flows found/));
+    expect(console.log).toHaveBeenCalledWith('No deployed flows found.');
   });
 
   it('prints flow details for inspect', async () => {
     await expect(inspectFlowCommand(helloFlow.id)).resolves.toEqual(helloFlow);
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Fetching flow/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow details/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Name\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching flow/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Flow details/));
   });
 
   it('prints a success summary when a flow is disabled', async () => {
@@ -117,9 +118,10 @@ describe('flows commands', () => {
       status: 'disabled',
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Disabling flow/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow disabled/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+disabled/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Disabling flow/));
   });
 
   it('prints a success summary when a flow is enabled', async () => {
@@ -128,9 +130,10 @@ describe('flows commands', () => {
       status: 'ready',
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Enabling flow/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow enabled/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Enabling flow/));
   });
 
   it('throws a polished error when the deploy token is missing', async () => {

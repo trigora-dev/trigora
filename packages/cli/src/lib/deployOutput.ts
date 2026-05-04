@@ -8,15 +8,8 @@ import {
   DeployApiRequestError,
   DeployApiResponseError,
 } from './createDeployApiClient';
-import {
-  CliDisplayError,
-  pluralize,
-  printProgress,
-  printSuccessSummary,
-  printWarning,
-} from './cliOutput';
-
-const DEPLOY_SCOPE = 'deploy';
+import { CliDisplayError, printWarning } from './cliOutput';
+import { colors } from './colors';
 
 export const deploySteps = {
   activating: 'Activating deployment',
@@ -90,6 +83,18 @@ function formatTriggerLabel(flow: DeploymentManifestFlow): string {
   }
 }
 
+function formatFlowName(flowId: string): string {
+  return colors.flow(colors.heading(flowId));
+}
+
+function formatStatusMessage(status: CreateDeploymentResponse['status'], message: string): string {
+  if (status === 'active') {
+    return message;
+  }
+
+  return colors.label(message);
+}
+
 function getFlowStatus(
   flow: DeploymentManifestFlow,
   status: CreateDeploymentResponse['status'],
@@ -121,7 +126,7 @@ function getDeployedFlowLookup(
   return new Map(deployment.flows.map((flow) => [`${flow.flowId}:${flow.routePath}`, flow]));
 }
 
-function formatFlowDetailLines(
+function formatDetailLines(
   items: Array<{ label: string; value: string | undefined }>,
   indent = '   ',
 ): string[] {
@@ -135,40 +140,71 @@ function formatFlowDetailLines(
 
   const labelWidth = visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
 
-  return visibleItems.map((item) => {
-    return `${indent}${item.label.padEnd(labelWidth)}  ${item.value}`;
-  });
+  return visibleItems.map(
+    (item) => `${indent}${colors.label(item.label.padEnd(labelWidth))}  ${item.value}`,
+  );
 }
 
-function formatActivatedFlows(
+function formatEndpointLines(endpoint: string | undefined, indent = ''): string[] {
+  if (!endpoint) {
+    return [];
+  }
+
+  return [`${indent}${colors.label('Endpoint')}`, `${indent}${colors.link(endpoint)}`];
+}
+
+function formatDeploymentBlock(
+  flow: DeploymentManifestFlow,
+  deployment: CreateDeploymentResponse,
+  index?: number,
+): string[] {
+  const trigger = getTriggerLike(flow);
+  const deployedFlows = getDeployedFlowLookup(deployment);
+  const deployedFlow = deployedFlows.get(`${flow.id}:${flow.routePath}`);
+  const prefix = index === undefined ? '' : `  ${index + 1}. `;
+  const nameLine =
+    index === undefined
+      ? `${colors.label('Flow'.padEnd(7))}  ${formatFlowName(flow.id)}`
+      : `${prefix}${formatFlowName(flow.id)}`;
+  const detailIndent = index === undefined ? '' : ' '.repeat(prefix.length);
+  const details = formatDetailLines(
+    [
+      { label: 'Trigger', value: formatTriggerLabel(flow) },
+      { label: 'Route', value: trigger.type === 'webhook' ? flow.routePath : undefined },
+      { label: 'Schedule', value: trigger.type === 'cron' ? trigger.cron : undefined },
+      {
+        label: 'Queue',
+        value: trigger.type === 'queue' ? (trigger.queue ?? trigger.topic) : undefined,
+      },
+    ],
+    detailIndent,
+  );
+  const endpointLines = formatEndpointLines(
+    deployedFlow ? getOptionalEndpoint(deployedFlow) : undefined,
+    detailIndent,
+  );
+  const statusMessage = formatStatusMessage(
+    deployment.status,
+    deployedFlow?.status === 'active'
+      ? getFlowStatus(flow, deployment.status)
+      : (deployedFlow?.status ?? getFlowStatus(flow, deployment.status)),
+  );
+
+  return [
+    nameLine,
+    ...details,
+    ...(endpointLines.length > 0 ? ['', ...endpointLines] : []),
+    '',
+    `${detailIndent}${statusMessage}`,
+  ];
+}
+
+function formatDeploymentBlocks(
   flows: DeploymentManifestFlow[],
   deployment: CreateDeploymentResponse,
 ): string[] {
-  const deployedFlows = getDeployedFlowLookup(deployment);
-
   return flows.flatMap((flow, index) => {
-    const trigger = getTriggerLike(flow);
-    const deployedFlow = deployedFlows.get(`${flow.id}:${flow.routePath}`);
-    const lines = [
-      `${index + 1}. ${flow.id}`,
-      ...formatFlowDetailLines([
-        { label: 'Trigger', value: formatTriggerLabel(flow) },
-        { label: 'Route', value: trigger.type === 'webhook' ? flow.routePath : undefined },
-        { label: 'Endpoint', value: deployedFlow ? getOptionalEndpoint(deployedFlow) : undefined },
-        { label: 'Schedule', value: trigger.type === 'cron' ? trigger.cron : undefined },
-        {
-          label: 'Queue',
-          value: trigger.type === 'queue' ? (trigger.queue ?? trigger.topic) : undefined,
-        },
-        {
-          label: 'Status',
-          value:
-            deployedFlow?.status === 'active'
-              ? getFlowStatus(flow, deployment.status)
-              : (deployedFlow?.status ?? getFlowStatus(flow, deployment.status)),
-        },
-      ]),
-    ];
+    const lines = formatDeploymentBlock(flow, deployment, index);
 
     return index === flows.length - 1 ? lines : [...lines, ''];
   });
@@ -186,16 +222,25 @@ function getSummaryFooter(status: CreateDeploymentResponse['status'], flowCount:
   return 'Activation is in progress';
 }
 
-export function printDeployProgress(message: string): void {
-  printProgress(DEPLOY_SCOPE, message);
+export function printDeployStart(manifest: DeploymentManifest): void {
+  if (manifest.flows.length === 1) {
+    const [flow] = manifest.flows;
+
+    if (!flow) {
+      return;
+    }
+
+    console.log(
+      `${colors.dev('Deploying flow')} ${formatFlowName(`"${flow.id}"`)}${colors.dev('...')}`,
+    );
+    return;
+  }
+
+  console.log(colors.dev(`Deploying ${manifest.flows.length} flows...`));
 }
 
 export function printDeployWarning(message: string): void {
   printWarning(message);
-}
-
-export function printPreparedFlows(flowCount: number): void {
-  printDeployProgress(`Prepared ${flowCount} ${pluralize(flowCount, 'flow')} for deployment`);
 }
 
 export function printDeploymentSummary(
@@ -204,43 +249,28 @@ export function printDeploymentSummary(
 ): void {
   const flows = manifest.flows;
   const flowCount = flows.length;
-  const details =
-    flowCount === 1
-      ? [
-          { label: 'Flow', value: flows[0]!.id },
-          { label: 'Trigger', value: formatTriggerLabel(flows[0]!) },
-          { label: 'Route', value: flows[0]!.routePath },
-        ]
-      : [
-          { label: 'Deployment', value: deployment.id },
-          { label: 'Flows', value: String(flowCount) },
-        ];
 
-  const sections =
-    flowCount === 1
-      ? [
-          ...(deployment.url
-            ? [
-                {
-                  title: 'Endpoint',
-                  lines: [deployment.url],
-                },
-              ]
-            : []),
-        ]
-      : [
-          {
-            title: 'Activated flows',
-            lines: formatActivatedFlows(flows, deployment),
-          },
-        ];
+  console.log('');
+  console.log(`${colors.success('✔')} ${getSummaryTitle(deployment.status)}`);
+  console.log('');
 
-  printSuccessSummary(
-    getSummaryTitle(deployment.status),
-    details,
-    sections,
-    getSummaryFooter(deployment.status, manifest.flows.length) || undefined,
-  );
+  if (flowCount === 1) {
+    const [flow] = flows;
+
+    if (!flow) {
+      return;
+    }
+
+    for (const line of formatDeploymentBlock(flow, deployment)) {
+      console.log(line);
+    }
+
+    return;
+  }
+
+  for (const line of formatDeploymentBlocks(flows, deployment)) {
+    console.log(line);
+  }
 }
 
 export function createDeployFailure(step: string, reason: string, hint?: string): CliDisplayError {

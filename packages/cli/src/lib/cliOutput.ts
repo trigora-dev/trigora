@@ -39,10 +39,6 @@ export function pluralize(count: number, singular: string, plural = `${singular}
   return count === 1 ? singular : plural;
 }
 
-export function printProgress(scope: string, message: string): void {
-  console.log(`${colors.dev(`[${scope}]`)} ${message}`);
-}
-
 export function printWarning(message: string): void {
   console.warn(`${colors.warn('[warn]')} ${message}`);
 }
