@@ -226,6 +226,8 @@ TRIGORA_DEPLOY_TOKEN=your-deploy-token
 
 The CLI automatically reads `.env` and `.env.local` when present.
 
+In local runs, those values are exposed to flows through `ctx.env`. Existing shell environment variables still take precedence.
+
 ## Hosted Flow Management
 
 The CLI can manage deployed hosted flows for your token:

@@ -35,7 +35,12 @@ Use logs to capture:
 const apiKey = ctx.env.MY_API_KEY;
 ```
 
-When running locally, you will typically source these values from your shell, `.env`, or `.env.local`.
+In local CLI runs, `ctx.env` is populated from the process environment after Trigora loads:
+
+- `.env`
+- `.env.local`
+
+Shell environment variables take precedence over values from those files.
 
 ## Keep Context Usage Simple
 

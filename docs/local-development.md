@@ -118,6 +118,8 @@ The CLI automatically reads:
 
 Shell environment variables take precedence over values loaded from these files.
 
+When you run flows locally with `trigora trigger` or `trigora dev`, those loaded values are available in `ctx.env`.
+
 This makes it easy to keep local configuration and deploy tokens out of source control.
 
 ## What Local Development Is Best For

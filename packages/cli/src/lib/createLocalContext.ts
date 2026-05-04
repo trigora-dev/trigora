@@ -1,6 +1,18 @@
 import type { FlowContext, Logger } from '@trigora/contracts';
 import { colors } from './colors';
 
+function createLocalEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (typeof value === 'string') {
+      env[key] = value;
+    }
+  }
+
+  return env;
+}
+
 function createLogger(flowId: string): Logger {
   const prefix = colors.flow(`[${flowId}]`);
 
@@ -19,7 +31,7 @@ function createLogger(flowId: string): Logger {
 
 export function createLocalContext(flowId: string): FlowContext {
   return {
-    env: {},
+    env: createLocalEnv(),
     log: createLogger(flowId),
   };
 }

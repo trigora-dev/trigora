@@ -196,6 +196,8 @@ ctx.log.error('message')
 ctx.env
 ```
 
+In local CLI runs, `ctx.env` includes the process environment after loading `.env` and `.env.local`, with existing shell variables taking precedence.
+
 The exact exported type is `FlowContext<TEnv>`.
 
 ## Exported Types

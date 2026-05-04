@@ -5,28 +5,47 @@ import { createLocalContext } from './createLocalContext';
 const originalConsoleLog = console.log;
 const originalConsoleWarn = console.warn;
 const originalConsoleError = console.error;
+const originalEnv = process.env;
 
 beforeEach(() => {
   console.log = vi.fn();
   console.warn = vi.fn();
   console.error = vi.fn();
+  process.env = { ...originalEnv };
 });
 
 afterEach(() => {
   console.log = originalConsoleLog;
   console.warn = originalConsoleWarn;
   console.error = originalConsoleError;
+  process.env = originalEnv;
 });
 
 describe('createLocalContext', () => {
   it('returns a context with env and log', () => {
+    process.env.TRIGORA_TEST_TOKEN = 'token-from-process-env';
+
     const ctx = createLocalContext('payment');
 
-    expect(ctx.env).toEqual({});
+    expect(ctx.env.TRIGORA_TEST_TOKEN).toBe('token-from-process-env');
     expect(ctx.log).toBeDefined();
     expect(typeof ctx.log.info).toBe('function');
     expect(typeof ctx.log.warn).toBe('function');
     expect(typeof ctx.log.error).toBe('function');
+  });
+
+  it('captures a snapshot of defined environment variables', () => {
+    process.env = {
+      ...process.env,
+      TRIGORA_TEST_SNAPSHOT: 'before',
+      TRIGORA_TEST_UNDEFINED: undefined,
+    };
+
+    const ctx = createLocalContext('payment');
+    process.env.TRIGORA_TEST_SNAPSHOT = 'after';
+
+    expect(ctx.env.TRIGORA_TEST_SNAPSHOT).toBe('before');
+    expect(ctx.env.TRIGORA_TEST_UNDEFINED).toBeUndefined();
   });
 
   it('logs info messages with prefix and message', () => {
