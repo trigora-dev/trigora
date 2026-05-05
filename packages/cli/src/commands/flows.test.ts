@@ -45,6 +45,8 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     deleteFlowSecret: vi.fn(),
     listFlows: vi.fn().mockResolvedValue([helloFlow]),
     getFlow: vi.fn().mockResolvedValue(helloFlow),
+    getFlowInvocation: vi.fn(),
+    listFlowInvocations: vi.fn(),
     listFlowSecrets: vi.fn(),
     setFlowSecret: vi.fn(),
     disableFlow: vi.fn().mockResolvedValue({

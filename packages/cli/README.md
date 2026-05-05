@@ -250,6 +250,17 @@ Secret metadata is listed without values, and `trigora secrets delete` asks for 
 
 Secrets are managed separately from deploys. `trigora deploy` uploads code only.
 
+### `trigora logs`
+
+Inspect recent hosted flow invocations and stored log lines for a hosted flow ID.
+
+```bash
+trigora logs list --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora logs get inv_123 --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+```
+
+`trigora logs list` shows recent invocations for a hosted flow, newest first. `trigora logs get` opens one invocation with its stored log lines and metadata.
+
 ## Authentication
 
 Hosted commands require a deploy token:
@@ -268,6 +279,8 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 - `trigora secrets set <name> --flow <flowId>`
 - `trigora secrets list --flow <flowId>`
 - `trigora secrets delete <name> --flow <flowId>`
+- `trigora logs list --flow <flowId>`
+- `trigora logs get <invocationId> --flow <flowId>`
 
 If the token is missing, invalid, or revoked, the CLI returns a clear error message.
 
@@ -314,22 +327,17 @@ The CLI is designed to be easy to scan in terminals and CI logs.
 Examples:
 
 ```text
-[hello] RUN starting
-[hello] INFO Received event
-[hello] RUN succeeded (3ms)
+Deploying flow "hello"...
+
+✔ Deployment complete
 ```
 
 ```text
-[deploy] Validating flow modules...
-[deploy] Building deployment artifact...
-[deploy] Uploading deployment package...
-[deploy] Activating deployment...
+✔ Found 2 flows:
 ```
 
 ```text
-[flows] Fetching deployed flows...
-
-✔ Found 2 flows
+✔ Found 3 invocations for flow "stripe-checkout" (402c04b0-...):
 ```
 
 ## Alpha Notes

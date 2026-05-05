@@ -162,7 +162,7 @@ export function toFlowResolutionFailure(flowId: string): CliDisplayError {
   return createRequestFailure(
     `Hosted flow "${flowId}" was not found.`,
     secretSteps.resolvingFlow,
-    'Run "trigora flows" to find the correct hosted flow ID.',
+    'Run "trigora flows" to find the correct hosted flow ID and try again.',
   );
 }
 

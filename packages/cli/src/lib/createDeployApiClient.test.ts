@@ -42,6 +42,16 @@ describe('createDeployApiClient', () => {
     endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
     createdAt: '2026-04-21T10:00:00.000Z',
   };
+  const failedInvocation = {
+    id: 'inv_123',
+    status: 'failed' as const,
+    startedAt: '2026-05-05T10:00:00.000Z',
+    completedAt: '2026-05-05T10:00:00.842Z',
+    durationMs: 842,
+    httpStatus: 400,
+    errorCode: 'stripe_signature_invalid',
+    errorMessage: 'Invalid Stripe signature.',
+  };
 
   it('posts the deployment manifest to the default deploy API', async () => {
     const fetch = vi.fn().mockResolvedValue({
@@ -564,6 +574,134 @@ describe('createDeployApiClient', () => {
 
     expect(fetch).toHaveBeenCalledWith(
       `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/secrets`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
+  });
+
+  it('lists flow invocations from the hosted invocations endpoint', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          invocations: [
+            failedInvocation,
+            {
+              id: 'inv_124',
+              status: 'succeeded',
+              startedAt: '2026-05-05T09:00:00.000Z',
+              completedAt: '2026-05-05T09:00:00.210Z',
+              durationMs: 210,
+              httpStatus: 200,
+              errorCode: null,
+              errorMessage: null,
+            },
+          ],
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.listFlowInvocations(managedFlow.id)).resolves.toEqual([
+      failedInvocation,
+      {
+        id: 'inv_124',
+        status: 'succeeded',
+        startedAt: '2026-05-05T09:00:00.000Z',
+        completedAt: '2026-05-05T09:00:00.210Z',
+        durationMs: 210,
+        httpStatus: 200,
+        errorCode: null,
+        errorMessage: null,
+      },
+    ]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/invocations`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
+  });
+
+  it('reads a single invocation with ordered logs', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          invocation: {
+            ...failedInvocation,
+            logs: [
+              {
+                sequence: 1,
+                level: 'info',
+                message: 'Received webhook event',
+                timestamp: '2026-05-05T10:00:00.100Z',
+                metadata: {
+                  eventType: 'checkout.session.completed',
+                },
+              },
+              {
+                sequence: 2,
+                level: 'error',
+                message: 'Signature verification failed',
+                timestamp: '2026-05-05T10:00:00.200Z',
+                metadata: null,
+              },
+            ],
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.getFlowInvocation(managedFlow.id, failedInvocation.id)).resolves.toEqual({
+      ...failedInvocation,
+      logs: [
+        {
+          sequence: 1,
+          level: 'info',
+          message: 'Received webhook event',
+          timestamp: '2026-05-05T10:00:00.100Z',
+          metadata: {
+            eventType: 'checkout.session.completed',
+          },
+        },
+        {
+          sequence: 2,
+          level: 'error',
+          message: 'Signature verification failed',
+          timestamp: '2026-05-05T10:00:00.200Z',
+          metadata: null,
+        },
+      ],
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.id}/invocations/${failedInvocation.id}`,
       {
         method: 'GET',
         headers: {

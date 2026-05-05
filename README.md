@@ -265,6 +265,17 @@ const secret = ctx.env.STRIPE_WEBHOOK_SECRET;
 
 Use `trigora flows` to find the hosted flow ID first. `trigora secrets set` prompts for the value securely by default, and `--value <value>` is available as an optional non-interactive alternative when needed. Secrets are managed separately from deploys. `trigora deploy` uploads code only.
 
+## Logs
+
+Hosted flows retain recent invocation metadata and logs for debugging.
+
+```bash
+npx trigora logs list --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+npx trigora logs get inv_123 --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+```
+
+Use `trigora logs list` to find a recent failed invocation, then `trigora logs get` to inspect its stored log lines. Both commands require the hosted flow ID.
+
 ## Packages
 
 ### `trigora`
@@ -322,11 +333,11 @@ Current alpha scope:
 - local webhook dev server
 - hosted webhook deploys
 - hosted flow listing, inspection, disable, and enable
+- hosted invocation inspection
 
 Current limitations:
 
 - hosted deploy currently supports webhook-triggered flows only
-- webhook signature verification is not built in yet
 - delete is not available yet from the CLI
 - advanced hosted environment management is not available yet
 

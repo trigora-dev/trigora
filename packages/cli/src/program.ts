@@ -2,6 +2,7 @@ import { Command } from 'commander';
 import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
 import { deleteSecretCommand, listSecretsCommand, setSecretCommand } from './commands/secrets';
+import { getLogCommand, listLogsCommand } from './commands/logs';
 import {
   disableFlowCommand,
   enableFlowCommand,
@@ -128,6 +129,28 @@ export function createProgram(): Command {
         flowId: options.flow,
         name,
         yes: options.yes,
+      });
+    });
+
+  const logsCommand = program.command('logs').description('Inspect hosted flow invocations');
+
+  logsCommand
+    .command('list')
+    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .action(async (options) => {
+      await listLogsCommand({
+        flowId: options.flow,
+      });
+    });
+
+  logsCommand
+    .command('get')
+    .argument('<invocationId>', 'Invocation ID')
+    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .action(async (invocationId, options) => {
+      await getLogCommand({
+        flowId: options.flow,
+        invocationId,
       });
     });
 

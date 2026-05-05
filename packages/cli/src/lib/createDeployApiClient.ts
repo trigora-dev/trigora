@@ -5,12 +5,19 @@ import type {
   CreateDeploymentRequest,
   CreateDeploymentResponse,
   DeleteFlowSecretResponse,
+  FlowInvocationLogLevel,
+  FlowInvocationLogRecord,
+  FlowInvocationRecord,
+  FlowInvocationStatus,
   FlowSecretRecord,
   FlowStatusResponse,
   FlowRecord,
   FlowStatus,
   FlowTriggerType,
   GetFlowResponse,
+  GetFlowInvocationResponse,
+  ListFlowInvocationsQuery,
+  ListFlowInvocationsResponse,
   ListFlowSecretsResponse,
   ListFlowsResponse,
   SetFlowSecretRequest,
@@ -23,6 +30,14 @@ export type DeployApiClient = {
   disableFlow(flowId: string): Promise<FlowStatusResponse['flow']>;
   enableFlow(flowId: string): Promise<FlowStatusResponse['flow']>;
   getFlow(flowId: string): Promise<GetFlowResponse['flow']>;
+  getFlowInvocation(
+    flowId: string,
+    invocationId: string,
+  ): Promise<GetFlowInvocationResponse['invocation']>;
+  listFlowInvocations(
+    flowId: string,
+    query?: ListFlowInvocationsQuery,
+  ): Promise<ListFlowInvocationsResponse['invocations']>;
   listFlowSecrets(flowId: string): Promise<ListFlowSecretsResponse['secrets']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
   setFlowSecret(
@@ -249,6 +264,22 @@ function isFlowStatus(value: unknown): value is FlowStatus {
   return value === 'ready' || value === 'disabled' || value === 'failed';
 }
 
+function isFlowInvocationStatus(value: unknown): value is FlowInvocationStatus {
+  return value === 'running' || value === 'succeeded' || value === 'failed';
+}
+
+function isFlowInvocationLogLevel(value: unknown): value is FlowInvocationLogLevel {
+  return value === 'info' || value === 'warn' || value === 'error';
+}
+
+function getNullableString(value: unknown): string | null | undefined {
+  return value === null || typeof value === 'string' ? value : undefined;
+}
+
+function getNullableNumber(value: unknown): number | null | undefined {
+  return value === null || typeof value === 'number' ? value : undefined;
+}
+
 function normalizeFlowTriggerType(value: unknown): FlowTriggerType | undefined {
   if (value === 'webhook' || value === 'cron' || value === 'queue') {
     return value;
@@ -413,6 +444,112 @@ function readDeleteFlowSecretResponse(payload: unknown): DeleteFlowSecretRespons
   };
 }
 
+function normalizeFlowInvocationRecord(value: unknown): FlowInvocationRecord | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const id = getOptionalString(value.id);
+  const status = isFlowInvocationStatus(value.status) ? value.status : undefined;
+  const startedAt = getOptionalString(value.startedAt);
+  const completedAt = getNullableString(value.completedAt);
+  const durationMs = getNullableNumber(value.durationMs);
+  const httpStatus = getNullableNumber(value.httpStatus);
+  const errorCode = getNullableString(value.errorCode);
+  const errorMessage = getNullableString(value.errorMessage);
+
+  if (
+    !id ||
+    !status ||
+    !startedAt ||
+    completedAt === undefined ||
+    durationMs === undefined ||
+    httpStatus === undefined ||
+    errorCode === undefined ||
+    errorMessage === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    id,
+    status,
+    startedAt,
+    completedAt,
+    durationMs,
+    httpStatus,
+    errorCode,
+    errorMessage,
+  };
+}
+
+function normalizeFlowInvocationLogRecord(value: unknown): FlowInvocationLogRecord | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const sequence = typeof value.sequence === 'number' ? value.sequence : undefined;
+  const level = isFlowInvocationLogLevel(value.level) ? value.level : undefined;
+  const message = getOptionalString(value.message);
+  const timestamp = getOptionalString(value.timestamp);
+  const metadata =
+    value.metadata === undefined
+      ? undefined
+      : value.metadata === null
+        ? null
+        : isRecord(value.metadata) && !Array.isArray(value.metadata)
+          ? (value.metadata as Record<string, unknown>)
+          : undefined;
+
+  if (sequence === undefined || !level || !message || !timestamp || metadata === undefined) {
+    return undefined;
+  }
+
+  return {
+    sequence,
+    level,
+    message,
+    timestamp,
+    metadata,
+  };
+}
+
+function readFlowInvocationsResponse(payload: unknown): ListFlowInvocationsResponse | undefined {
+  if (!isRecord(payload) || !Array.isArray(payload.invocations)) {
+    return undefined;
+  }
+
+  const invocations = payload.invocations.map((value) => normalizeFlowInvocationRecord(value));
+
+  if (!invocations.every((invocation): invocation is FlowInvocationRecord => Boolean(invocation))) {
+    return undefined;
+  }
+
+  return { invocations };
+}
+
+function readFlowInvocationResponse(payload: unknown): GetFlowInvocationResponse | undefined {
+  if (!isRecord(payload) || !('invocation' in payload) || !isRecord(payload.invocation)) {
+    return undefined;
+  }
+
+  const invocation = normalizeFlowInvocationRecord(payload.invocation);
+  const logs = Array.isArray(payload.invocation.logs)
+    ? payload.invocation.logs.map((value) => normalizeFlowInvocationLogRecord(value))
+    : undefined;
+
+  if (!invocation || !logs || !logs.every((log): log is FlowInvocationLogRecord => Boolean(log))) {
+    return undefined;
+  }
+
+  return {
+    invocation: {
+      ...invocation,
+      logs,
+    },
+  };
+}
+
 function isDeploymentFlow(
   value: unknown,
 ): value is CreateDeploymentResponse['manifestJson']['flows'][number] {
@@ -492,6 +629,13 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
 
   const baseUrl = normalizeBaseUrl(config.baseUrl ?? TRIGORA_API_BASE_URL);
 
+  function createAuthorizedHeaders(includeJsonContentType = false): FetchHeaders {
+    return {
+      Authorization: `Bearer ${config.token}`,
+      ...(includeJsonContentType ? { 'Content-Type': 'application/json' } : {}),
+    };
+  }
+
   return {
     async createDeployment(request) {
       let response: FetchResponse;
@@ -499,10 +643,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       try {
         response = await fetchImpl(`${baseUrl}/v1/deployments`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-            'Content-Type': 'application/json',
-          },
+          headers: createAuthorizedHeaders(true),
           body: JSON.stringify(request),
         });
       } catch (error) {
@@ -532,10 +673,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       try {
         response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/secrets`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-            'Content-Type': 'application/json',
-          },
+          headers: createAuthorizedHeaders(true),
           body: JSON.stringify(request),
         });
       } catch (error) {
@@ -566,9 +704,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       try {
         response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/secrets`, {
           method: 'GET',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-          },
+          headers: createAuthorizedHeaders(),
         });
       } catch (error) {
         if (error instanceof Error) {
@@ -598,9 +734,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       try {
         response = await fetchImpl(`${baseUrl}/v1/flows`, {
           method: 'GET',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-          },
+          headers: createAuthorizedHeaders(),
         });
       } catch (error) {
         if (error instanceof Error) {
@@ -628,11 +762,9 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       let response: FetchResponse;
 
       try {
-        response = await fetchImpl(`${baseUrl}/v1/flows/${flowId}`, {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowId)}`, {
           method: 'GET',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-          },
+          headers: createAuthorizedHeaders(),
         });
       } catch (error) {
         if (error instanceof Error) {
@@ -656,15 +788,89 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
 
       return flowResponse.flow;
     },
+    async listFlowInvocations(flowId, query) {
+      let response: FetchResponse;
+      const search = new URLSearchParams();
+
+      if (query?.limit !== undefined) {
+        search.set('limit', String(query.limit));
+      }
+
+      if (query?.status) {
+        search.set('status', query.status);
+      }
+
+      const url = `${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/invocations${
+        search.size > 0 ? `?${search.toString()}` : ''
+      }`;
+
+      try {
+        response = await fetchImpl(url, {
+          method: 'GET',
+          headers: createAuthorizedHeaders(),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const invocationsResponse = readFlowInvocationsResponse(payload);
+
+      if (!invocationsResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return invocationsResponse.invocations;
+    },
+    async getFlowInvocation(flowId, invocationId) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/invocations/${encodeURIComponent(invocationId)}`,
+          {
+            method: 'GET',
+            headers: createAuthorizedHeaders(),
+          },
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const invocationResponse = readFlowInvocationResponse(payload);
+
+      if (!invocationResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return invocationResponse.invocation;
+    },
     async disableFlow(flowId) {
       let response: FetchResponse;
 
       try {
         response = await fetchImpl(`${baseUrl}/v1/flows/${flowId}/disable`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-          },
+          headers: createAuthorizedHeaders(),
         });
       } catch (error) {
         if (error instanceof Error) {
@@ -694,9 +900,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       try {
         response = await fetchImpl(`${baseUrl}/v1/flows/${flowId}/enable`, {
           method: 'POST',
-          headers: {
-            Authorization: `Bearer ${config.token}`,
-          },
+          headers: createAuthorizedHeaders(),
         });
       } catch (error) {
         if (error instanceof Error) {
@@ -728,9 +932,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
           `${baseUrl}/v1/flows/${encodeURIComponent(flowId)}/secrets/${encodeURIComponent(name)}`,
           {
             method: 'DELETE',
-            headers: {
-              Authorization: `Bearer ${config.token}`,
-            },
+            headers: createAuthorizedHeaders(),
           },
         );
       } catch (error) {
