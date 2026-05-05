@@ -1,4 +1,5 @@
 import { defineFlow } from '@trigora/sdk';
+import { StripeWebhookVerificationError, verifyStripeWebhook } from '@trigora/sdk/stripe';
 
 type StripeCheckoutSession = {
   id: string;
@@ -25,21 +26,33 @@ export default defineFlow<StripeCheckoutEvent>({
   trigger: { type: 'webhook' },
 
   async run(event, ctx) {
-    const body = event.payload;
+    let stripeEvent: StripeCheckoutEvent;
 
-    if (body.type !== 'checkout.session.completed') {
-      await ctx.log.info('Ignoring Stripe event', {
-        eventType: body.type ?? 'unknown',
+    try {
+      stripeEvent = await verifyStripeWebhook<StripeCheckoutEvent>(event, {
+        secret: ctx.env.STRIPE_WEBHOOK_SECRET,
       });
+    } catch (error) {
+      if (error instanceof StripeWebhookVerificationError) {
+        await ctx.log.warn('Rejected Stripe webhook', {
+          reason: error.message,
+        });
 
+        return new Response('Invalid Stripe signature', {
+          status: 400,
+        });
+      }
+
+      throw error;
+    }
+
+    if (stripeEvent.type !== 'checkout.session.completed') {
       return { ok: true, ignored: true };
     }
 
-    const session = body.data?.object;
+    const session = stripeEvent.data?.object;
 
     if (!session?.id) {
-      await ctx.log.warn('Missing checkout session id');
-
       return { ok: false, error: 'Missing checkout session id' };
     }
 

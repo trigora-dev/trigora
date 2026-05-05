@@ -184,6 +184,22 @@ If you do not provide your own payload type, `event.payload` defaults to `JsonVa
 
 For webhook flows, request metadata may also be available on `event.request`, including headers, method, URL, and the raw request body. `event.request.rawBody` is useful when you want to verify webhook signatures yourself.
 
+## Stripe Webhooks
+
+Trigora includes a small helper for verifying Stripe webhook signatures:
+
+```ts
+import { verifyStripeWebhook } from '@trigora/sdk/stripe';
+
+const stripeEvent = await verifyStripeWebhook(event, {
+  secret: ctx.env.STRIPE_WEBHOOK_SECRET,
+});
+```
+
+This verifies against `event.request.rawBody` and the `Stripe-Signature` header.
+
+Production Stripe webhooks should verify signatures before trusting payloads.
+
 ## Context
 
 Flows receive a context object with logging and environment access:

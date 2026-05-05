@@ -2,6 +2,7 @@
   "compilerOptions": {
     "paths": {
       "@trigora/sdk": ["../../packages/sdk/src/index.ts"],
+      "@trigora/sdk/stripe": ["../../packages/sdk/src/stripe.ts"],
       "@trigora/contracts": ["../../packages/contracts/src/index.ts"]
     },
     "target": "ES2022",

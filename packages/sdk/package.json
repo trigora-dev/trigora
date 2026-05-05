@@ -28,6 +28,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./stripe": {
+      "types": "./dist/stripe.d.ts",
+      "default": "./dist/stripe.js"
     }
   },
   "files": [
