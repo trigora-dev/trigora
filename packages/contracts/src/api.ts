@@ -93,3 +93,41 @@ export type DeleteFlowSecretResponse = {
   deleted: true;
   name: string;
 };
+
+export type FlowInvocationStatus = 'running' | 'succeeded' | 'failed';
+
+export type FlowInvocationLogLevel = 'info' | 'warn' | 'error';
+
+export type FlowInvocationRecord = {
+  id: string;
+  status: FlowInvocationStatus;
+  startedAt: string;
+  completedAt: string | null;
+  durationMs: number | null;
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+export type FlowInvocationLogRecord = {
+  sequence: number;
+  level: FlowInvocationLogLevel;
+  message: string;
+  timestamp: string;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type ListFlowInvocationsResponse = {
+  invocations: FlowInvocationRecord[];
+};
+
+export type GetFlowInvocationResponse = {
+  invocation: FlowInvocationRecord & {
+    logs: FlowInvocationLogRecord[];
+  };
+};
+
+export type ListFlowInvocationsQuery = {
+  limit?: number;
+  status?: FlowInvocationStatus;
+};

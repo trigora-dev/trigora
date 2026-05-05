@@ -307,7 +307,7 @@ Use it when you need:
 - shared flow and trigger types
 - deployment request and response contracts
 - hosted API error contracts
-- hosted flow management response types
+- hosted flow management, secret, and invocation response types
 
 Package README:
 

@@ -4,9 +4,14 @@ import type {
   ApiErrorResponse,
   CronFlowRecord,
   DeleteFlowSecretResponse,
+  FlowInvocationLogRecord,
+  FlowInvocationRecord,
   FlowSecretRecord,
   FlowStatusResponse,
+  GetFlowInvocationResponse,
   GetFlowResponse,
+  ListFlowInvocationsQuery,
+  ListFlowInvocationsResponse,
   ListFlowSecretsResponse,
   ListFlowsResponse,
   QueueFlowRecord,
@@ -126,5 +131,51 @@ describe('API contract types', () => {
     expect(setRequest.name).toBe('STRIPE_WEBHOOK_SECRET');
     expect(setResponse.secret.updatedAt).toBe('2026-05-03T12:00:00.000Z');
     expect(deleteResponse.deleted).toBe(true);
+  });
+
+  it('accepts hosted flow invocation contracts', () => {
+    const invocation: FlowInvocationRecord = {
+      id: 'inv_123',
+      status: 'failed',
+      startedAt: '2026-05-05T12:00:00.000Z',
+      completedAt: '2026-05-05T12:00:01.250Z',
+      durationMs: 1250,
+      httpStatus: 500,
+      errorCode: 'webhook_verification_failed',
+      errorMessage: 'Stripe webhook signature did not match.',
+    };
+
+    const log: FlowInvocationLogRecord = {
+      sequence: 1,
+      level: 'warn',
+      message: 'Rejected Stripe webhook',
+      timestamp: '2026-05-05T12:00:01.000Z',
+      metadata: {
+        source: 'stripe',
+      },
+    };
+
+    const listQuery: ListFlowInvocationsQuery = {
+      limit: 20,
+      status: 'failed',
+    };
+
+    const listResponse: ListFlowInvocationsResponse = {
+      invocations: [invocation],
+    };
+
+    const detailResponse: GetFlowInvocationResponse = {
+      invocation: {
+        ...invocation,
+        logs: [log],
+      },
+    };
+
+    expect(listQuery.status).toBe('failed');
+    expect(listResponse.invocations[0]?.status).toBe('failed');
+    expect(detailResponse.invocation.logs[0]?.level).toBe('warn');
+    expect(detailResponse.invocation.logs[0]?.metadata).toEqual({
+      source: 'stripe',
+    });
   });
 });
