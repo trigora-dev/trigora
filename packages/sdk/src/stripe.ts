@@ -1,4 +1,11 @@
 import type { FlowEvent } from '@trigora/contracts';
+import {
+  computeHmacSha256Hex,
+  getHeaderCaseInsensitive,
+  isHexString,
+  requireWebhookRequestParts,
+  timingSafeEqualStrings,
+} from './webhookSignature';
 
 export type VerifyStripeWebhookOptions = {
   secret: string | undefined;
@@ -14,50 +21,6 @@ export class StripeWebhookVerificationError extends Error {
 
 function createVerificationError(message: string): StripeWebhookVerificationError {
   return new StripeWebhookVerificationError(message);
-}
-
-function encodeUtf8(value: string): Uint8Array {
-  return new TextEncoder().encode(value);
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function getHeaderCaseInsensitive(
-  headers: Record<string, string>,
-  headerName: string,
-): string | undefined {
-  const normalizedName = headerName.toLowerCase();
-
-  for (const [key, value] of Object.entries(headers)) {
-    if (key.toLowerCase() === normalizedName) {
-      return value;
-    }
-  }
-
-  return undefined;
-}
-
-function isHexString(value: string): boolean {
-  return value.length > 0 && value.length % 2 === 0 && /^[0-9a-f]+$/i.test(value);
-}
-
-function timingSafeEqualStrings(left: string, right: string): boolean {
-  const leftBytes = encodeUtf8(left);
-  const rightBytes = encodeUtf8(right);
-  const length = Math.max(leftBytes.length, rightBytes.length);
-  let difference = leftBytes.length === rightBytes.length ? 0 : 1;
-
-  for (let index = 0; index < length; index += 1) {
-    difference |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
-  }
-
-  return difference === 0;
 }
 
 function parseStripeSignatureHeader(
@@ -99,28 +62,6 @@ function parseStripeSignatureHeader(
   return { timestamp, signatures };
 }
 
-async function computeHmacSha256Hex(secret: string, signedPayload: string): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
-
-  if (!subtle) {
-    throw createVerificationError('Web Crypto API is unavailable in this runtime.');
-  }
-
-  const key = await subtle.importKey(
-    'raw',
-    toArrayBuffer(encodeUtf8(secret)),
-    {
-      name: 'HMAC',
-      hash: 'SHA-256',
-    },
-    false,
-    ['sign'],
-  );
-  const signature = await subtle.sign('HMAC', key, toArrayBuffer(encodeUtf8(signedPayload)));
-
-  return bytesToHex(new Uint8Array(signature));
-}
-
 export async function verifyStripeWebhook<T = unknown>(
   event: FlowEvent,
   options: VerifyStripeWebhookOptions,
@@ -129,19 +70,15 @@ export async function verifyStripeWebhook<T = unknown>(
     throw createVerificationError('A Stripe webhook secret is required.');
   }
 
-  if (
-    !event.request ||
-    typeof event.request.headers !== 'object' ||
-    event.request.headers === null
-  ) {
-    throw createVerificationError('Stripe webhook request metadata is required.');
+  let requestParts: { headers: Record<string, string>; rawBody: string };
+
+  try {
+    requestParts = requireWebhookRequestParts(event, 'Stripe');
+  } catch (error) {
+    throw createVerificationError(error instanceof Error ? error.message : String(error));
   }
 
-  if (typeof event.request.rawBody !== 'string') {
-    throw createVerificationError('Stripe webhook raw body is required.');
-  }
-
-  const signatureHeader = getHeaderCaseInsensitive(event.request.headers, STRIPE_SIGNATURE_HEADER);
+  const signatureHeader = getHeaderCaseInsensitive(requestParts.headers, STRIPE_SIGNATURE_HEADER);
 
   if (!signatureHeader) {
     throw createVerificationError('Stripe-Signature header is required.');
@@ -163,8 +100,14 @@ export async function verifyStripeWebhook<T = unknown>(
     }
   }
 
-  const signedPayload = `${parsedHeader.timestamp}.${event.request.rawBody}`;
-  const expectedSignature = await computeHmacSha256Hex(options.secret, signedPayload);
+  const signedPayload = `${parsedHeader.timestamp}.${requestParts.rawBody}`;
+  let expectedSignature: string;
+
+  try {
+    expectedSignature = await computeHmacSha256Hex(options.secret, signedPayload);
+  } catch (error) {
+    throw createVerificationError(error instanceof Error ? error.message : String(error));
+  }
   const matches = parsedHeader.signatures.some((signature) =>
     timingSafeEqualStrings(signature, expectedSignature),
   );
@@ -174,7 +117,7 @@ export async function verifyStripeWebhook<T = unknown>(
   }
 
   try {
-    return JSON.parse(event.request.rawBody) as T;
+    return JSON.parse(requestParts.rawBody) as T;
   } catch {
     throw createVerificationError('Stripe webhook body contained invalid JSON.');
   }

@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/stripe.ts'],
+  entry: ['src/index.ts', 'src/github.ts', 'src/stripe.ts'],
   format: ['esm'],
   target: 'node20',
   outDir: 'dist',

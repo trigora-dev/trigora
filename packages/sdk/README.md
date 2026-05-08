@@ -200,6 +200,20 @@ This verifies against `event.request.rawBody` and the `Stripe-Signature` header.
 
 Production Stripe webhooks should verify signatures before trusting payloads.
 
+## GitHub Webhooks
+
+Trigora includes a small helper for verifying GitHub webhook signatures:
+
+```ts
+import { verifyGitHubWebhook } from '@trigora/sdk/github';
+
+const githubEvent = await verifyGitHubWebhook(event, {
+  secret: ctx.env.GITHUB_WEBHOOK_SECRET,
+});
+```
+
+This verifies against `event.request.rawBody` and the `X-Hub-Signature-256` header.
+
 ## Context
 
 Flows receive a context object with logging and environment access:
