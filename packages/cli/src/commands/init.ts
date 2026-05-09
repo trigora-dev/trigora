@@ -14,6 +14,11 @@ export default defineFlow({
   trigger: { type: 'webhook' },
   async run(event, ctx) {
     await ctx.log.info('Received event', event.payload);
+
+    return {
+      ok: true,
+      received: event.payload,
+    };
   },
 });
 `;

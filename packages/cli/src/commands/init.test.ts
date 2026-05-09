@@ -46,6 +46,8 @@ describe('initCommand', () => {
     expect(helloFlow).toContain("id: 'hello'");
     expect(helloFlow).toContain("trigger: { type: 'webhook' }");
     expect(helloFlow).toContain("await ctx.log.info('Received event', event.payload)");
+    expect(helloFlow).toContain('ok: true');
+    expect(helloFlow).toContain('received: event.payload');
     expect(payload).toContain('"message": "Hello, world!"');
     expect(envExample).toContain('# Trigora Cloud');
     expect(envExample).toContain('TRIGORA_DEPLOY_TOKEN=your-deploy-token');
