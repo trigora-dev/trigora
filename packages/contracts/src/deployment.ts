@@ -1,11 +1,23 @@
-import type { WebhookTrigger } from './trigger';
+import type { CronTrigger, WebhookTrigger } from './trigger';
 
-export type DeploymentManifestFlow = {
+type BaseDeploymentManifestFlow = {
   entrypoint: string;
-  routePath: string;
   id: string;
+};
+
+export type WebhookDeploymentManifestFlow = BaseDeploymentManifestFlow & {
+  routePath: string;
   trigger: WebhookTrigger;
 };
+
+export type CronDeploymentManifestFlow = BaseDeploymentManifestFlow & {
+  routePath?: never;
+  trigger: CronTrigger;
+};
+
+export type DeploymentManifestFlow =
+  | WebhookDeploymentManifestFlow
+  | CronDeploymentManifestFlow;
 
 export type DeploymentManifest = {
   version: 1;
@@ -37,7 +49,7 @@ export type DeploymentManifestSnapshot = {
   flows: DeploymentManifestFlow[];
 };
 
-export type DeployedFlowResponse = {
+type BaseDeployedFlowResponse = {
   /**
    * Public identifier for the deployed flow instance.
    * This is distinct from the source flow id in the manifest.
@@ -47,18 +59,29 @@ export type DeployedFlowResponse = {
    * Source flow id from the original deployment manifest.
    */
   flowId: string;
-  routePath: string;
   status: string;
+};
+
+export type WebhookDeployedFlowResponse = BaseDeployedFlowResponse & {
+  trigger: 'webhook';
+  routePath: string;
   /**
    * Public deployed URL for this flow when available.
    */
   url: string | null;
 };
 
-/**
- * @deprecated Prefer `DeployedFlowResponse` for clearer semantics in new code.
- */
-export type DeploymentFlowResponse = DeployedFlowResponse;
+export type CronDeployedFlowResponse = BaseDeployedFlowResponse & {
+  trigger: 'cron';
+  schedule: string;
+  timezone: 'UTC';
+  /**
+   * Cron-triggered flows do not expose a public endpoint.
+   */
+  url: null;
+};
+
+export type DeployedFlowResponse = WebhookDeployedFlowResponse | CronDeployedFlowResponse;
 
 export type CreateDeploymentResponse = {
   id: string;
@@ -68,8 +91,8 @@ export type CreateDeploymentResponse = {
   flowCount: number;
   baseUrl: string | null;
   /**
-   * Public deployed URL for single-flow deployments.
-   * Multi-flow deployments should return null and use `flows[*].url`.
+   * Public deployed URL for single-flow webhook deployments.
+   * Multi-flow deployments and cron-only deployments should return null.
    */
   url: string | null;
   flows: DeployedFlowResponse[];

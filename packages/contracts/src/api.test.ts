@@ -67,6 +67,7 @@ describe('API contract types', () => {
       status: 'ready',
       createdAt: '2026-04-21T11:00:00.000Z',
       schedule: '0 2 * * *',
+      timezone: 'UTC',
     };
 
     const queueFlow: QueueFlowRecord = {
@@ -85,6 +86,10 @@ describe('API contract types', () => {
     expect(response.flows).toHaveLength(2);
     expect(response.flows[0]?.trigger).toBe('cron');
     expect(response.flows[1]?.trigger).toBe('queue');
+    if (response.flows[0]?.trigger !== 'cron') {
+      throw new Error('Expected cron flow');
+    }
+    expect(response.flows[0].timezone).toBe('UTC');
   });
 
   it('accepts disable flow responses', () => {

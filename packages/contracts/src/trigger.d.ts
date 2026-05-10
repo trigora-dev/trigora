@@ -9,4 +9,5 @@ export type CronTrigger = {
   type: 'cron';
   cron: string;
 };
-export type Trigger = ManualTrigger | WebhookTrigger | CronTrigger;
+export type HostedTrigger = WebhookTrigger | CronTrigger;
+export type Trigger = ManualTrigger | HostedTrigger;

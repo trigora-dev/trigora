@@ -1,6 +1,6 @@
 {
   "name": "@trigora/contracts",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Shared Trigora type contracts for flows, triggers, events, and deployment payloads.",
   "repository": {
     "type": "git",

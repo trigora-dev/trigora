@@ -4,6 +4,7 @@ export type ApiErrorCode =
   | 'deployment_not_found'
   | 'forbidden'
   | 'internal_error'
+  | 'invalid_cron_expression'
   | 'not_found'
   | 'rate_limited'
   | 'unauthorized';
@@ -41,8 +42,9 @@ export type WebhookFlowRecord = BaseFlowRecord & {
 };
 
 export type CronFlowRecord = BaseFlowRecord & {
-  schedule?: string;
   trigger: 'cron';
+  schedule: string;
+  timezone: 'UTC';
 };
 
 export type QueueFlowRecord = BaseFlowRecord & {

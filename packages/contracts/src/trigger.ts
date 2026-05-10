@@ -24,6 +24,11 @@ export type CronTrigger = {
 };
 
 /**
+ * Trigger types supported by hosted deployments.
+ */
+export type HostedTrigger = WebhookTrigger | CronTrigger;
+
+/**
  * All supported flow trigger types.
  */
-export type Trigger = ManualTrigger | WebhookTrigger | CronTrigger;
+export type Trigger = ManualTrigger | HostedTrigger;
