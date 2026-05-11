@@ -66,6 +66,7 @@ export type FlowStatusResponse = {
   ok: true;
   flow: {
     id: string;
+    flowId: string;
     status: FlowStatus;
   };
 };

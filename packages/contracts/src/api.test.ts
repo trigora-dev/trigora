@@ -97,6 +97,7 @@ describe('API contract types', () => {
       ok: true,
       flow: {
         id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+        flowId: 'hello',
         status: 'disabled',
       },
     };
