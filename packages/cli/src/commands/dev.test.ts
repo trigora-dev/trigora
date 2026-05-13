@@ -605,7 +605,7 @@ describe('devCommand', () => {
 
     const firstEvent = (run.mock.calls as unknown[][])[0]?.[0];
     expect(firstEvent).toMatchObject({
-      type: 'webhook',
+      type: 'POST',
       payload: {
         type: 'checkout.session.completed',
         data: {
@@ -613,6 +613,18 @@ describe('devCommand', () => {
             id: 'cs_test_123',
           },
         },
+      },
+      request: {
+        method: 'POST',
+        rawBody: JSON.stringify({
+          type: 'checkout.session.completed',
+          data: {
+            object: {
+              id: 'cs_test_123',
+            },
+          },
+        }),
+        url: 'http://localhost:5252/',
       },
     });
 
@@ -688,8 +700,13 @@ describe('devCommand', () => {
 
     const event = (updatedRun.mock.calls as unknown[][])[0]?.[0];
     expect(event).toMatchObject({
-      type: 'webhook',
+      type: 'POST',
       payload: body,
+      request: {
+        method: 'POST',
+        rawBody: JSON.stringify(body),
+        url: 'http://localhost:5252/',
+      },
     });
   });
 

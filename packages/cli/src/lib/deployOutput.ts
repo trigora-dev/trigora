@@ -57,6 +57,25 @@ function getApiDetailsMessage(details: unknown): string | undefined {
   return undefined;
 }
 
+function getApiDetailsHint(details: unknown): string | undefined {
+  if (!details || typeof details !== 'object') {
+    return undefined;
+  }
+
+  if ('hint' in details && typeof details.hint === 'string' && details.hint.trim()) {
+    return details.hint.trim();
+  }
+
+  return undefined;
+}
+
+function normalizeInvalidCronReason(reason: string): string {
+  return reason
+    .trim()
+    .replace(/^Invalid cron expression(?: for flow "[^"]+")?:\s*/i, '')
+    .replace(/\.$/, '');
+}
+
 function getApiFailureDisplayReason(error: DeployApiRequestError): string {
   if (error.code === 'unauthorized' || error.code === 'forbidden') {
     return 'Deploy token is invalid or no longer active.';
@@ -95,6 +114,32 @@ function createDeployRequestFailure(error: DeployApiRequestError, reason: string
     normalizedReason,
     'Try again in a moment.',
   );
+}
+
+function createInvalidCronFailure(
+  manifest: DeploymentManifest | undefined,
+  error: DeployApiRequestError,
+  reason: string,
+): CliDisplayError {
+  const normalizedReason =
+    normalizeInvalidCronReason(reason) || 'Trigora Cloud rejected the cron expression.';
+  const details = [
+    ...(manifest?.flows.length === 1 ? [{ label: 'Flow', value: manifest.flows[0]?.id }] : []),
+    { label: 'Error', value: 'Invalid cron expression' },
+    { label: 'Reason', value: normalizedReason },
+    {
+      label: 'Hint',
+      value:
+        getApiDetailsHint(error.details) ??
+        'Use 5 fields: minute hour day-of-month month day-of-week',
+    },
+  ].filter((detail): detail is { label: string; value: string } => Boolean(detail.value));
+
+  return new CliDisplayError({
+    title: 'Deployment failed',
+    details,
+    message: normalizedReason,
+  });
 }
 
 function formatTriggerLabel(flow: DeploymentManifestFlow): string {
@@ -158,8 +203,7 @@ function formatDetailLines(
   }
 
   const effectiveLabelWidth =
-    labelWidth ??
-    visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
+    labelWidth ?? visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
 
   return visibleItems.map(
     (item) => `${indent}${colors.label(item.label.padEnd(effectiveLabelWidth))}  ${item.value}`,
@@ -196,8 +240,13 @@ function formatDeploymentBlock(
           : undefined,
     },
   ] as const;
-  const visibleDetailLabels = detailItems.filter((item) => Boolean(item.value)).map((item) => item.label);
-  const singleFlowLabelWidth = Math.max('Flow'.length, ...visibleDetailLabels.map((label) => label.length));
+  const visibleDetailLabels = detailItems
+    .filter((item) => Boolean(item.value))
+    .map((item) => item.label);
+  const singleFlowLabelWidth = Math.max(
+    'Flow'.length,
+    ...visibleDetailLabels.map((label) => label.length),
+  );
   const nameLine =
     index === undefined
       ? `${colors.label('Flow'.padEnd(singleFlowLabelWidth))}  ${formatFlowName(flow.id)}`
@@ -331,7 +380,7 @@ export function toTokenFailure(): CliDisplayError {
   );
 }
 
-export function toApiFailure(error: unknown): CliDisplayError {
+export function toApiFailure(error: unknown, manifest?: DeploymentManifest): CliDisplayError {
   if (error instanceof DeployApiRequestError) {
     const reason = getApiFailureDisplayReason(error);
 
@@ -341,6 +390,10 @@ export function toApiFailure(error: unknown): CliDisplayError {
         reason,
         'Check your deploy token and try again.',
       );
+    }
+
+    if (error.code === 'invalid_cron_expression') {
+      return createInvalidCronFailure(manifest, error, reason);
     }
 
     return createDeployRequestFailure(error, reason);

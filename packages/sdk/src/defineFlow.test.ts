@@ -61,6 +61,16 @@ void defineFlow({
   },
 });
 
+void defineFlow<{ orderId: string }>({
+  id: 'valid-webhook-generic-flow',
+  trigger: { type: 'webhook' },
+  async run(event) {
+    const orderId: string = event.payload.orderId;
+    void orderId;
+    return { ok: true };
+  },
+});
+
 void defineFlow({
   id: 'valid-cron-flow',
   trigger: { type: 'cron', cron: '0 2 * * *' },
@@ -79,8 +89,10 @@ void defineFlow({
   id: 'valid-webhook-request-flow',
   trigger: { type: 'webhook' },
   async run(event) {
-    const headers: Record<string, string> | undefined = event.request?.headers;
+    const headers: Record<string, string> = event.request.headers;
+    const method: string = event.type;
     void headers;
+    void method;
   },
 });
 
@@ -164,9 +176,15 @@ describe('defineFlow', () => {
       flow.run(
         {
           id: 'evt_2',
-          type: 'webhook',
+          type: 'POST',
           timestamp: new Date().toISOString(),
           payload: {},
+          request: {
+            headers: {},
+            method: 'POST',
+            rawBody: '{}',
+            url: 'https://example.com/webhooks/test',
+          },
         },
         {
           env: {},

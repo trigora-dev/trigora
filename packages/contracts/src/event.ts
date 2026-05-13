@@ -7,10 +7,10 @@ export type FlowRequest = {
   rawBody: string;
 };
 
-type BaseFlowEvent = {
-  id?: string;
-  type?: string;
-  timestamp?: string;
+type BaseFlowEvent<TType extends string = string> = {
+  id: string;
+  type: TType;
+  timestamp: string;
 };
 
 export type CronEventPayload = {
@@ -24,20 +24,15 @@ export type FlowEvent<TPayload = JsonValue> = BaseFlowEvent & {
   request?: FlowRequest;
 };
 
-export type ManualFlowEvent<TPayload = JsonValue> = BaseFlowEvent & {
+export type ManualFlowEvent<TPayload = JsonValue> = BaseFlowEvent<'manual'> & {
   payload: TPayload;
-  request?: undefined;
-  type?: 'manual';
 };
 
 export type WebhookFlowEvent<TPayload = JsonValue> = BaseFlowEvent & {
   payload: TPayload;
-  request?: FlowRequest;
-  type?: 'webhook';
+  request: FlowRequest;
 };
 
-export type CronFlowEvent = BaseFlowEvent & {
+export type CronFlowEvent = BaseFlowEvent<'cron'> & {
   payload: CronEventPayload;
-  request?: undefined;
-  type?: 'cron';
 };

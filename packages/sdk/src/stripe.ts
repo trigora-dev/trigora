@@ -1,4 +1,4 @@
-import type { FlowEvent } from '@trigora/contracts';
+import type { WebhookFlowEvent } from '@trigora/contracts';
 import {
   computeHmacSha256Hex,
   getHeaderCaseInsensitive,
@@ -63,7 +63,7 @@ function parseStripeSignatureHeader(
 }
 
 export async function verifyStripeWebhook<T = unknown>(
-  event: FlowEvent,
+  event: WebhookFlowEvent,
   options: VerifyStripeWebhookOptions,
 ): Promise<T> {
   if (!options.secret || options.secret.trim().length === 0) {

@@ -153,6 +153,8 @@ describe('logs commands', () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/Error\s+stripe_signature_invalid/),
     );
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Error\s+-/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Message\s+-/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching invocations/));
 
     vi.useRealTimers();

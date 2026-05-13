@@ -1,4 +1,4 @@
-import type { FlowEvent } from '@trigora/contracts';
+import type { WebhookFlowEvent } from '@trigora/contracts';
 import { describe, expect, it } from 'vitest';
 import {
   GitHubWebhookVerificationError,
@@ -23,10 +23,13 @@ function createWebhookEvent(
   rawBody: string,
   signatureHeader?: string,
   headerName = 'x-hub-signature-256',
-): FlowEvent {
+): WebhookFlowEvent {
   const headers = signatureHeader ? { [headerName]: signatureHeader } : {};
 
   return {
+    id: 'evt_github_test',
+    type: 'POST',
+    timestamp: '2026-05-13T00:00:00.000Z',
     payload: {
       tampered: true,
     },
@@ -40,7 +43,7 @@ function createWebhookEvent(
 }
 
 async function verify(
-  event: FlowEvent,
+  event: WebhookFlowEvent,
   options: VerifyGitHubWebhookOptions,
 ): Promise<GitHubTestPayload> {
   return verifyGitHubWebhook<GitHubTestPayload>(event, options);
@@ -70,7 +73,14 @@ describe('verifyGitHubWebhook', () => {
   });
 
   it('throws when request metadata is missing', async () => {
-    await expect(verify({ payload: {} }, { secret: 'github_test_secret' })).rejects.toThrow(
+    const invalidEvent = {
+      id: 'evt_missing_request',
+      type: 'POST',
+      timestamp: '2026-05-13T00:00:00.000Z',
+      payload: {},
+    } as unknown as WebhookFlowEvent;
+
+    await expect(verify(invalidEvent, { secret: 'github_test_secret' })).rejects.toThrow(
       'GitHub webhook request metadata is required.',
     );
   });
@@ -79,6 +89,9 @@ describe('verifyGitHubWebhook', () => {
     await expect(
       verify(
         {
+          id: 'evt_missing_raw_body',
+          type: 'POST',
+          timestamp: '2026-05-13T00:00:00.000Z',
           payload: {},
           request: {
             headers: {},

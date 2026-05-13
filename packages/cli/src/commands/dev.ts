@@ -115,7 +115,9 @@ async function findAvailablePort(startPort: number): Promise<number> {
   }
 }
 
-async function readJsonRequest(req: http.IncomingMessage): Promise<JsonValue> {
+async function readJsonRequest(
+  req: http.IncomingMessage,
+): Promise<{ parsedBody: JsonValue; rawBody: string }> {
   const chunks: Buffer[] = [];
 
   return new Promise((resolve, reject) => {
@@ -127,12 +129,12 @@ async function readJsonRequest(req: http.IncomingMessage): Promise<JsonValue> {
       const rawBody = Buffer.concat(chunks).toString('utf-8').trim();
 
       if (rawBody.length === 0) {
-        resolve({});
+        resolve({ parsedBody: {}, rawBody: '' });
         return;
       }
 
       try {
-        resolve(JSON.parse(rawBody));
+        resolve({ parsedBody: JSON.parse(rawBody), rawBody });
       } catch {
         reject(new Error('Invalid JSON body.'));
       }
@@ -317,17 +319,33 @@ async function loadWebhookFlow(filePath: string): Promise<WebhookFlowDefinition>
   return flow as WebhookFlowDefinition;
 }
 
-async function runWebhookFlow(flow: WebhookFlowDefinition, body: JsonValue): Promise<unknown> {
+async function runWebhookFlow(
+  flow: WebhookFlowDefinition,
+  event: {
+    body: JsonValue;
+    method: string;
+    rawBody: string;
+    timestamp: string;
+    url: string;
+    headers: Record<string, string>;
+  },
+): Promise<unknown> {
   const ctx = createLocalContext(flow.id);
-  const event = {
+  const flowEvent = {
     id: `evt_local_${Date.now()}`,
-    type: 'webhook' as const,
-    timestamp: new Date().toISOString(),
-    payload: body,
+    type: event.method,
+    timestamp: event.timestamp,
+    payload: event.body,
+    request: {
+      headers: event.headers,
+      method: event.method,
+      rawBody: event.rawBody,
+      url: event.url,
+    },
   };
 
   try {
-    return await flow.run(event, ctx);
+    return await flow.run(flowEvent, ctx);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(
@@ -502,10 +520,10 @@ async function runWebhookDevMode(options: DevOptions, flow: WebhookFlowDefinitio
       return;
     }
 
-    let parsedBody: JsonValue;
+    let requestBody: { parsedBody: JsonValue; rawBody: string };
 
     try {
-      parsedBody = await readJsonRequest(req);
+      requestBody = await readJsonRequest(req);
     } catch {
       res.statusCode = 400;
       res.end('Invalid JSON body.');
@@ -515,12 +533,35 @@ async function runWebhookDevMode(options: DevOptions, flow: WebhookFlowDefinitio
     console.log('');
     printRuntimeDetails([
       { label: 'Request', value: `${colors.info(req.method)} ${requestPath}` },
-      { label: 'Event', value: colors.flow(getWebhookEventName(parsedBody)) },
+      { label: 'Event', value: colors.flow(getWebhookEventName(requestBody.parsedBody)) },
     ]);
 
     try {
       const flow = currentFlow;
-      const result = await enqueueRun(() => runWebhookFlow(flow, parsedBody));
+      const timestamp = new Date().toISOString();
+      const requestHeaders = req.headers ?? {};
+      const host =
+        typeof requestHeaders.host === 'string' ? requestHeaders.host : `localhost:${selectedPort}`;
+      const url = `http://${host}${req.url ?? '/'}`;
+      const headers = Object.fromEntries(
+        Object.entries(requestHeaders).flatMap(([key, value]) =>
+          typeof value === 'string'
+            ? [[key, value]]
+            : Array.isArray(value)
+              ? [[key, value.join(', ')]]
+              : [],
+        ),
+      );
+      const result = await enqueueRun(() =>
+        runWebhookFlow(flow, {
+          body: requestBody.parsedBody,
+          method: req.method ?? 'POST',
+          rawBody: requestBody.rawBody,
+          timestamp,
+          url,
+          headers,
+        }),
+      );
       await writeWebhookResponse(res, result);
     } catch (error) {
       res.statusCode = 500;

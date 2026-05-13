@@ -1,4 +1,4 @@
-import type { FlowEvent } from '@trigora/contracts';
+import type { WebhookFlowEvent } from '@trigora/contracts';
 
 export function encodeUtf8(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -67,7 +67,7 @@ export async function computeHmacSha256Hex(secret: string, signedPayload: string
 }
 
 export function requireWebhookRequestParts(
-  event: FlowEvent,
+  event: WebhookFlowEvent,
   providerName: string,
 ): { headers: Record<string, string>; rawBody: string } {
   if (

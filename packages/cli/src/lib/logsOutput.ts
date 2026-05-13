@@ -128,12 +128,19 @@ function formatInvocationSummaryDetailLines(
     { label: 'Started', value: colors.label(invocation.startedAt) },
     { label: 'Duration', value: formatDuration(invocation.durationMs) },
     { label: 'HTTP', value: formatHttpStatus(invocation.httpStatus) },
-    { label: 'Error', value: formatValue(invocation.errorCode) },
-    { label: 'Message', value: formatValue(invocation.errorMessage) },
+    { label: 'Error', value: invocation.errorCode ?? undefined },
+    { label: 'Message', value: invocation.errorMessage ?? undefined },
   ];
-  const labelWidth = details.reduce((width, detail) => Math.max(width, detail.label.length), 0);
+  const visibleDetails = details.filter((detail): detail is { label: string; value: string } =>
+    Boolean(detail.value),
+  );
 
-  return details.map(
+  const labelWidth = visibleDetails.reduce(
+    (width, detail) => Math.max(width, detail.label.length),
+    0,
+  );
+
+  return visibleDetails.map(
     (detail) => `${indent}${colors.label(detail.label.padEnd(labelWidth))}  ${detail.value}`,
   );
 }

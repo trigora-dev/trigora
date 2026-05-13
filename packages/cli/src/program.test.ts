@@ -130,8 +130,10 @@ describe('createProgram', () => {
     vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit unexpectedly called with "${code ?? ''}"`);
     }) as typeof process.exit);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     program.configureOutput({
+      outputError: () => undefined,
       writeErr: () => undefined,
       writeOut: () => undefined,
     });
@@ -150,8 +152,10 @@ describe('createProgram', () => {
     vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
       throw new Error(`process.exit unexpectedly called with "${code ?? ''}"`);
     }) as typeof process.exit);
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     program.configureOutput({
+      outputError: () => undefined,
       writeErr: () => undefined,
       writeOut: () => undefined,
     });

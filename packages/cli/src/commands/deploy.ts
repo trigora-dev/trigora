@@ -45,7 +45,7 @@ export async function deployCommand(options: DeployOptions): Promise<DeploymentM
   });
 
   const deployment = await apiClient.createDeployment({ manifest, artifact }).catch((error) => {
-    throw toApiFailure(error);
+    throw toApiFailure(error, manifest);
   });
 
   if (deployment.status === 'failed') {

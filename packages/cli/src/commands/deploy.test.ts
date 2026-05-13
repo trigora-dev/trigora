@@ -576,9 +576,12 @@ describe('deployCommand', () => {
         {
           code: 'invalid_cron_expression',
           details: {
-            message: 'Cron expression must contain five fields.',
+            hint: 'Use 5 fields: minute hour day-of-month month day-of-week',
+            message:
+              'Invalid cron expression for flow "nightly": Day-of-week field value "13" must be between 0 and 7.',
           },
-          message: 'Invalid cron expression.',
+          message:
+            'Invalid cron expression for flow "nightly": Day-of-week field value "13" must be between 0 and 7.',
         },
         400,
       ),
@@ -608,13 +611,18 @@ describe('deployCommand', () => {
     ).rejects.toMatchObject({
       title: 'Deployment failed',
       details: expect.arrayContaining([
-        expect.objectContaining({ label: 'Step', value: 'Uploading deployment package' }),
+        expect.objectContaining({ label: 'Flow', value: 'nightly' }),
+        expect.objectContaining({ label: 'Error', value: 'Invalid cron expression' }),
         expect.objectContaining({
           label: 'Reason',
-          value: 'Cron expression must contain five fields.',
+          value: 'Day-of-week field value "13" must be between 0 and 7',
+        }),
+        expect.objectContaining({
+          label: 'Hint',
+          value: 'Use 5 fields: minute hour day-of-month month day-of-week',
         }),
       ]),
-      message: 'Cron expression must contain five fields.',
+      message: 'Day-of-week field value "13" must be between 0 and 7',
     });
   });
 

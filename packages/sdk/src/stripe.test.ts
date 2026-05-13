@@ -1,4 +1,4 @@
-import type { FlowEvent } from '@trigora/contracts';
+import type { WebhookFlowEvent } from '@trigora/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import {
   StripeWebhookVerificationError,
@@ -65,10 +65,13 @@ function createWebhookEvent(
   rawBody: string,
   signatureHeader?: string,
   headerName = 'stripe-signature',
-): FlowEvent {
+): WebhookFlowEvent {
   const headers = signatureHeader ? { [headerName]: signatureHeader } : {};
 
   return {
+    id: 'evt_stripe_test',
+    type: 'POST',
+    timestamp: '2026-05-13T00:00:00.000Z',
     payload: {
       tampered: true,
     },
@@ -82,7 +85,7 @@ function createWebhookEvent(
 }
 
 async function verify(
-  event: FlowEvent,
+  event: WebhookFlowEvent,
   options: VerifyStripeWebhookOptions,
 ): Promise<StripeTestPayload> {
   return verifyStripeWebhook<StripeTestPayload>(event, options);
@@ -119,7 +122,14 @@ describe('verifyStripeWebhook', () => {
   });
 
   it('throws when request metadata is missing', async () => {
-    await expect(verify({ payload: {} }, { secret: 'whsec_test_secret' })).rejects.toThrow(
+    const invalidEvent = {
+      id: 'evt_missing_request',
+      type: 'POST',
+      timestamp: '2026-05-13T00:00:00.000Z',
+      payload: {},
+    } as unknown as WebhookFlowEvent;
+
+    await expect(verify(invalidEvent, { secret: 'whsec_test_secret' })).rejects.toThrow(
       'Stripe webhook request metadata is required.',
     );
   });
@@ -128,6 +138,9 @@ describe('verifyStripeWebhook', () => {
     await expect(
       verify(
         {
+          id: 'evt_missing_raw_body',
+          type: 'POST',
+          timestamp: '2026-05-13T00:00:00.000Z',
           payload: {},
           request: {
             headers: {},

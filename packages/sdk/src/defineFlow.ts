@@ -1,10 +1,40 @@
 import type {
+  CronEventPayload,
   CronFlowDefinition,
   FlowDefinition,
+  FlowRunFn,
   JsonValue,
   ManualFlowDefinition,
+  ManualTrigger,
+  Trigger,
+  WebhookTrigger,
   WebhookFlowDefinition,
+  CronTrigger,
 } from '@trigora/contracts';
+
+type DefineFlowInput<TPayload, TEnv extends Record<string, string>, TTrigger extends Trigger> = {
+  id: string;
+  trigger: TTrigger;
+  run: TTrigger extends ManualTrigger
+    ? FlowRunFn<TPayload, TEnv, ManualTrigger>
+    : TTrigger extends WebhookTrigger
+      ? FlowRunFn<TPayload, TEnv, WebhookTrigger>
+      : TTrigger extends CronTrigger
+        ? FlowRunFn<CronEventPayload, TEnv, CronTrigger>
+        : never;
+};
+
+type DefineFlowOutput<
+  TPayload,
+  TEnv extends Record<string, string>,
+  TTrigger extends Trigger,
+> = TTrigger extends ManualTrigger
+  ? ManualFlowDefinition<TPayload, TEnv>
+  : TTrigger extends WebhookTrigger
+    ? WebhookFlowDefinition<TPayload, TEnv>
+    : TTrigger extends CronTrigger
+      ? CronFlowDefinition<TEnv>
+      : FlowDefinition<TPayload, TEnv, TTrigger>;
 
 /**
  * Define a Trigora flow.
@@ -37,6 +67,12 @@ import type {
  * ```
  */
 export function defineFlow<
+  TTrigger extends Trigger,
+  TPayload = JsonValue,
+  TEnv extends Record<string, string> = Record<string, string>,
+>(flow: DefineFlowInput<TPayload, TEnv, TTrigger>): DefineFlowOutput<TPayload, TEnv, TTrigger>;
+
+export function defineFlow<
   TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
 >(flow: ManualFlowDefinition<TPayload, TEnv>): ManualFlowDefinition<TPayload, TEnv>;
@@ -50,6 +86,6 @@ export function defineFlow<TEnv extends Record<string, string> = Record<string, 
   flow: CronFlowDefinition<TEnv>,
 ): CronFlowDefinition<TEnv>;
 
-export function defineFlow(flow: FlowDefinition): FlowDefinition {
+export function defineFlow(flow: unknown): unknown {
   return flow;
 }

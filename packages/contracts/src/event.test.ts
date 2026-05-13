@@ -24,7 +24,7 @@ describe('Event contract types', () => {
 
     const webhookEvent: WebhookFlowEvent<{ action: 'opened' }> = {
       id: 'evt_3',
-      type: 'webhook',
+      type: 'POST',
       timestamp: '2026-05-10T00:00:00.000Z',
       payload: { action: 'opened' },
       request: {
@@ -37,8 +37,8 @@ describe('Event contract types', () => {
       },
     };
 
-    expect(manualEvent.request).toBeUndefined();
-    expect(webhookEvent.request?.method).toBe('POST');
+    expect('request' in manualEvent).toBe(false);
+    expect(webhookEvent.request.method).toBe('POST');
   });
 
   it('accepts the hosted cron runtime event shape', () => {
@@ -55,6 +55,6 @@ describe('Event contract types', () => {
 
     expect(event.payload.cron).toBe('0 2 * * *');
     expect(event.payload.timezone).toBe('UTC');
-    expect(event.request).toBeUndefined();
+    expect('request' in event).toBe(false);
   });
 });
