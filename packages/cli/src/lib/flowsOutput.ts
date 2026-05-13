@@ -4,7 +4,7 @@ import {
   DeployApiRequestError,
   DeployApiResponseError,
 } from './createDeployApiClient';
-import { CliDetail, CliDisplayError, pluralize } from './cliOutput';
+import { CliDisplayError, pluralize } from './cliOutput';
 import { colors } from './colors';
 
 export const flowSteps = {
@@ -14,16 +14,8 @@ export const flowSteps = {
   fetchingFlows: 'Fetching deployed flows',
 } as const;
 
-function getFlowName(flow: FlowRecord): string {
-  return flow.name;
-}
-
-function formatTriggerLabel(trigger: FlowRecord['trigger']): string {
-  return trigger;
-}
-
-function formatFlowName(flow: FlowRecord): string {
-  return colors.flow(colors.heading(getFlowName(flow)));
+function formatFlowName(name: string): string {
+  return colors.flow(colors.heading(name));
 }
 
 function formatFlowStatus(status: FlowRecord['status']): string {
@@ -42,13 +34,15 @@ function formatFlowListValue(label: string, flow: FlowRecord): string | undefine
     case 'ID':
       return colors.label(flow.id);
     case 'Trigger':
-      return formatTriggerLabel(flow.trigger);
+      return flow.trigger;
     case 'Status':
       return formatFlowStatus(flow.status);
     case 'Endpoint':
       return flow.trigger === 'webhook' ? colors.link(flow.endpoint) : undefined;
     case 'Schedule':
       return flow.trigger === 'cron' ? flow.schedule : undefined;
+    case 'Timezone':
+      return flow.trigger === 'cron' ? flow.timezone : undefined;
     case 'Queue':
       return flow.trigger === 'queue' ? flow.queue : undefined;
     default:
@@ -61,7 +55,7 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
     case 'ID':
       return colors.label(flow.id);
     case 'Trigger':
-      return formatTriggerLabel(flow.trigger);
+      return flow.trigger;
     case 'Status':
       return formatFlowStatus(flow.status);
     case 'Created':
@@ -72,6 +66,8 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
       return flow.trigger === 'webhook' ? flow.route : undefined;
     case 'Schedule':
       return flow.trigger === 'cron' ? flow.schedule : undefined;
+    case 'Timezone':
+      return flow.trigger === 'cron' ? flow.timezone : undefined;
     case 'Queue':
       return flow.trigger === 'queue' ? flow.queue : undefined;
     default:
@@ -80,7 +76,7 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
 }
 
 function formatFlowListDetailLines(flow: FlowRecord, indent = '   '): string[] {
-  const labels = ['ID', 'Trigger', 'Status', 'Endpoint', 'Schedule', 'Queue'] as const;
+  const labels = ['ID', 'Trigger', 'Status', 'Endpoint', 'Schedule', 'Timezone', 'Queue'] as const;
   const visibleItems = labels
     .map((label) => ({ label, value: formatFlowListValue(label, flow) }))
     .filter((item): item is { label: (typeof labels)[number]; value: string } =>
@@ -107,6 +103,7 @@ function formatFlowSummaryDetailLines(flow: FlowRecord, indent = ''): string[] {
     'Endpoint',
     'Route',
     'Schedule',
+    'Timezone',
     'Queue',
   ] as const;
   const visibleItems = labels
@@ -151,7 +148,7 @@ export function printFlowList(flows: FlowRecord[]): void {
   for (const [index, flow] of flows.entries()) {
     const itemPrefix = `  ${index + 1}. `;
     const lines = [
-      `${itemPrefix}${formatFlowName(flow)}`,
+      `${itemPrefix}${formatFlowName(flow.name)}`,
       ...formatFlowListDetailLines(flow, ' '.repeat(itemPrefix.length)),
     ];
 
@@ -170,7 +167,7 @@ export function printNoFlowsFound(): void {
 }
 
 export function printFlowSummary(flow: FlowRecord): void {
-  console.log(formatFlowName(flow));
+  console.log(formatFlowName(flow.name));
   console.log('');
 
   for (const line of formatFlowSummaryDetailLines(flow)) {
@@ -189,6 +186,7 @@ function printFlowStatusChange(title: string, flow: FlowStatusResponse['flow']):
   console.log('');
   console.log(`${colors.success('✔')} ${title}`);
   console.log('');
+  console.log(`${colors.label('Flow'.padEnd(6))}  ${formatFlowName(flow.name)}`);
   console.log(`${colors.label('ID'.padEnd(6))}  ${colors.label(flow.id)}`);
   console.log(`${colors.label('Status'.padEnd(6))}  ${formattedStatus}`);
 }

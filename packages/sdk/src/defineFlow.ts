@@ -46,10 +46,9 @@ export function defineFlow<
   TEnv extends Record<string, string> = Record<string, string>,
 >(flow: WebhookFlowDefinition<TPayload, TEnv>): WebhookFlowDefinition<TPayload, TEnv>;
 
-export function defineFlow<
-  TPayload = JsonValue,
-  TEnv extends Record<string, string> = Record<string, string>,
->(flow: CronFlowDefinition<TPayload, TEnv>): CronFlowDefinition<TPayload, TEnv>;
+export function defineFlow<TEnv extends Record<string, string> = Record<string, string>>(
+  flow: CronFlowDefinition<TEnv>,
+): CronFlowDefinition<TEnv>;
 
 export function defineFlow(flow: FlowDefinition): FlowDefinition {
   return flow;

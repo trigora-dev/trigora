@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 
-import type { FlowDefinition, JsonValue } from '@trigora/contracts';
+import type { JsonValue, WebhookFlowDefinition } from '@trigora/contracts';
 import { colors } from '../lib/colors';
 import { createLocalContext } from '../lib/createLocalContext';
 import { loadFlowModule } from '../lib/loadFlowModule';
@@ -307,17 +307,17 @@ function createWatchManager(options: {
   };
 }
 
-async function loadWebhookFlow(filePath: string): Promise<FlowDefinition> {
+async function loadWebhookFlow(filePath: string): Promise<WebhookFlowDefinition> {
   const flow = await loadFlowModule(filePath);
 
   if (flow.trigger?.type !== 'webhook') {
     throw new Error(`Flow "${flow.id}" is no longer a webhook flow. Restart trigora dev.`);
   }
 
-  return flow;
+  return flow as WebhookFlowDefinition;
 }
 
-async function runWebhookFlow(flow: FlowDefinition, body: JsonValue): Promise<unknown> {
+async function runWebhookFlow(flow: WebhookFlowDefinition, body: JsonValue): Promise<unknown> {
   const ctx = createLocalContext(flow.id);
   const event = {
     id: `evt_local_${Date.now()}`,
@@ -407,7 +407,7 @@ async function runStandardDevMode(options: DevOptions, flowId: string): Promise<
   await new Promise<void>(() => {});
 }
 
-async function runWebhookDevMode(options: DevOptions, flow: FlowDefinition): Promise<void> {
+async function runWebhookDevMode(options: DevOptions, flow: WebhookFlowDefinition): Promise<void> {
   const relativeFlowPath = path.relative(process.cwd(), options.filePath);
   let isRunning = false;
   let rerunRequested = false;
@@ -556,5 +556,5 @@ export async function devCommand(options: DevOptions): Promise<void> {
     return;
   }
 
-  await runWebhookDevMode(options, flow);
+  await runWebhookDevMode(options, flow as WebhookFlowDefinition);
 }

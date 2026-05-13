@@ -1,5 +1,11 @@
 import type { FlowContext } from './context';
-import type { FlowEvent } from './event';
+import type {
+  CronEventPayload,
+  CronFlowEvent,
+  FlowEvent,
+  ManualFlowEvent,
+  WebhookFlowEvent,
+} from './event';
 import type { CronTrigger, ManualTrigger, Trigger, WebhookTrigger } from './trigger';
 
 export type JsonObject = {
@@ -10,12 +16,20 @@ export type JsonValue = string | number | boolean | null | JsonObject | JsonValu
 
 export type WebhookFlowResult = Response | JsonValue | undefined;
 
+type FlowEventForTrigger<TPayload, TTrigger extends Trigger> = TTrigger extends ManualTrigger
+  ? ManualFlowEvent<TPayload>
+  : TTrigger extends WebhookTrigger
+    ? WebhookFlowEvent<TPayload>
+    : TTrigger extends CronTrigger
+      ? CronFlowEvent
+      : FlowEvent<TPayload>;
+
 export type FlowRunFn<
   TPayload = JsonValue,
   TEnv extends Record<string, string> = Record<string, string>,
   TTrigger extends Trigger = Trigger,
 > = (
-  event: FlowEvent<TPayload>,
+  event: FlowEventForTrigger<TPayload, TTrigger>,
   ctx: FlowContext<TEnv>,
 ) => TTrigger extends WebhookTrigger
   ? Promise<WebhookFlowResult> | WebhookFlowResult
@@ -41,18 +55,16 @@ export type WebhookFlowDefinition<
   run: FlowRunFn<TPayload, TEnv, WebhookTrigger>;
 };
 
-export type CronFlowDefinition<
-  TPayload = JsonValue,
-  TEnv extends Record<string, string> = Record<string, string>,
-> = BaseFlowDefinition & {
-  trigger: CronTrigger;
-  run: FlowRunFn<TPayload, TEnv, CronTrigger>;
-};
+export type CronFlowDefinition<TEnv extends Record<string, string> = Record<string, string>> =
+  BaseFlowDefinition & {
+    trigger: CronTrigger;
+    run: FlowRunFn<CronEventPayload, TEnv, CronTrigger>;
+  };
 
 type FlowDefinitionByTrigger<TPayload, TEnv extends Record<string, string>> =
   | ManualFlowDefinition<TPayload, TEnv>
   | WebhookFlowDefinition<TPayload, TEnv>
-  | CronFlowDefinition<TPayload, TEnv>;
+  | CronFlowDefinition<TEnv>;
 
 type TriggerTypeOf<TTrigger extends Trigger> = TTrigger['type'];
 

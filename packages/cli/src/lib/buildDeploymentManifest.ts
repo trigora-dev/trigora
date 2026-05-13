@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { DeploymentManifest, Trigger, WebhookTrigger } from '@trigora/contracts';
+import type { DeploymentManifest, HostedTrigger, Trigger } from '@trigora/contracts';
 import { loadFlowModule } from './loadFlowModule';
 
 type DeployOptions = {
@@ -17,7 +17,7 @@ type LoadedFlow = {
 type DeployableFlow = {
   entrypoint: string;
   id: string;
-  trigger: WebhookTrigger;
+  trigger: HostedTrigger;
 };
 
 export function formatTrigger(trigger: Trigger): string {
@@ -31,8 +31,8 @@ export function formatTrigger(trigger: Trigger): string {
   }
 }
 
-function isDeployableTrigger(trigger: Trigger): trigger is WebhookTrigger {
-  return trigger.type === 'webhook';
+function isDeployableTrigger(trigger: Trigger): trigger is HostedTrigger {
+  return trigger.type === 'webhook' || trigger.type === 'cron';
 }
 
 function createRoutePath(flowId: string): string {
@@ -46,7 +46,7 @@ function validateDeployableFlows(flows: LoadedFlow[]): DeployableFlow[] {
   for (const flow of flows) {
     if (!isDeployableTrigger(flow.trigger)) {
       throw new Error(
-        `Flow "${flow.id}" in "${flow.entrypoint}" uses unsupported trigger "${flow.trigger.type}". trigora deploy currently supports only webhook-triggered flows.`,
+        `Flow "${flow.id}" in "${flow.entrypoint}" uses unsupported trigger "${flow.trigger.type}". trigora deploy currently supports only webhook- and cron-triggered flows.`,
       );
     }
 
@@ -72,12 +72,20 @@ function validateDeployableFlows(flows: LoadedFlow[]): DeployableFlow[] {
 function createDeploymentManifest(flows: DeployableFlow[]): DeploymentManifest {
   return {
     version: 1,
-    flows: flows.map((flow) => ({
-      entrypoint: flow.entrypoint,
-      routePath: createRoutePath(flow.id),
-      id: flow.id,
-      trigger: flow.trigger,
-    })),
+    flows: flows.map((flow) =>
+      flow.trigger.type === 'webhook'
+        ? {
+            entrypoint: flow.entrypoint,
+            routePath: createRoutePath(flow.id),
+            id: flow.id,
+            trigger: flow.trigger,
+          }
+        : {
+            entrypoint: flow.entrypoint,
+            id: flow.id,
+            trigger: flow.trigger,
+          },
+    ),
   };
 }
 

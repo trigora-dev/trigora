@@ -70,6 +70,7 @@ describe('createDeployApiClient', () => {
             {
               id: 'df_123',
               flowId: 'hello',
+              trigger: 'webhook',
               routePath: '/hello',
               status: 'pending',
               url: 'https://trigora.dev/f/df_123',
@@ -101,6 +102,7 @@ describe('createDeployApiClient', () => {
         {
           id: 'df_123',
           flowId: 'hello',
+          trigger: 'webhook',
           routePath: '/hello',
           status: 'pending',
           url: 'https://trigora.dev/f/df_123',
@@ -209,6 +211,42 @@ describe('createDeployApiClient', () => {
     } satisfies Partial<DeployApiRequestError>);
   });
 
+  it('preserves structured cron validation error details', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      async json() {
+        return {
+          error: {
+            code: 'invalid_cron_expression',
+            message: 'Invalid cron expression.',
+            details: {
+              message: 'Cron expression must contain five fields.',
+            },
+          },
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiRequestError',
+      code: 'invalid_cron_expression',
+      message: 'Invalid cron expression.',
+      details: {
+        message: 'Cron expression must contain five fields.',
+      },
+      status: 400,
+    } satisfies Partial<DeployApiRequestError>);
+  });
+
   it('maps empty unauthorized responses to the v1 deploy token message', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -290,6 +328,7 @@ describe('createDeployApiClient', () => {
             {
               id: 'df_123',
               flowId: 'hello',
+              trigger: 'webhook',
               routePath: '/hello',
               status: 'pending',
               url: null,
@@ -337,6 +376,7 @@ describe('createDeployApiClient', () => {
               trigger: 'cron',
               createdAt: '2026-04-21T11:00:00.000Z',
               schedule: '0 2 * * *',
+              timezone: 'UTC',
             },
           ],
         };
@@ -360,6 +400,7 @@ describe('createDeployApiClient', () => {
         trigger: 'cron',
         createdAt: '2026-04-21T11:00:00.000Z',
         schedule: '0 2 * * *',
+        timezone: 'UTC',
       },
     ]);
 
@@ -368,6 +409,78 @@ describe('createDeployApiClient', () => {
       headers: {
         Authorization: 'Bearer secret-token',
       },
+    });
+  });
+
+  it('accepts cron deployment responses without route paths', async () => {
+    const cronManifest = {
+      version: 1 as const,
+      flows: [
+        {
+          id: 'nightly',
+          entrypoint: 'flows/nightly.ts',
+          trigger: { type: 'cron' as const, cron: '0 2 * * *' },
+        },
+      ],
+    };
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          id: 'dep_789',
+          status: 'active',
+          manifestVersion: 1,
+          manifestJson: cronManifest,
+          flowCount: 1,
+          baseUrl: 'https://deploy.trigora.dev',
+          url: null,
+          flows: [
+            {
+              id: 'df_789',
+              flowId: 'nightly',
+              trigger: 'cron',
+              schedule: '0 2 * * *',
+              timezone: 'UTC',
+              status: 'active',
+              url: null,
+            },
+          ],
+          createdAt: '2026-04-12T00:00:00.000Z',
+          updatedAt: '2026-04-12T00:00:00.000Z',
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.createDeployment({ manifest: cronManifest, artifact })).resolves.toEqual({
+      id: 'dep_789',
+      status: 'active',
+      manifestVersion: 1,
+      manifestJson: cronManifest,
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      url: null,
+      flows: [
+        {
+          id: 'df_789',
+          flowId: 'nightly',
+          trigger: 'cron',
+          schedule: '0 2 * * *',
+          timezone: 'UTC',
+          status: 'active',
+          url: null,
+        },
+      ],
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
     });
   });
 
@@ -409,6 +522,7 @@ describe('createDeployApiClient', () => {
           ok: true,
           flow: {
             id: managedFlow.id,
+            name: managedFlow.name,
             status: 'disabled',
           },
         };
@@ -425,6 +539,7 @@ describe('createDeployApiClient', () => {
 
     await expect(client.disableFlow(managedFlow.id)).resolves.toEqual({
       id: managedFlow.id,
+      name: managedFlow.name,
       status: 'disabled',
     } satisfies FlowStatusResponse['flow']);
 
@@ -448,6 +563,7 @@ describe('createDeployApiClient', () => {
           ok: true,
           flow: {
             id: managedFlow.id,
+            name: managedFlow.name,
             status: 'ready',
           },
         };
@@ -464,6 +580,7 @@ describe('createDeployApiClient', () => {
 
     await expect(client.enableFlow(managedFlow.id)).resolves.toEqual({
       id: managedFlow.id,
+      name: managedFlow.name,
       status: 'ready',
     } satisfies FlowStatusResponse['flow']);
 

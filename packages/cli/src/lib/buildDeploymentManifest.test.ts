@@ -112,6 +112,55 @@ describe('buildDeploymentManifest', () => {
     });
   });
 
+  it('builds a mixed hosted manifest for webhook and cron flows', async () => {
+    const tempDir = await makeTempDir();
+    const helloPath = path.join(tempDir, 'flows', 'hello.ts');
+    const nightlyPath = path.join(tempDir, 'flows', 'nightly.ts');
+
+    await fs.mkdir(path.dirname(helloPath), { recursive: true });
+    await fs.writeFile(
+      helloPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+    await fs.writeFile(
+      nightlyPath,
+      `
+        export default {
+          id: 'nightly',
+          trigger: { type: 'cron', cron: '0 2 * * *' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(buildDeploymentManifest({})).resolves.toEqual({
+      version: 1,
+      flows: [
+        {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          routePath: '/hello',
+          trigger: { type: 'webhook' },
+        },
+        {
+          id: 'nightly',
+          entrypoint: 'flows/nightly.ts',
+          trigger: { type: 'cron', cron: '0 2 * * *' },
+        },
+      ],
+    });
+  });
+
   it('throws a helpful error when no flows exist', async () => {
     const tempDir = await makeTempDir();
     process.chdir(tempDir);
@@ -145,7 +194,7 @@ describe('buildDeploymentManifest', () => {
         filePath: flowPath,
       }),
     ).rejects.toThrow(
-      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports only webhook-triggered flows.',
+      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports only webhook- and cron-triggered flows.',
     );
   });
 

@@ -1,4 +1,4 @@
-import type { JsonValue } from '@trigora/contracts';
+import type { JsonValue, ManualFlowDefinition } from '@trigora/contracts';
 import { createLocalContext } from '../lib/createLocalContext';
 import { colors } from '../lib/colors';
 import { loadJsonFile } from '../lib/loadJsonFile';
@@ -40,7 +40,15 @@ function printTriggerFailure(flowId: string, durationMs: number): void {
 }
 
 export async function triggerCommand(options: TriggerOptions): Promise<void> {
-  const flow = await loadFlowModule(options.filePath);
+  const loadedFlow = await loadFlowModule(options.filePath);
+
+  if (loadedFlow.trigger.type !== 'manual') {
+    throw new Error(
+      `Flow "${loadedFlow.id}" uses trigger "${loadedFlow.trigger.type}". trigora trigger only supports manual-triggered flows.`,
+    );
+  }
+
+  const flow = loadedFlow as ManualFlowDefinition;
   const ctx = createLocalContext(flow.id);
   const payload = await loadPayload(options.payloadPath);
 

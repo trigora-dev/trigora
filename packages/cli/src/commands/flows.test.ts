@@ -39,6 +39,16 @@ const helloFlow = {
   createdAt: '2026-04-21T10:00:00.000Z',
 } satisfies FlowRecord;
 
+const cronFlow = {
+  id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
+  name: 'nightly-sync',
+  status: 'ready',
+  trigger: 'cron' as const,
+  schedule: '0 2 * * *',
+  timezone: 'UTC' as const,
+  createdAt: '2026-04-21T11:00:00.000Z',
+} satisfies FlowRecord;
+
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn(),
@@ -51,10 +61,12 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     setFlowSecret: vi.fn(),
     disableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
+      name: helloFlow.name,
       status: 'disabled',
     } satisfies FlowStatusResponse['flow']),
     enableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
+      name: helloFlow.name,
       status: 'ready',
     } satisfies FlowStatusResponse['flow']),
     ...overrides,
@@ -102,6 +114,27 @@ describe('flows commands', () => {
     expect(console.log).toHaveBeenCalledWith('No deployed flows found.');
   });
 
+  it('prints cron metadata in flow listings and inspect output', async () => {
+    mockedCreateDeployApiClient.mockReturnValue(
+      createMockApiClient({
+        listFlows: vi.fn().mockResolvedValue([cronFlow]),
+        getFlow: vi.fn().mockResolvedValue(cronFlow),
+      }),
+    );
+
+    await expect(listFlowsCommand()).resolves.toEqual([cronFlow]);
+    await expect(inspectFlowCommand(cronFlow.id)).resolves.toEqual(cronFlow);
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. nightly-sync/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Trigger\s+cron/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/^\s{5}Schedule\s+0 2 \* \* \*/),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Timezone\s+UTC/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Schedule\s+0 2 \* \* \*/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Timezone\s+UTC/));
+  });
+
   it('prints flow details for inspect', async () => {
     await expect(inspectFlowCommand(helloFlow.id)).resolves.toEqual(helloFlow);
 
@@ -117,6 +150,7 @@ describe('flows commands', () => {
   it('prints a success summary when a flow is disabled', async () => {
     await expect(disableFlowCommand(helloFlow.id)).resolves.toEqual({
       id: helloFlow.id,
+      name: helloFlow.name,
       status: 'disabled',
     });
 
@@ -129,6 +163,7 @@ describe('flows commands', () => {
   it('prints a success summary when a flow is enabled', async () => {
     await expect(enableFlowCommand(helloFlow.id)).resolves.toEqual({
       id: helloFlow.id,
+      name: helloFlow.name,
       status: 'ready',
     });
 

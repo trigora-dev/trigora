@@ -15,9 +15,7 @@ export type CronDeploymentManifestFlow = BaseDeploymentManifestFlow & {
   trigger: CronTrigger;
 };
 
-export type DeploymentManifestFlow =
-  | WebhookDeploymentManifestFlow
-  | CronDeploymentManifestFlow;
+export type DeploymentManifestFlow = WebhookDeploymentManifestFlow | CronDeploymentManifestFlow;
 
 export type DeploymentManifest = {
   version: 1;

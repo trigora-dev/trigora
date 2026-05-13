@@ -61,6 +61,49 @@ void defineFlow({
   },
 });
 
+void defineFlow({
+  id: 'valid-cron-flow',
+  trigger: { type: 'cron', cron: '0 2 * * *' },
+  async run(event, ctx) {
+    const cron: string = event.payload.cron;
+    const scheduledAt: string = event.payload.scheduledAt;
+    const timezone: 'UTC' = event.payload.timezone;
+    void cron;
+    void scheduledAt;
+    void timezone;
+    await ctx.log.info('Running nightly job');
+  },
+});
+
+void defineFlow({
+  id: 'valid-webhook-request-flow',
+  trigger: { type: 'webhook' },
+  async run(event) {
+    const headers: Record<string, string> | undefined = event.request?.headers;
+    void headers;
+  },
+});
+
+void defineFlow({
+  id: 'invalid-manual-request-flow',
+  trigger: { type: 'manual' },
+  async run(event) {
+    // @ts-expect-error manual flows do not receive request metadata
+    const headers = event.request?.headers;
+    void headers;
+  },
+});
+
+void defineFlow({
+  id: 'invalid-cron-request-flow',
+  trigger: { type: 'cron', cron: '0 2 * * *' },
+  async run(event) {
+    // @ts-expect-error cron flows do not receive request metadata
+    const headers = event.request?.headers;
+    void headers;
+  },
+});
+
 describe('defineFlow', () => {
   it('returns the provided flow definition', async () => {
     const run = vi.fn();
@@ -138,5 +181,40 @@ describe('defineFlow', () => {
       ok: true,
       userId: '123',
     });
+  });
+
+  it('allows cron flows to run without returning a response body', async () => {
+    const run = vi.fn(async () => undefined);
+
+    const flow = defineFlow({
+      id: 'cron-flow',
+      trigger: { type: 'cron', cron: '0 2 * * *' },
+      run,
+    });
+
+    await expect(
+      flow.run(
+        {
+          id: 'evt_3',
+          type: 'cron',
+          timestamp: new Date().toISOString(),
+          payload: {
+            cron: '0 2 * * *',
+            scheduledAt: '2026-05-10T02:00:00.000Z',
+            timezone: 'UTC',
+          },
+        },
+        {
+          env: {},
+          log: {
+            info: () => undefined,
+            warn: () => undefined,
+            error: () => undefined,
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(run).toHaveBeenCalledOnce();
   });
 });

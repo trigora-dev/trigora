@@ -1,5 +1,6 @@
 import type {
   CreateDeploymentResponse,
+  DeployedFlowResponse,
   DeploymentManifest,
   DeploymentManifestFlow,
 } from '@trigora/contracts';
@@ -20,9 +21,53 @@ export const deploySteps = {
   dispatchSetup: 'Configuring dispatch',
 } as const;
 
+function getApiDetailsMessage(details: unknown): string | undefined {
+  if (typeof details === 'string' && details.trim()) {
+    return details.trim();
+  }
+
+  if (Array.isArray(details)) {
+    const items = details.filter(
+      (item): item is string => typeof item === 'string' && item.trim().length > 0,
+    );
+
+    return items.length > 0 ? items.join('; ') : undefined;
+  }
+
+  if (!details || typeof details !== 'object') {
+    return undefined;
+  }
+
+  if ('message' in details && typeof details.message === 'string' && details.message.trim()) {
+    return details.message.trim();
+  }
+
+  if ('error' in details && typeof details.error === 'string' && details.error.trim()) {
+    return details.error.trim();
+  }
+
+  if ('errors' in details && Array.isArray(details.errors)) {
+    const items = details.errors.filter(
+      (item): item is string => typeof item === 'string' && item.trim().length > 0,
+    );
+
+    return items.length > 0 ? items.join('; ') : undefined;
+  }
+
+  return undefined;
+}
+
 function getApiFailureDisplayReason(error: DeployApiRequestError): string {
   if (error.code === 'unauthorized' || error.code === 'forbidden') {
     return 'Deploy token is invalid or no longer active.';
+  }
+
+  if (error.code === 'bad_request' || error.code === 'invalid_cron_expression') {
+    return (
+      getApiDetailsMessage(error.details) ??
+      error.message.trim() ??
+      'Trigora Cloud rejected the deployment request.'
+    );
   }
 
   return error.message.trim() || 'Trigora Cloud rejected the deployment request.';
@@ -52,34 +97,12 @@ function createDeployRequestFailure(error: DeployApiRequestError, reason: string
   );
 }
 
-function formatWebhookTrigger(flow: DeploymentManifestFlow): string {
-  return flow.trigger.event ? `webhook:${flow.trigger.event}` : 'webhook';
-}
-
-type TriggerLike = {
-  type: string;
-  cron?: string;
-  event?: string;
-  queue?: string;
-  topic?: string;
-};
-
-function getTriggerLike(flow: DeploymentManifestFlow): TriggerLike {
-  return flow.trigger as TriggerLike;
-}
-
 function formatTriggerLabel(flow: DeploymentManifestFlow): string {
-  const trigger = getTriggerLike(flow);
-
-  switch (trigger.type) {
+  switch (flow.trigger.type) {
     case 'cron':
       return 'cron';
-    case 'queue':
-      return 'queue';
     case 'webhook':
-      return formatWebhookTrigger(flow);
-    default:
-      return trigger.type;
+      return flow.trigger.event ? `webhook:${flow.trigger.event}` : 'webhook';
   }
 }
 
@@ -103,32 +126,28 @@ function getFlowStatus(
     return 'Activation is in progress';
   }
 
-  const trigger = getTriggerLike(flow);
-
-  switch (trigger.type) {
+  switch (flow.trigger.type) {
     case 'cron':
       return 'Scheduled and active';
-    case 'queue':
-      return 'Ready to consume messages';
     case 'webhook':
-    default:
       return 'Ready to receive events';
   }
 }
 
-function getOptionalEndpoint(flow: CreateDeploymentResponse['flows'][number]): string | undefined {
-  return flow.url ?? undefined;
+function getOptionalEndpoint(flow: DeployedFlowResponse | undefined): string | undefined {
+  return flow?.trigger === 'webhook' ? (flow.url ?? undefined) : undefined;
 }
 
 function getDeployedFlowLookup(
   deployment: CreateDeploymentResponse,
-): Map<string, CreateDeploymentResponse['flows'][number]> {
-  return new Map(deployment.flows.map((flow) => [`${flow.flowId}:${flow.routePath}`, flow]));
+): Map<string, DeployedFlowResponse> {
+  return new Map(deployment.flows.map((flow) => [flow.flowId, flow]));
 }
 
 function formatDetailLines(
-  items: Array<{ label: string; value: string | undefined }>,
+  items: ReadonlyArray<{ label: string; value: string | undefined }>,
   indent = '   ',
+  labelWidth?: number,
 ): string[] {
   const visibleItems = items.filter((item): item is { label: string; value: string } =>
     Boolean(item.value),
@@ -138,10 +157,12 @@ function formatDetailLines(
     return [];
   }
 
-  const labelWidth = visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
+  const effectiveLabelWidth =
+    labelWidth ??
+    visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
 
   return visibleItems.map(
-    (item) => `${indent}${colors.label(item.label.padEnd(labelWidth))}  ${item.value}`,
+    (item) => `${indent}${colors.label(item.label.padEnd(effectiveLabelWidth))}  ${item.value}`,
   );
 }
 
@@ -158,34 +179,36 @@ function formatDeploymentBlock(
   deployment: CreateDeploymentResponse,
   index?: number,
 ): string[] {
-  const trigger = getTriggerLike(flow);
   const deployedFlows = getDeployedFlowLookup(deployment);
-  const deployedFlow = deployedFlows.get(`${flow.id}:${flow.routePath}`);
+  const deployedFlow = deployedFlows.get(flow.id);
   const prefix = index === undefined ? '' : `  ${index + 1}. `;
+  const detailItems = [
+    { label: 'Trigger', value: formatTriggerLabel(flow) },
+    { label: 'Route', value: flow.trigger.type === 'webhook' ? flow.routePath : undefined },
+    { label: 'Schedule', value: flow.trigger.type === 'cron' ? flow.trigger.cron : undefined },
+    {
+      label: 'Timezone',
+      value:
+        flow.trigger.type === 'cron'
+          ? deployedFlow?.trigger === 'cron'
+            ? deployedFlow.timezone
+            : 'UTC'
+          : undefined,
+    },
+  ] as const;
+  const visibleDetailLabels = detailItems.filter((item) => Boolean(item.value)).map((item) => item.label);
+  const singleFlowLabelWidth = Math.max('Flow'.length, ...visibleDetailLabels.map((label) => label.length));
   const nameLine =
     index === undefined
-      ? `${colors.label('Flow'.padEnd(7))}  ${formatFlowName(flow.id)}`
+      ? `${colors.label('Flow'.padEnd(singleFlowLabelWidth))}  ${formatFlowName(flow.id)}`
       : `${prefix}${formatFlowName(flow.id)}`;
   const detailIndent = index === undefined ? '' : ' '.repeat(prefix.length);
-  const details = formatDetailLines(
-    [
-      { label: 'Trigger', value: formatTriggerLabel(flow) },
-      { label: 'Route', value: trigger.type === 'webhook' ? flow.routePath : undefined },
-      { label: 'Schedule', value: trigger.type === 'cron' ? trigger.cron : undefined },
-      {
-        label: 'Queue',
-        value: trigger.type === 'queue' ? (trigger.queue ?? trigger.topic) : undefined,
-      },
-    ],
-    detailIndent,
-  );
-  const endpointLines = formatEndpointLines(
-    deployedFlow ? getOptionalEndpoint(deployedFlow) : undefined,
-    detailIndent,
-  );
+  const details = formatDetailLines(detailItems, detailIndent, singleFlowLabelWidth);
+  const endpointLines = formatEndpointLines(getOptionalEndpoint(deployedFlow), detailIndent);
+  const isReadyLikeStatus = deployedFlow?.status === 'active' || deployedFlow?.status === 'ready';
   const statusMessage = formatStatusMessage(
     deployment.status,
-    deployedFlow?.status === 'active'
+    isReadyLikeStatus
       ? getFlowStatus(flow, deployment.status)
       : (deployedFlow?.status ?? getFlowStatus(flow, deployment.status)),
   );
@@ -208,18 +231,6 @@ function formatDeploymentBlocks(
 
     return index === flows.length - 1 ? lines : [...lines, ''];
   });
-}
-
-function getSummaryTitle(status: CreateDeploymentResponse['status']): string {
-  return status === 'active' ? 'Deployment complete' : 'Deployment submitted';
-}
-
-function getSummaryFooter(status: CreateDeploymentResponse['status'], flowCount: number): string {
-  if (status === 'active') {
-    return 'Ready to receive events';
-  }
-
-  return 'Activation is in progress';
 }
 
 export function printDeployStart(manifest: DeploymentManifest): void {
@@ -251,7 +262,9 @@ export function printDeploymentSummary(
   const flowCount = flows.length;
 
   console.log('');
-  console.log(`${colors.success('✔')} ${getSummaryTitle(deployment.status)}`);
+  console.log(
+    `${colors.success('✔')} ${deployment.status === 'active' ? 'Deployment complete' : 'Deployment submitted'}`,
+  );
   console.log('');
 
   if (flowCount === 1) {

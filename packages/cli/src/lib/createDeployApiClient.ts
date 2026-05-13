@@ -73,6 +73,7 @@ type DeployApiClientConfig = {
 
 type ApiErrorPayload = {
   code?: ApiErrorCode;
+  details?: unknown;
   message: string;
   step?: ApiErrorStep;
 };
@@ -88,6 +89,7 @@ function isApiErrorCode(value: unknown): value is ApiErrorCode {
     value === 'deployment_not_found' ||
     value === 'forbidden' ||
     value === 'internal_error' ||
+    value === 'invalid_cron_expression' ||
     value === 'not_found' ||
     value === 'rate_limited' ||
     value === 'unauthorized'
@@ -156,6 +158,7 @@ function getErrorCodeFromStatus(status: number): ApiErrorCode | undefined {
 function withFallbackErrorCode(response: ApiErrorPayload, status: number): ApiErrorPayload {
   return {
     code: response.code ?? getErrorCodeFromStatus(status),
+    details: response.details,
     message: response.message,
     step: response.step,
   };
@@ -189,6 +192,7 @@ async function readErrorResponse(response: FetchResponse): Promise<ApiErrorPaylo
     return withFallbackErrorCode(
       {
         code: payload.code,
+        details: 'details' in payload ? payload.details : undefined,
         message: payload.message,
         step: payload.step,
       },
@@ -200,6 +204,7 @@ async function readErrorResponse(response: FetchResponse): Promise<ApiErrorPaylo
     return withFallbackErrorCode(
       {
         code: payload.error.code,
+        details: 'details' in payload.error ? payload.error.details : undefined,
         message: payload.error.message,
         step: payload.error.step,
       },
@@ -216,6 +221,7 @@ async function readErrorResponse(response: FetchResponse): Promise<ApiErrorPaylo
 
 export class DeployApiRequestError extends Error {
   readonly code?: ApiErrorCode;
+  readonly details?: unknown;
   readonly status: number;
   readonly step?: ApiErrorStep;
 
@@ -223,6 +229,7 @@ export class DeployApiRequestError extends Error {
     super(response.message);
     this.name = 'DeployApiRequestError';
     this.code = response.code;
+    this.details = response.details;
     this.status = status;
     this.step = response.step;
   }
@@ -249,6 +256,17 @@ function isWebhookTrigger(value: unknown): value is { type: 'webhook'; event?: s
     'type' in value &&
     value.type === 'webhook' &&
     (!('event' in value) || typeof value.event === 'string')
+  );
+}
+
+function isCronTrigger(value: unknown): value is { type: 'cron'; cron: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.type === 'cron' &&
+    'cron' in value &&
+    typeof value.cron === 'string'
   );
 }
 
@@ -325,15 +343,24 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
         endpoint,
       };
     }
-    case 'cron':
+    case 'cron': {
+      const schedule = getOptionalString(value.schedule) ?? getOptionalString(value.cron);
+      const timezone = getOptionalString(value.timezone);
+
+      if (!schedule || timezone !== 'UTC') {
+        return undefined;
+      }
+
       return {
         id,
         name,
         trigger,
         status,
         createdAt,
-        schedule: getOptionalString(value.schedule) ?? getOptionalString(value.cron),
+        schedule,
+        timezone,
       };
+    }
     case 'queue':
       return {
         id,
@@ -377,7 +404,8 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
     !('flow' in payload) ||
     !isRecord(payload.flow) ||
     typeof payload.flow.id !== 'string' ||
-    !isFlowStatus(payload.flow.status)
+    !isFlowStatus(payload.flow.status) ||
+    typeof payload.flow.name !== 'string'
   ) {
     return undefined;
   }
@@ -386,6 +414,7 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
     ok: true,
     flow: {
       id: payload.flow.id,
+      name: payload.flow.name,
       status: payload.flow.status,
     },
   };
@@ -553,37 +582,68 @@ function readFlowInvocationResponse(payload: unknown): GetFlowInvocationResponse
 function isDeploymentFlow(
   value: unknown,
 ): value is CreateDeploymentResponse['manifestJson']['flows'][number] {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'id' in value &&
-    typeof value.id === 'string' &&
-    'entrypoint' in value &&
-    typeof value.entrypoint === 'string' &&
-    'routePath' in value &&
-    typeof value.routePath === 'string' &&
-    'trigger' in value &&
-    isWebhookTrigger(value.trigger)
-  );
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('id' in value) ||
+    typeof value.id !== 'string' ||
+    !('entrypoint' in value) ||
+    typeof value.entrypoint !== 'string' ||
+    !('trigger' in value)
+  ) {
+    return false;
+  }
+
+  if (isWebhookTrigger(value.trigger)) {
+    return 'routePath' in value && typeof value.routePath === 'string';
+  }
+
+  if (isCronTrigger(value.trigger)) {
+    return !('routePath' in value) || value.routePath === undefined;
+  }
+
+  return false;
 }
 
 function isDeploymentFlowResponse(
   value: unknown,
 ): value is CreateDeploymentResponse['flows'][number] {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'id' in value &&
-    typeof value.id === 'string' &&
-    'flowId' in value &&
-    typeof value.flowId === 'string' &&
-    'routePath' in value &&
-    typeof value.routePath === 'string' &&
-    'status' in value &&
-    typeof value.status === 'string' &&
-    'url' in value &&
-    (typeof value.url === 'string' || value.url === null)
-  );
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !('id' in value) ||
+    typeof value.id !== 'string' ||
+    !('flowId' in value) ||
+    typeof value.flowId !== 'string' ||
+    !('status' in value) ||
+    typeof value.status !== 'string' ||
+    !('trigger' in value)
+  ) {
+    return false;
+  }
+
+  if (value.trigger === 'webhook') {
+    return (
+      'routePath' in value &&
+      typeof value.routePath === 'string' &&
+      'url' in value &&
+      (typeof value.url === 'string' || value.url === null)
+    );
+  }
+
+  if (value.trigger === 'cron') {
+    return (
+      'schedule' in value &&
+      typeof value.schedule === 'string' &&
+      'timezone' in value &&
+      value.timezone === 'UTC' &&
+      'url' in value &&
+      value.url === null &&
+      (!('routePath' in value) || value.routePath === undefined)
+    );
+  }
+
+  return false;
 }
 
 function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResponse {

@@ -55,6 +55,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
         {
           id: 'df_123',
           flowId: 'hello',
+          trigger: 'webhook',
           routePath: '/hello',
           status: 'active',
           url: 'https://trigora.dev/f/df_123',
@@ -197,6 +198,7 @@ describe('deployCommand', () => {
         {
           id: 'df_123',
           flowId: 'hello',
+          trigger: 'webhook',
           routePath: '/hello',
           status: 'active',
           url: 'https://trigora.dev/f/df_123',
@@ -204,6 +206,7 @@ describe('deployCommand', () => {
         {
           id: 'df_456',
           flowId: 'orders',
+          trigger: 'webhook',
           routePath: '/orders',
           status: 'active',
           url: 'https://trigora.dev/f/df_456',
@@ -314,8 +317,143 @@ describe('deployCommand', () => {
         filePath: flowPath,
       }),
     ).rejects.toThrow(
-      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports only webhook-triggered flows.',
+      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports only webhook- and cron-triggered flows.',
     );
+  });
+
+  it('loads and summarizes a cron flow without an endpoint', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'nightly.ts');
+    const createDeployment = vi.fn().mockResolvedValue({
+      id: 'dep_789',
+      status: 'active',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flows: [
+          {
+            id: 'nightly',
+            entrypoint: 'flows/nightly.ts',
+            trigger: { type: 'cron', cron: '0 2 * * *' },
+          },
+        ],
+      },
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      url: null,
+      flows: [
+        {
+          id: 'df_789',
+          flowId: 'nightly',
+          trigger: 'cron',
+          schedule: '0 2 * * *',
+          timezone: 'UTC',
+          status: 'active',
+          url: null,
+        },
+      ],
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'nightly',
+          trigger: { type: 'cron', cron: '0 2 * * *' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    const manifest = await deployCommand({
+      filePath: flowPath,
+    });
+
+    expect(manifest).toEqual({
+      version: 1,
+      flows: [
+        {
+          id: 'nightly',
+          entrypoint: 'flows/nightly.ts',
+          trigger: { type: 'cron', cron: '0 2 * * *' },
+        },
+      ],
+    });
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+nightly/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+cron/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Schedule\s+0 2 \* \* \*/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Timezone\s+UTC/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Scheduled and active/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
+  });
+
+  it('uses the polished ready message when deployed flows return ready status', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'hello.ts');
+    const createDeployment = vi.fn().mockResolvedValue({
+      id: 'dep_ready',
+      status: 'active',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flows: [
+          {
+            id: 'hello',
+            entrypoint: 'flows/hello.ts',
+            routePath: '/hello',
+            trigger: { type: 'webhook' },
+          },
+        ],
+      },
+      flowCount: 1,
+      baseUrl: 'https://deploy.trigora.dev',
+      url: 'https://trigora.dev/f/df_ready',
+      flows: [
+        {
+          id: 'df_ready',
+          flowId: 'hello',
+          trigger: 'webhook',
+          routePath: '/hello',
+          status: 'ready',
+          url: 'https://trigora.dev/f/df_ready',
+        },
+      ],
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'hello',
+          trigger: { type: 'webhook' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await deployCommand({
+      filePath: flowPath,
+    });
+
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/^ready$/));
   });
 
   it('throws a helpful error when duplicate flow ids are found', async () => {
@@ -379,6 +517,7 @@ describe('deployCommand', () => {
         {
           id: 'df_123',
           flowId: 'hello',
+          trigger: 'webhook',
           routePath: '/hello',
           status: 'active',
           url: 'https://trigora.dev/f/df_123',
@@ -426,6 +565,56 @@ describe('deployCommand', () => {
           },
         ],
       },
+    });
+  });
+
+  it('surfaces invalid cron validation errors clearly', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'nightly.ts');
+    const createDeployment = vi.fn().mockRejectedValue(
+      new DeployApiRequestError(
+        {
+          code: 'invalid_cron_expression',
+          details: {
+            message: 'Cron expression must contain five fields.',
+          },
+          message: 'Invalid cron expression.',
+        },
+        400,
+      ),
+    );
+
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'nightly',
+          trigger: { type: 'cron', cron: '0 2 * *' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      deployCommand({
+        filePath: flowPath,
+      }),
+    ).rejects.toMatchObject({
+      title: 'Deployment failed',
+      details: expect.arrayContaining([
+        expect.objectContaining({ label: 'Step', value: 'Uploading deployment package' }),
+        expect.objectContaining({
+          label: 'Reason',
+          value: 'Cron expression must contain five fields.',
+        }),
+      ]),
+      message: 'Cron expression must contain five fields.',
     });
   });
 
