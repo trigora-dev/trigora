@@ -1,6 +1,6 @@
 {
   "name": "@trigora/sdk",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/trigora-dev/trigora"
@@ -54,7 +54,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigora/contracts": "0.4.1"
+    "@trigora/contracts": "0.5.5"
   },
   "devDependencies": {
     "tsup": "^8.5.1"
