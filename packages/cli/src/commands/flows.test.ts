@@ -34,7 +34,7 @@ const helloFlow = {
   slug: 'hello',
   status: 'ready',
   trigger: 'webhook' as const,
-  endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
+  endpoint: 'https://acme.trigora.dev/hello',
   createdAt: '2026-04-21T10:00:00.000Z',
 } satisfies FlowRecord;
 
@@ -58,6 +58,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listFlowInvocations: vi.fn(),
     listFlowSecrets: vi.fn(),
     setFlowSecret: vi.fn(),
+    whoAmI: vi.fn(),
     disableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
       slug: helloFlow.slug,
@@ -93,11 +94,10 @@ describe('flows commands', () => {
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Found 1 flow/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}ID\s+402c04b0/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Status\s+ready/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/^\s{5}Endpoint\s+https:\/\/trigora\.dev\/f\/402c04b0/),
+      expect.stringMatching(/^\s{5}Endpoint\s+https:\/\/acme\.trigora\.dev\/hello/),
     );
   });
 
@@ -122,7 +122,7 @@ describe('flows commands', () => {
     );
 
     await expect(listFlowsCommand()).resolves.toEqual([cronFlow]);
-    await expect(inspectFlowCommand(cronFlow.id)).resolves.toEqual(cronFlow);
+    await expect(inspectFlowCommand(cronFlow.slug)).resolves.toEqual(cronFlow);
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. nightly-sync/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Trigger\s+cron/));
@@ -135,10 +135,9 @@ describe('flows commands', () => {
   });
 
   it('prints flow details for inspect', async () => {
-    await expect(inspectFlowCommand(helloFlow.id)).resolves.toEqual(helloFlow);
+    await expect(inspectFlowCommand(helloFlow.slug)).resolves.toEqual(helloFlow);
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching flow/));
@@ -146,27 +145,27 @@ describe('flows commands', () => {
   });
 
   it('prints a success summary when a flow is disabled', async () => {
-    await expect(disableFlowCommand(helloFlow.id)).resolves.toEqual({
+    await expect(disableFlowCommand(helloFlow.slug)).resolves.toEqual({
       id: helloFlow.id,
       slug: helloFlow.slug,
       status: 'disabled',
     });
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow disabled/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+disabled/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Disabling flow/));
   });
 
   it('prints a success summary when a flow is enabled', async () => {
-    await expect(enableFlowCommand(helloFlow.id)).resolves.toEqual({
+    await expect(enableFlowCommand(helloFlow.slug)).resolves.toEqual({
       id: helloFlow.id,
       slug: helloFlow.slug,
       status: 'ready',
     });
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow enabled/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Enabling flow/));
   });
@@ -220,7 +219,7 @@ describe('flows commands', () => {
       }),
     );
 
-    await expect(inspectFlowCommand(helloFlow.id)).rejects.toMatchObject({
+    await expect(inspectFlowCommand(helloFlow.slug)).rejects.toMatchObject({
       details: expect.arrayContaining([
         expect.objectContaining({ label: 'Step', value: 'Fetching flow' }),
         expect.objectContaining({ label: 'Reason', value: 'Flow not found.' }),
@@ -235,7 +234,7 @@ describe('flows commands', () => {
       }),
     );
 
-    await expect(disableFlowCommand(helloFlow.id)).rejects.toMatchObject({
+    await expect(disableFlowCommand(helloFlow.slug)).rejects.toMatchObject({
       details: expect.arrayContaining([
         expect.objectContaining({ label: 'Step', value: 'Disabling flow' }),
         expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),
@@ -250,7 +249,7 @@ describe('flows commands', () => {
       }),
     );
 
-    await expect(enableFlowCommand(helloFlow.id)).rejects.toMatchObject({
+    await expect(enableFlowCommand(helloFlow.slug)).rejects.toMatchObject({
       details: expect.arrayContaining([
         expect.objectContaining({ label: 'Step', value: 'Enabling flow' }),
         expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),

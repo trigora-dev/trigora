@@ -33,7 +33,7 @@ const stripeFlow = {
   slug: 'stripe-checkout',
   status: 'ready',
   trigger: 'webhook' as const,
-  endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
+  endpoint: 'https://acme.trigora.dev/stripe-checkout',
   createdAt: '2026-05-03T10:00:00.000Z',
 } satisfies FlowRecord;
 
@@ -94,6 +94,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listFlowSecrets: vi.fn(),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn(),
+    whoAmI: vi.fn(),
     ...overrides,
   };
 }
@@ -123,7 +124,7 @@ describe('logs commands', () => {
 
     await expect(
       listLogsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).resolves.toEqual([
       failedInvocation,
@@ -139,12 +140,10 @@ describe('logs commands', () => {
       },
     ]);
 
-    expect(apiClient.getFlow).toHaveBeenCalledWith(stripeFlow.id);
-    expect(apiClient.listFlowInvocations).toHaveBeenCalledWith(stripeFlow.id);
+    expect(apiClient.getFlow).toHaveBeenCalledWith(stripeFlow.slug);
+    expect(apiClient.listFlowInvocations).toHaveBeenCalledWith(stripeFlow.slug);
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /✔ Found 2 invocations for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*:/,
-      ),
+      expect.stringMatching(/✔ Found 2 invocations for flow .*stripe-checkout.*:/),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\.\s+inv_123\s+2m ago/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+failed/));
@@ -168,14 +167,12 @@ describe('logs commands', () => {
 
     await expect(
       listLogsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).resolves.toEqual([]);
 
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /No invocations found for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*\./,
-      ),
+      expect.stringMatching(/No invocations found for flow .*stripe-checkout.*\./),
     );
   });
 
@@ -185,16 +182,14 @@ describe('logs commands', () => {
 
     await expect(
       getLogCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
         invocationId: failedInvocation.id,
       }),
     ).resolves.toEqual(invocationDetail);
 
-    expect(apiClient.getFlowInvocation).toHaveBeenCalledWith(stripeFlow.id, failedInvocation.id);
+    expect(apiClient.getFlowInvocation).toHaveBeenCalledWith(stripeFlow.slug, failedInvocation.id);
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Invocation inv_123/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Flow\s+.*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*stripe-checkout/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+failed/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Logs/));
     expect(console.log).toHaveBeenCalledWith(
@@ -210,7 +205,7 @@ describe('logs commands', () => {
 
     await expect(
       listLogsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
   });
@@ -232,7 +227,7 @@ describe('logs commands', () => {
 
     await expect(
       getLogCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
         invocationId: failedInvocation.id,
       }),
     ).rejects.toMatchObject({
@@ -254,7 +249,7 @@ describe('logs commands', () => {
 
     await expect(
       listLogsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).rejects.toMatchObject({
       details: expect.arrayContaining([

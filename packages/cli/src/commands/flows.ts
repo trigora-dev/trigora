@@ -45,38 +45,38 @@ export async function listFlowsCommand(): Promise<FlowRecord[]> {
   return flows;
 }
 
-export async function inspectFlowCommand(flowId: string): Promise<FlowRecord> {
-  const flow = await createFlowsApiClient()
-    .getFlow(flowId)
+export async function inspectFlowCommand(flow: string): Promise<FlowRecord> {
+  const flowRecord = await createFlowsApiClient()
+    .getFlow(flow)
     .catch((error) => {
       throw toFlowsApiFailure(error, flowSteps.fetchingFlow);
     });
 
-  printFlowSummary(flow);
+  printFlowSummary(flowRecord);
 
-  return flow;
+  return flowRecord;
 }
 
-export async function disableFlowCommand(flowId: string): Promise<FlowStatusResponse['flow']> {
-  const flow = await createFlowsApiClient()
-    .disableFlow(flowId)
+export async function disableFlowCommand(flow: string): Promise<FlowStatusResponse['flow']> {
+  const flowRecord = await createFlowsApiClient()
+    .disableFlow(flow)
     .catch((error) => {
       throw toFlowsApiFailure(error, flowSteps.disablingFlow);
     });
 
-  printFlowDisabled(flow);
+  printFlowDisabled(flowRecord);
 
-  return flow;
+  return flowRecord;
 }
 
-export async function enableFlowCommand(flowId: string): Promise<FlowStatusResponse['flow']> {
-  const flow = await createFlowsApiClient()
-    .enableFlow(flowId)
+export async function enableFlowCommand(flow: string): Promise<FlowStatusResponse['flow']> {
+  const flowRecord = await createFlowsApiClient()
+    .enableFlow(flow)
     .catch((error) => {
       throw toFlowsApiFailure(error, flowSteps.enablingFlow);
     });
 
-  printFlowEnabled(flow);
+  printFlowEnabled(flowRecord);
 
-  return flow;
+  return flowRecord;
 }

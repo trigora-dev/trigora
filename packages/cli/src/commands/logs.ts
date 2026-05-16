@@ -11,11 +11,11 @@ import {
 } from '../lib/logsOutput';
 
 type ListLogsOptions = {
-  flowId: string;
+  flow: string;
 };
 
 type GetLogOptions = {
-  flowId: string;
+  flow: string;
   invocationId: string;
 };
 
@@ -37,11 +37,11 @@ function createLogsApiClient() {
 
 export async function listLogsCommand(options: ListLogsOptions): Promise<FlowInvocationRecord[]> {
   const apiClient = createLogsApiClient();
-  const flow = await apiClient.getFlow(options.flowId).catch((error) => {
+  const flow = await apiClient.getFlow(options.flow).catch((error) => {
     throw toLogsApiFailure(error, logSteps.resolvingFlow, 'flow');
   });
 
-  const invocations = await apiClient.listFlowInvocations(flow.id).catch((error) => {
+  const invocations = await apiClient.listFlowInvocations(flow.slug).catch((error) => {
     throw toLogsApiFailure(error, logSteps.fetchingInvocations, 'invocation');
   });
 
@@ -59,12 +59,12 @@ export async function getLogCommand(
   options: GetLogOptions,
 ): Promise<GetFlowInvocationResponse['invocation']> {
   const apiClient = createLogsApiClient();
-  const flow = await apiClient.getFlow(options.flowId).catch((error) => {
+  const flow = await apiClient.getFlow(options.flow).catch((error) => {
     throw toLogsApiFailure(error, logSteps.resolvingFlow, 'flow');
   });
 
   const invocation = await apiClient
-    .getFlowInvocation(flow.id, options.invocationId)
+    .getFlowInvocation(flow.slug, options.invocationId)
     .catch((error) => {
       throw toLogsApiFailure(error, logSteps.fetchingInvocation, 'invocation');
     });

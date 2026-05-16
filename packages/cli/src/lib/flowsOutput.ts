@@ -31,8 +31,6 @@ function formatFlowStatus(status: FlowRecord['status']): string {
 
 function formatFlowListValue(label: string, flow: FlowRecord): string | undefined {
   switch (label) {
-    case 'ID':
-      return colors.label(flow.id);
     case 'Trigger':
       return flow.trigger;
     case 'Status':
@@ -52,8 +50,6 @@ function formatFlowListValue(label: string, flow: FlowRecord): string | undefine
 
 function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undefined {
   switch (label) {
-    case 'ID':
-      return colors.label(flow.id);
     case 'Trigger':
       return flow.trigger;
     case 'Status':
@@ -74,7 +70,7 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
 }
 
 function formatFlowListDetailLines(flow: FlowRecord, indent = '   '): string[] {
-  const labels = ['ID', 'Trigger', 'Status', 'Endpoint', 'Schedule', 'Timezone', 'Queue'] as const;
+  const labels = ['Trigger', 'Status', 'Endpoint', 'Schedule', 'Timezone', 'Queue'] as const;
   const visibleItems = labels
     .map((label) => ({ label, value: formatFlowListValue(label, flow) }))
     .filter((item): item is { label: (typeof labels)[number]; value: string } =>
@@ -94,7 +90,6 @@ function formatFlowListDetailLines(flow: FlowRecord, indent = '   '): string[] {
 
 function formatFlowSummaryDetailLines(flow: FlowRecord, indent = ''): string[] {
   const labels = [
-    'ID',
     'Trigger',
     'Status',
     'Created',
@@ -184,7 +179,6 @@ function printFlowStatusChange(title: string, flow: FlowStatusResponse['flow']):
   console.log(`${colors.success('✔')} ${title}`);
   console.log('');
   console.log(`${colors.label('Flow'.padEnd(6))}  ${formatFlowName(flow.slug)}`);
-  console.log(`${colors.label('ID'.padEnd(6))}  ${colors.label(flow.id)}`);
   console.log(`${colors.label('Status'.padEnd(6))}  ${formattedStatus}`);
 }
 

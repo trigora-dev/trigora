@@ -19,17 +19,17 @@ import {
 import { getDeployToken } from '../lib/getDeployToken';
 
 type SetSecretOptions = {
-  flowId: string;
+  flow: string;
   name: string;
   value?: string;
 };
 
 type ListSecretsOptions = {
-  flowId: string;
+  flow: string;
 };
 
 type DeleteSecretOptions = {
-  flowId: string;
+  flow: string;
   name: string;
   yes?: boolean;
 };
@@ -78,7 +78,7 @@ export async function setSecretCommand(options: SetSecretOptions): Promise<FlowS
   validateSecretName(options.name);
   const apiClient = createSecretsApiClient();
 
-  const flow = await apiClient.getFlow(options.flowId).catch((error) => {
+  const flow = await apiClient.getFlow(options.flow).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
   });
 
@@ -86,7 +86,7 @@ export async function setSecretCommand(options: SetSecretOptions): Promise<FlowS
   const value = await getSecretValue(options.name, options.value);
 
   const secret = await apiClient
-    .setFlowSecret(flow.id, {
+    .setFlowSecret(flow.slug, {
       name: options.name,
       value,
     })
@@ -101,11 +101,11 @@ export async function setSecretCommand(options: SetSecretOptions): Promise<FlowS
 
 export async function listSecretsCommand(options: ListSecretsOptions): Promise<FlowSecretRecord[]> {
   const apiClient = createSecretsApiClient();
-  const flow = await apiClient.getFlow(options.flowId).catch((error) => {
+  const flow = await apiClient.getFlow(options.flow).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
   });
 
-  const secrets = await apiClient.listFlowSecrets(flow.id).catch((error) => {
+  const secrets = await apiClient.listFlowSecrets(flow.slug).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.fetchingSecrets, 'secret');
   });
 
@@ -125,7 +125,7 @@ export async function deleteSecretCommand(
   validateSecretName(options.name);
   const apiClient = createSecretsApiClient();
 
-  const flow = await apiClient.getFlow(options.flowId).catch((error) => {
+  const flow = await apiClient.getFlow(options.flow).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
   });
 
@@ -142,7 +142,7 @@ export async function deleteSecretCommand(
 
   printDeletingSecret(options.name, flow);
 
-  const response = await apiClient.deleteFlowSecret(flow.id, options.name).catch((error) => {
+  const response = await apiClient.deleteFlowSecret(flow.slug, options.name).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.deletingSecret, 'secret');
   });
 

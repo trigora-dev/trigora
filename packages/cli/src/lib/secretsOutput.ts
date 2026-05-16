@@ -75,7 +75,7 @@ function formatSecretName(secretName: string): string {
 
 export function formatFlowTarget(flow: { id: string; slug?: string }): string {
   if (flow.slug) {
-    return `${colors.flow(colors.heading(`"${flow.slug}"`))} (${colors.label(flow.id)})`;
+    return colors.flow(colors.heading(`"${flow.slug}"`));
   }
 
   return colors.label(flow.id);
@@ -158,11 +158,11 @@ export function toEmptySecretValueFailure(name: string): CliDisplayError {
   );
 }
 
-export function toFlowResolutionFailure(flowId: string): CliDisplayError {
+export function toFlowResolutionFailure(flow: string): CliDisplayError {
   return createRequestFailure(
-    `Hosted flow "${flowId}" was not found.`,
+    `Hosted flow "${flow}" was not found.`,
     secretSteps.resolvingFlow,
-    'Run "trigora flows" to find the correct hosted flow slug and try again.',
+    'Run "trigora flows" to find the correct flow and try again.',
   );
 }
 

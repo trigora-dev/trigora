@@ -33,7 +33,7 @@ const stripeFlow = {
   slug: 'stripe-checkout',
   status: 'ready',
   trigger: 'webhook' as const,
-  endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
+  endpoint: 'https://acme.trigora.dev/stripe-checkout',
   createdAt: '2026-05-03T10:00:00.000Z',
 } satisfies FlowRecord;
 
@@ -59,6 +59,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listFlowSecrets: vi.fn().mockResolvedValue([webhookSecret]),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn().mockResolvedValue(webhookSecret),
+    whoAmI: vi.fn(),
     ...overrides,
   };
 }
@@ -86,7 +87,7 @@ describe('secrets commands', () => {
   it('validates secret names before making API calls', async () => {
     await expect(
       setSecretCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
         name: '1INVALID',
         value: 'super-secret',
       }),
@@ -108,20 +109,20 @@ describe('secrets commands', () => {
 
     await expect(
       setSecretCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
         name: 'STRIPE_WEBHOOK_SECRET',
         value: 'super-secret',
       }),
     ).resolves.toEqual(webhookSecret);
 
-    expect(apiClient.getFlow).toHaveBeenCalledWith(stripeFlow.id);
-    expect(apiClient.setFlowSecret).toHaveBeenCalledWith(stripeFlow.id, {
+    expect(apiClient.getFlow).toHaveBeenCalledWith(stripeFlow.slug);
+    expect(apiClient.setFlowSecret).toHaveBeenCalledWith(stripeFlow.slug, {
       name: 'STRIPE_WEBHOOK_SECRET',
       value: 'super-secret',
     });
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(
-        /Setting secret STRIPE_WEBHOOK_SECRET for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*\.\.\./,
+        /Setting secret STRIPE_WEBHOOK_SECRET for flow .*stripe-checkout.*\.\.\./,
       ),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Secret set/));
@@ -138,18 +139,18 @@ describe('secrets commands', () => {
     mockedPromptForSecretValue.mockResolvedValue('prompted-secret');
 
     await setSecretCommand({
-      flowId: stripeFlow.id,
+      flow: stripeFlow.slug,
       name: 'STRIPE_WEBHOOK_SECRET',
     });
 
     expect(mockedPromptForSecretValue).toHaveBeenCalledWith('STRIPE_WEBHOOK_SECRET');
-    expect(apiClient.setFlowSecret).toHaveBeenCalledWith(stripeFlow.id, {
+    expect(apiClient.setFlowSecret).toHaveBeenCalledWith(stripeFlow.slug, {
       name: 'STRIPE_WEBHOOK_SECRET',
       value: 'prompted-secret',
     });
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(
-        /Setting secret STRIPE_WEBHOOK_SECRET for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*\.\.\./,
+        /Setting secret STRIPE_WEBHOOK_SECRET for flow .*stripe-checkout.*\.\.\./,
       ),
     );
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Waiting for secret value/));
@@ -174,7 +175,7 @@ describe('secrets commands', () => {
 
     await expect(
       listSecretsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).resolves.toEqual([
       webhookSecret,
@@ -186,9 +187,7 @@ describe('secrets commands', () => {
     ]);
 
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /Secrets for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*:/,
-      ),
+      expect.stringMatching(/Secrets for flow .*stripe-checkout.*:/),
     );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/STRIPE_WEBHOOK_SECRET\s+set 2h ago/),
@@ -209,14 +208,12 @@ describe('secrets commands', () => {
 
     await expect(
       listSecretsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).resolves.toEqual([]);
 
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(
-        /No secrets set for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*\./,
-      ),
+      expect.stringMatching(/No secrets set for flow .*stripe-checkout.*\./),
     );
   });
 
@@ -228,7 +225,7 @@ describe('secrets commands', () => {
 
     await expect(
       deleteSecretCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
         name: 'STRIPE_WEBHOOK_SECRET',
       }),
     ).resolves.toBeNull();
@@ -247,7 +244,7 @@ describe('secrets commands', () => {
 
     await expect(
       deleteSecretCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
         name: 'STRIPE_WEBHOOK_SECRET',
         yes: true,
       }),
@@ -260,10 +257,13 @@ describe('secrets commands', () => {
     expect(mockedConfirmAction).not.toHaveBeenCalled();
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(
-        /Deleting secret .*STRIPE_WEBHOOK_SECRET.* for flow .*stripe-checkout.*402c04b0-62c8-4d0b-942f-0ee2329436a8.*\.\.\./,
+        /Deleting secret .*STRIPE_WEBHOOK_SECRET.* for flow .*stripe-checkout.*\.\.\./,
       ),
     );
-    expect(apiClient.deleteFlowSecret).toHaveBeenCalledWith(stripeFlow.id, 'STRIPE_WEBHOOK_SECRET');
+    expect(apiClient.deleteFlowSecret).toHaveBeenCalledWith(
+      stripeFlow.slug,
+      'STRIPE_WEBHOOK_SECRET',
+    );
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/✔ Secret deleted: STRIPE_WEBHOOK_SECRET/),
     );
@@ -275,7 +275,7 @@ describe('secrets commands', () => {
 
     await expect(
       listSecretsCommand({
-        flowId: stripeFlow.id,
+        flow: stripeFlow.slug,
       }),
     ).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
   });
