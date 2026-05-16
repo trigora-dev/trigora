@@ -31,13 +31,12 @@ export type FlowStatus = 'ready' | 'disabled' | 'failed';
 type BaseFlowRecord = {
   createdAt: string;
   id: string;
-  name: string;
+  slug: string;
   status: FlowStatus;
 };
 
 export type WebhookFlowRecord = BaseFlowRecord & {
   endpoint: string;
-  route?: string;
   trigger: 'webhook';
 };
 
@@ -66,7 +65,7 @@ export type FlowStatusResponse = {
   ok: true;
   flow: {
     id: string;
-    name: string;
+    slug: string;
     status: FlowStatus;
   };
 };

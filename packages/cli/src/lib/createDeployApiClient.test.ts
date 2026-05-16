@@ -12,14 +12,11 @@ import {
 describe('createDeployApiClient', () => {
   const manifest = {
     version: 1 as const,
-    flows: [
-      {
-        id: 'hello',
-        entrypoint: 'flows/hello.ts',
-        routePath: '/hello',
-        trigger: { type: 'webhook' as const },
-      },
-    ],
+    flow: {
+      id: 'hello',
+      entrypoint: 'flows/hello.ts',
+      trigger: { type: 'webhook' as const },
+    },
   };
   const artifact = {
     version: 1 as const,
@@ -35,10 +32,9 @@ describe('createDeployApiClient', () => {
   };
   const managedFlow = {
     id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-    name: 'hello',
+    slug: 'hello',
     status: 'ready',
     trigger: 'webhook' as const,
-    route: '/hello',
     endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
     createdAt: '2026-04-21T10:00:00.000Z',
   };
@@ -60,22 +56,16 @@ describe('createDeployApiClient', () => {
       async json() {
         return {
           id: 'dep_123',
-          status: 'pending',
+          status: 'active',
           manifestVersion: 1,
           manifestJson: manifest,
-          flowCount: 1,
-          baseUrl: 'https://deploy.trigora.dev',
-          url: 'https://trigora.dev/f/df_123',
-          flows: [
-            {
-              id: 'df_123',
-              flowId: 'hello',
-              trigger: 'webhook',
-              routePath: '/hello',
-              status: 'pending',
-              url: 'https://trigora.dev/f/df_123',
-            },
-          ],
+          flow: {
+            id: 'df_123',
+            slug: 'hello',
+            trigger: 'webhook',
+            status: 'ready',
+            url: 'https://trigora.dev/f/df_123',
+          },
           createdAt: '2026-04-12T00:00:00.000Z',
           updatedAt: '2026-04-12T00:00:00.000Z',
         };
@@ -92,22 +82,16 @@ describe('createDeployApiClient', () => {
 
     await expect(client.createDeployment({ manifest, artifact })).resolves.toEqual({
       id: 'dep_123',
-      status: 'pending',
+      status: 'active',
       manifestVersion: 1,
       manifestJson: manifest,
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: 'https://trigora.dev/f/df_123',
-      flows: [
-        {
-          id: 'df_123',
-          flowId: 'hello',
-          trigger: 'webhook',
-          routePath: '/hello',
-          status: 'pending',
-          url: 'https://trigora.dev/f/df_123',
-        },
-      ],
+      flow: {
+        id: 'df_123',
+        slug: 'hello',
+        trigger: 'webhook',
+        status: 'ready',
+        url: 'https://trigora.dev/f/df_123',
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
@@ -318,22 +302,16 @@ describe('createDeployApiClient', () => {
       async json() {
         return {
           id: 'dep_123',
-          status: 'pending',
+          status: 'active',
           manifestVersion: 1,
           manifestJson: manifest,
-          flowCount: 1,
-          baseUrl: null,
-          url: null,
-          flows: [
-            {
-              id: 'df_123',
-              flowId: 'hello',
-              trigger: 'webhook',
-              routePath: '/hello',
-              status: 'pending',
-              url: null,
-            },
-          ],
+          flow: {
+            id: 'df_123',
+            slug: 'hello',
+            trigger: 'webhook',
+            status: 'ready',
+            url: 'https://trigora.dev/f/df_123',
+          },
           createdAt: '2026-04-12T00:00:00.000Z',
           updatedAt: '2026-04-12T00:00:00.000Z',
         };
@@ -371,7 +349,7 @@ describe('createDeployApiClient', () => {
             managedFlow,
             {
               id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
-              name: 'nightly-sync',
+              slug: 'nightly-sync',
               status: 'ready',
               trigger: 'cron',
               createdAt: '2026-04-21T11:00:00.000Z',
@@ -395,7 +373,7 @@ describe('createDeployApiClient', () => {
       managedFlow,
       {
         id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
-        name: 'nightly-sync',
+        slug: 'nightly-sync',
         status: 'ready',
         trigger: 'cron',
         createdAt: '2026-04-21T11:00:00.000Z',
@@ -415,13 +393,11 @@ describe('createDeployApiClient', () => {
   it('accepts cron deployment responses without route paths', async () => {
     const cronManifest = {
       version: 1 as const,
-      flows: [
-        {
-          id: 'nightly',
-          entrypoint: 'flows/nightly.ts',
-          trigger: { type: 'cron' as const, cron: '0 2 * * *' },
-        },
-      ],
+      flow: {
+        id: 'nightly',
+        entrypoint: 'flows/nightly.ts',
+        trigger: { type: 'cron' as const, cron: '0 2 * * *' },
+      },
     };
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -432,20 +408,15 @@ describe('createDeployApiClient', () => {
           status: 'active',
           manifestVersion: 1,
           manifestJson: cronManifest,
-          flowCount: 1,
-          baseUrl: 'https://deploy.trigora.dev',
-          url: null,
-          flows: [
-            {
-              id: 'df_789',
-              flowId: 'nightly',
-              trigger: 'cron',
-              schedule: '0 2 * * *',
-              timezone: 'UTC',
-              status: 'active',
-              url: null,
-            },
-          ],
+          flow: {
+            id: 'df_789',
+            slug: 'nightly',
+            trigger: 'cron',
+            schedule: '0 2 * * *',
+            timezone: 'UTC',
+            status: 'ready',
+            url: null,
+          },
           createdAt: '2026-04-12T00:00:00.000Z',
           updatedAt: '2026-04-12T00:00:00.000Z',
         };
@@ -465,20 +436,15 @@ describe('createDeployApiClient', () => {
       status: 'active',
       manifestVersion: 1,
       manifestJson: cronManifest,
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: null,
-      flows: [
-        {
-          id: 'df_789',
-          flowId: 'nightly',
-          trigger: 'cron',
-          schedule: '0 2 * * *',
-          timezone: 'UTC',
-          status: 'active',
-          url: null,
-        },
-      ],
+      flow: {
+        id: 'df_789',
+        slug: 'nightly',
+        trigger: 'cron',
+        schedule: '0 2 * * *',
+        timezone: 'UTC',
+        status: 'ready',
+        url: null,
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
@@ -522,7 +488,7 @@ describe('createDeployApiClient', () => {
           ok: true,
           flow: {
             id: managedFlow.id,
-            name: managedFlow.name,
+            slug: managedFlow.slug,
             status: 'disabled',
           },
         };
@@ -539,7 +505,7 @@ describe('createDeployApiClient', () => {
 
     await expect(client.disableFlow(managedFlow.id)).resolves.toEqual({
       id: managedFlow.id,
-      name: managedFlow.name,
+      slug: managedFlow.slug,
       status: 'disabled',
     } satisfies FlowStatusResponse['flow']);
 
@@ -563,7 +529,7 @@ describe('createDeployApiClient', () => {
           ok: true,
           flow: {
             id: managedFlow.id,
-            name: managedFlow.name,
+            slug: managedFlow.slug,
             status: 'ready',
           },
         };
@@ -580,7 +546,7 @@ describe('createDeployApiClient', () => {
 
     await expect(client.enableFlow(managedFlow.id)).resolves.toEqual({
       id: managedFlow.id,
-      name: managedFlow.name,
+      slug: managedFlow.slug,
       status: 'ready',
     } satisfies FlowStatusResponse['flow']);
 

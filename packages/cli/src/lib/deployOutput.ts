@@ -124,7 +124,7 @@ function createInvalidCronFailure(
   const normalizedReason =
     normalizeInvalidCronReason(reason) || 'Trigora Cloud rejected the cron expression.';
   const details = [
-    ...(manifest?.flows.length === 1 ? [{ label: 'Flow', value: manifest.flows[0]?.id }] : []),
+    ...(manifest ? [{ label: 'Flow', value: manifest.flow.id }] : []),
     { label: 'Error', value: 'Invalid cron expression' },
     { label: 'Reason', value: normalizedReason },
     {
@@ -180,13 +180,7 @@ function getFlowStatus(
 }
 
 function getOptionalEndpoint(flow: DeployedFlowResponse | undefined): string | undefined {
-  return flow?.trigger === 'webhook' ? (flow.url ?? undefined) : undefined;
-}
-
-function getDeployedFlowLookup(
-  deployment: CreateDeploymentResponse,
-): Map<string, DeployedFlowResponse> {
-  return new Map(deployment.flows.map((flow) => [flow.flowId, flow]));
+  return flow?.trigger === 'webhook' ? flow.url : undefined;
 }
 
 function formatDetailLines(
@@ -221,14 +215,10 @@ function formatEndpointLines(endpoint: string | undefined, indent = ''): string[
 function formatDeploymentBlock(
   flow: DeploymentManifestFlow,
   deployment: CreateDeploymentResponse,
-  index?: number,
 ): string[] {
-  const deployedFlows = getDeployedFlowLookup(deployment);
-  const deployedFlow = deployedFlows.get(flow.id);
-  const prefix = index === undefined ? '' : `  ${index + 1}. `;
+  const deployedFlow = deployment.flow;
   const detailItems = [
     { label: 'Trigger', value: formatTriggerLabel(flow) },
-    { label: 'Route', value: flow.trigger.type === 'webhook' ? flow.routePath : undefined },
     { label: 'Schedule', value: flow.trigger.type === 'cron' ? flow.trigger.cron : undefined },
     {
       label: 'Timezone',
@@ -247,14 +237,10 @@ function formatDeploymentBlock(
     'Flow'.length,
     ...visibleDetailLabels.map((label) => label.length),
   );
-  const nameLine =
-    index === undefined
-      ? `${colors.label('Flow'.padEnd(singleFlowLabelWidth))}  ${formatFlowName(flow.id)}`
-      : `${prefix}${formatFlowName(flow.id)}`;
-  const detailIndent = index === undefined ? '' : ' '.repeat(prefix.length);
-  const details = formatDetailLines(detailItems, detailIndent, singleFlowLabelWidth);
-  const endpointLines = formatEndpointLines(getOptionalEndpoint(deployedFlow), detailIndent);
-  const isReadyLikeStatus = deployedFlow?.status === 'active' || deployedFlow?.status === 'ready';
+  const nameLine = `${colors.label('Flow'.padEnd(singleFlowLabelWidth))}  ${formatFlowName(deployedFlow.slug)}`;
+  const details = formatDetailLines(detailItems, '', singleFlowLabelWidth);
+  const endpointLines = formatEndpointLines(getOptionalEndpoint(deployedFlow), '');
+  const isReadyLikeStatus = deployedFlow?.status === 'ready';
   const statusMessage = formatStatusMessage(
     deployment.status,
     isReadyLikeStatus
@@ -267,36 +253,14 @@ function formatDeploymentBlock(
     ...details,
     ...(endpointLines.length > 0 ? ['', ...endpointLines] : []),
     '',
-    `${detailIndent}${statusMessage}`,
+    statusMessage,
   ];
 }
 
-function formatDeploymentBlocks(
-  flows: DeploymentManifestFlow[],
-  deployment: CreateDeploymentResponse,
-): string[] {
-  return flows.flatMap((flow, index) => {
-    const lines = formatDeploymentBlock(flow, deployment, index);
-
-    return index === flows.length - 1 ? lines : [...lines, ''];
-  });
-}
-
 export function printDeployStart(manifest: DeploymentManifest): void {
-  if (manifest.flows.length === 1) {
-    const [flow] = manifest.flows;
-
-    if (!flow) {
-      return;
-    }
-
-    console.log(
-      `${colors.dev('Deploying flow')} ${formatFlowName(`"${flow.id}"`)}${colors.dev('...')}`,
-    );
-    return;
-  }
-
-  console.log(colors.dev(`Deploying ${manifest.flows.length} flows...`));
+  console.log(
+    `${colors.dev('Deploying flow')} ${formatFlowName(`"${manifest.flow.id}"`)}${colors.dev('...')}`,
+  );
 }
 
 export function printDeployWarning(message: string): void {
@@ -307,30 +271,13 @@ export function printDeploymentSummary(
   manifest: DeploymentManifest,
   deployment: CreateDeploymentResponse,
 ): void {
-  const flows = manifest.flows;
-  const flowCount = flows.length;
-
   console.log('');
   console.log(
     `${colors.success('✔')} ${deployment.status === 'active' ? 'Deployment complete' : 'Deployment submitted'}`,
   );
   console.log('');
 
-  if (flowCount === 1) {
-    const [flow] = flows;
-
-    if (!flow) {
-      return;
-    }
-
-    for (const line of formatDeploymentBlock(flow, deployment)) {
-      console.log(line);
-    }
-
-    return;
-  }
-
-  for (const line of formatDeploymentBlocks(flows, deployment)) {
+  for (const line of formatDeploymentBlock(manifest.flow, deployment)) {
     console.log(line);
   }
 }

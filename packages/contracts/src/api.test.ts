@@ -40,12 +40,11 @@ describe('API contract types', () => {
   it('accepts webhook flow records in flow management responses', () => {
     const flow: WebhookFlowRecord = {
       id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-      name: 'hello',
+      slug: 'hello',
       trigger: 'webhook',
       status: 'ready',
       createdAt: '2026-04-21T10:00:00.000Z',
       endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
-      route: '/hello',
     };
 
     const response: GetFlowResponse = {
@@ -62,7 +61,7 @@ describe('API contract types', () => {
   it('accepts cron and queue flow records in flow lists', () => {
     const cronFlow: CronFlowRecord = {
       id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
-      name: 'nightly-sync',
+      slug: 'nightly-sync',
       trigger: 'cron',
       status: 'ready',
       createdAt: '2026-04-21T11:00:00.000Z',
@@ -72,7 +71,7 @@ describe('API contract types', () => {
 
     const queueFlow: QueueFlowRecord = {
       id: '9b5d04b0-62c8-4d0b-942f-0ee2329436c0',
-      name: 'orders-processor',
+      slug: 'orders-processor',
       trigger: 'queue',
       status: 'disabled',
       createdAt: '2026-04-21T12:00:00.000Z',
@@ -97,7 +96,7 @@ describe('API contract types', () => {
       ok: true,
       flow: {
         id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-        name: 'hello',
+        slug: 'hello',
         status: 'disabled',
       },
     };

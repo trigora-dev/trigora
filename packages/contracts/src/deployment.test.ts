@@ -12,37 +12,32 @@ describe('Deployment types', () => {
   it('accepts a deployment manifest', () => {
     const manifest: DeploymentManifest = {
       version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook', event: 'orders.created' },
-        },
-      ],
+      flow: {
+        id: 'hello',
+        entrypoint: 'flows/hello.ts',
+        trigger: { type: 'webhook', event: 'orders.created' },
+      },
     };
 
     expect(manifest.version).toBe(1);
-    expect(manifest.flows[0]?.routePath).toBe('/hello');
+    expect(manifest.flow.id).toBe('hello');
   });
 
   it('accepts cron deployment manifests without route paths', () => {
     const manifest: DeploymentManifest = {
       version: 1,
-      flows: [
-        {
-          id: 'nightly-sync',
-          entrypoint: 'flows/nightly-sync.ts',
-          trigger: { type: 'cron', cron: '0 2 * * *' },
-        },
-      ],
+      flow: {
+        id: 'nightly-sync',
+        entrypoint: 'flows/nightly-sync.ts',
+        trigger: { type: 'cron', cron: '0 2 * * *' },
+      },
     };
 
-    expect(manifest.flows[0]?.trigger.type).toBe('cron');
-    if (manifest.flows[0]?.trigger.type !== 'cron') {
+    expect(manifest.flow.trigger.type).toBe('cron');
+    if (manifest.flow.trigger.type !== 'cron') {
       throw new Error('Expected cron manifest flow');
     }
-    expect(manifest.flows[0].trigger.cron).toBe('0 2 * * *');
+    expect(manifest.flow.trigger.cron).toBe('0 2 * * *');
   });
 
   it('accepts a bundled deployment artifact', () => {
@@ -67,14 +62,11 @@ describe('Deployment types', () => {
     const request: CreateDeploymentRequest = {
       manifest: {
         version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-        ],
+        flow: {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          trigger: { type: 'webhook' },
+        },
       },
       artifact: {
         version: 1,
@@ -93,49 +85,41 @@ describe('Deployment types', () => {
     const deployedFlows: DeployedFlowResponse[] = [
       {
         id: 'df_123',
-        flowId: 'hello',
+        slug: 'hello',
         trigger: 'webhook',
-        routePath: '/hello',
-        status: 'active',
+        status: 'ready',
         url: 'https://trigora.dev/f/df_123',
       },
     ];
 
     const response: CreateDeploymentResponse = {
       id: 'dep_123',
-      status: 'pending',
+      status: 'active',
       manifestVersion: 1,
       manifestJson: {
         version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-        ],
+        flow: {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          trigger: { type: 'webhook' },
+        },
       },
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: 'https://trigora.dev/f/df_123',
-      flows: deployedFlows,
+      flow: deployedFlows[0]!,
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     };
 
     expect(request.artifact.files).toHaveLength(1);
-    expect(response.status).toBe('pending');
-    expect(response.flows[0]?.url).toBe('https://trigora.dev/f/df_123');
+    expect(response.status).toBe('active');
+    expect(response.flow.url).toBe('https://trigora.dev/f/df_123');
   });
 
   it('accepts the canonical deployed flow response type', () => {
     const deployedFlow: DeployedFlowResponse = {
       id: 'df_123',
-      flowId: 'hello',
+      slug: 'hello',
       trigger: 'webhook',
-      routePath: '/hello',
-      status: 'active',
+      status: 'ready',
       url: 'https://trigora.dev/f/df_123',
     };
 
@@ -149,37 +133,30 @@ describe('Deployment types', () => {
       manifestVersion: 1,
       manifestJson: {
         version: 1,
-        flows: [
-          {
-            id: 'nightly-sync',
-            entrypoint: 'flows/nightly-sync.ts',
-            trigger: { type: 'cron', cron: '0 2 * * *' },
-          },
-        ],
-      },
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: null,
-      flows: [
-        {
-          id: 'df_456',
-          flowId: 'nightly-sync',
-          trigger: 'cron',
-          schedule: '0 2 * * *',
-          timezone: 'UTC',
-          status: 'active',
-          url: null,
+        flow: {
+          id: 'nightly-sync',
+          entrypoint: 'flows/nightly-sync.ts',
+          trigger: { type: 'cron', cron: '0 2 * * *' },
         },
-      ],
+      },
+      flow: {
+        id: 'df_456',
+        slug: 'nightly-sync',
+        trigger: 'cron',
+        schedule: '0 2 * * *',
+        timezone: 'UTC',
+        status: 'ready',
+        url: null,
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     };
 
-    expect(response.flows[0]?.trigger).toBe('cron');
-    if (response.flows[0]?.trigger !== 'cron') {
+    expect(response.flow.trigger).toBe('cron');
+    if (response.flow.trigger !== 'cron') {
       throw new Error('Expected cron deployed flow');
     }
-    expect(response.flows[0].schedule).toBe('0 2 * * *');
-    expect(response.flows[0].timezone).toBe('UTC');
+    expect(response.flow.schedule).toBe('0 2 * * *');
+    expect(response.flow.timezone).toBe('UTC');
   });
 });

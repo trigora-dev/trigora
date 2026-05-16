@@ -180,7 +180,7 @@ function printInvocationLogs(logs: FlowInvocationLogRecord[]): void {
 }
 
 export function printInvocationList(
-  flow: { id: string; name?: string },
+  flow: { id: string; slug?: string },
   invocations: FlowInvocationRecord[],
 ): void {
   console.log('');
@@ -208,13 +208,13 @@ export function printInvocationList(
   }
 }
 
-export function printNoInvocationsFound(flow: { id: string; name?: string }): void {
+export function printNoInvocationsFound(flow: { id: string; slug?: string }): void {
   console.log('');
   console.log(`No invocations found for flow ${formatFlowTarget(flow)}.`);
 }
 
 export function printInvocationDetail(
-  flow: { id: string; name?: string },
+  flow: { id: string; slug?: string },
   invocation: InvocationWithLogs,
 ): void {
   console.log('');

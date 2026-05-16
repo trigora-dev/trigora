@@ -51,23 +51,19 @@ describe('buildDeploymentManifest', () => {
       }),
     ).resolves.toEqual({
       version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook' },
-        },
-      ],
+      flow: {
+        id: 'hello',
+        entrypoint: 'flows/hello.ts',
+        trigger: { type: 'webhook' },
+      },
     });
   });
 
-  it('discovers webhook flows from the flows directory', async () => {
+  it('auto-picks the only flow in the flows directory', async () => {
     const tempDir = await makeTempDir();
     const helloPath = path.join(tempDir, 'flows', 'hello.ts');
-    const ordersPath = path.join(tempDir, 'flows', 'nested', 'orders.ts');
 
-    await fs.mkdir(path.dirname(ordersPath), { recursive: true });
+    await fs.mkdir(path.dirname(helloPath), { recursive: true });
     await fs.writeFile(
       helloPath,
       `
@@ -79,40 +75,19 @@ describe('buildDeploymentManifest', () => {
       `,
       'utf-8',
     );
-    await fs.writeFile(
-      ordersPath,
-      `
-        export default {
-          id: 'orders',
-          trigger: { type: 'webhook', event: 'orders.created' },
-          async run() {}
-        };
-      `,
-      'utf-8',
-    );
-
     process.chdir(tempDir);
 
     await expect(buildDeploymentManifest({})).resolves.toEqual({
       version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook' },
-        },
-        {
-          id: 'orders',
-          entrypoint: 'flows/nested/orders.ts',
-          routePath: '/orders',
-          trigger: { type: 'webhook', event: 'orders.created' },
-        },
-      ],
+      flow: {
+        id: 'hello',
+        entrypoint: 'flows/hello.ts',
+        trigger: { type: 'webhook' },
+      },
     });
   });
 
-  it('builds a mixed hosted manifest for webhook and cron flows', async () => {
+  it('throws a helpful error when multiple flows exist and none is selected', async () => {
     const tempDir = await makeTempDir();
     const helloPath = path.join(tempDir, 'flows', 'hello.ts');
     const nightlyPath = path.join(tempDir, 'flows', 'nightly.ts');
@@ -143,22 +118,9 @@ describe('buildDeploymentManifest', () => {
 
     process.chdir(tempDir);
 
-    await expect(buildDeploymentManifest({})).resolves.toEqual({
-      version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook' },
-        },
-        {
-          id: 'nightly',
-          entrypoint: 'flows/nightly.ts',
-          trigger: { type: 'cron', cron: '0 2 * * *' },
-        },
-      ],
-    });
+    await expect(buildDeploymentManifest({})).rejects.toThrow(
+      'Multiple flows found. Pass a flow name or file path to deploy one flow.',
+    );
   });
 
   it('throws a helpful error when no flows exist', async () => {
@@ -198,7 +160,7 @@ describe('buildDeploymentManifest', () => {
     );
   });
 
-  it('throws a helpful error when duplicate flow ids are found', async () => {
+  it('requires an explicit selection when multiple flow files are present', async () => {
     const tempDir = await makeTempDir();
     const firstPath = path.join(tempDir, 'flows', 'hello.ts');
     const secondPath = path.join(tempDir, 'flows', 'nested', 'hello-copy.ts');
@@ -230,7 +192,7 @@ describe('buildDeploymentManifest', () => {
     process.chdir(tempDir);
 
     await expect(buildDeploymentManifest({})).rejects.toThrow(
-      'Duplicate flow id "hello" found in "flows/hello.ts" and "flows/nested/hello-copy.ts". Flow ids must be unique for deployment.',
+      'Multiple flows found. Pass a flow name or file path to deploy one flow.',
     );
   });
 });

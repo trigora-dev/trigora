@@ -317,11 +317,11 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
 
   const trigger = normalizeFlowTriggerType(value.trigger);
   const id = getOptionalString(value.id);
-  const name = getOptionalString(value.name);
+  const slug = getOptionalString(value.slug);
   const createdAt = getOptionalString(value.createdAt);
   const status = isFlowStatus(value.status) ? value.status : undefined;
 
-  if (!trigger || !id || !name || !createdAt || !status) {
+  if (!trigger || !id || !slug || !createdAt || !status) {
     return undefined;
   }
 
@@ -335,11 +335,10 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
 
       return {
         id,
-        name,
+        slug,
         trigger,
         status,
         createdAt,
-        route: getOptionalString(value.route) ?? getOptionalString(value.routePath),
         endpoint,
       };
     }
@@ -353,7 +352,7 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
 
       return {
         id,
-        name,
+        slug,
         trigger,
         status,
         createdAt,
@@ -364,7 +363,7 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
     case 'queue':
       return {
         id,
-        name,
+        slug,
         trigger,
         status,
         createdAt,
@@ -405,7 +404,7 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
     !isRecord(payload.flow) ||
     typeof payload.flow.id !== 'string' ||
     !isFlowStatus(payload.flow.status) ||
-    typeof payload.flow.name !== 'string'
+    typeof payload.flow.slug !== 'string'
   ) {
     return undefined;
   }
@@ -414,7 +413,7 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
     ok: true,
     flow: {
       id: payload.flow.id,
-      name: payload.flow.name,
+      slug: payload.flow.slug,
       status: payload.flow.status,
     },
   };
@@ -581,7 +580,7 @@ function readFlowInvocationResponse(payload: unknown): GetFlowInvocationResponse
 
 function isDeploymentFlow(
   value: unknown,
-): value is CreateDeploymentResponse['manifestJson']['flows'][number] {
+): value is CreateDeploymentResponse['manifestJson']['flow'] {
   if (
     typeof value !== 'object' ||
     value === null ||
@@ -594,41 +593,26 @@ function isDeploymentFlow(
     return false;
   }
 
-  if (isWebhookTrigger(value.trigger)) {
-    return 'routePath' in value && typeof value.routePath === 'string';
-  }
-
-  if (isCronTrigger(value.trigger)) {
-    return !('routePath' in value) || value.routePath === undefined;
-  }
-
-  return false;
+  return isWebhookTrigger(value.trigger) || isCronTrigger(value.trigger);
 }
 
-function isDeploymentFlowResponse(
-  value: unknown,
-): value is CreateDeploymentResponse['flows'][number] {
+function isDeploymentFlowResponse(value: unknown): value is CreateDeploymentResponse['flow'] {
   if (
     typeof value !== 'object' ||
     value === null ||
     !('id' in value) ||
     typeof value.id !== 'string' ||
-    !('flowId' in value) ||
-    typeof value.flowId !== 'string' ||
+    !('slug' in value) ||
+    typeof value.slug !== 'string' ||
     !('status' in value) ||
-    typeof value.status !== 'string' ||
+    !isFlowStatus(value.status) ||
     !('trigger' in value)
   ) {
     return false;
   }
 
   if (value.trigger === 'webhook') {
-    return (
-      'routePath' in value &&
-      typeof value.routePath === 'string' &&
-      'url' in value &&
-      (typeof value.url === 'string' || value.url === null)
-    );
+    return 'url' in value && typeof value.url === 'string';
   }
 
   if (value.trigger === 'cron') {
@@ -638,8 +622,7 @@ function isDeploymentFlowResponse(
       'timezone' in value &&
       value.timezone === 'UTC' &&
       'url' in value &&
-      value.url === null &&
-      (!('routePath' in value) || value.routePath === undefined)
+      value.url === null
     );
   }
 
@@ -653,7 +636,7 @@ function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResp
     'id' in payload &&
     typeof payload.id === 'string' &&
     'status' in payload &&
-    (payload.status === 'pending' || payload.status === 'active' || payload.status === 'failed') &&
+    (payload.status === 'active' || payload.status === 'failed') &&
     'manifestVersion' in payload &&
     typeof payload.manifestVersion === 'number' &&
     'manifestJson' in payload &&
@@ -661,18 +644,10 @@ function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResp
     payload.manifestJson !== null &&
     'version' in payload.manifestJson &&
     typeof payload.manifestJson.version === 'number' &&
-    'flows' in payload.manifestJson &&
-    Array.isArray(payload.manifestJson.flows) &&
-    payload.manifestJson.flows.every(isDeploymentFlow) &&
-    'flowCount' in payload &&
-    typeof payload.flowCount === 'number' &&
-    'baseUrl' in payload &&
-    (typeof payload.baseUrl === 'string' || payload.baseUrl === null) &&
-    'url' in payload &&
-    (typeof payload.url === 'string' || payload.url === null) &&
-    'flows' in payload &&
-    Array.isArray(payload.flows) &&
-    payload.flows.every(isDeploymentFlowResponse) &&
+    'flow' in payload.manifestJson &&
+    isDeploymentFlow(payload.manifestJson.flow) &&
+    'flow' in payload &&
+    isDeploymentFlowResponse(payload.flow) &&
     'createdAt' in payload &&
     typeof payload.createdAt === 'string' &&
     'updatedAt' in payload &&

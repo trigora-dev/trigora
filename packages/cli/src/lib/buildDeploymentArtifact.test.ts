@@ -29,10 +29,9 @@ describe('buildDeploymentArtifact', () => {
   it('bundles flow entrypoints for deployment', async () => {
     const tempDir = await makeTempDir();
     const helloPath = path.join(tempDir, 'flows', 'hello.ts');
-    const ordersPath = path.join(tempDir, 'flows', 'nested', 'orders.ts');
     const sharedPath = path.join(tempDir, 'flows', 'shared.ts');
 
-    await fs.mkdir(path.dirname(ordersPath), { recursive: true });
+    await fs.mkdir(path.dirname(helloPath), { recursive: true });
     await fs.writeFile(sharedPath, `export const message = 'from helper';`, 'utf-8');
     await fs.writeFile(
       helloPath,
@@ -46,41 +45,26 @@ describe('buildDeploymentArtifact', () => {
       `,
       'utf-8',
     );
-    await fs.writeFile(ordersPath, `export default { id: 'orders' };`, 'utf-8');
 
     process.chdir(tempDir);
 
     const artifact = await buildDeploymentArtifact({
       version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook' },
-        },
-        {
-          id: 'orders',
-          entrypoint: 'flows/nested/orders.ts',
-          routePath: '/orders',
-          trigger: { type: 'webhook', event: 'orders.created' },
-        },
-      ],
+      flow: {
+        id: 'hello',
+        entrypoint: 'flows/hello.ts',
+        trigger: { type: 'webhook' },
+      },
     });
 
     expect(artifact.version).toBe(1);
     expect(artifact.format).toBe('esm');
     expect(artifact.target).toBe('node20');
-    expect(artifact.files).toHaveLength(2);
+    expect(artifact.files).toHaveLength(1);
 
     expect(artifact.files[0]).toEqual({
       entrypoint: 'flows/hello.ts',
       path: 'flows/hello.mjs',
-      contents: expect.any(String),
-    });
-    expect(artifact.files[1]).toEqual({
-      entrypoint: 'flows/nested/orders.ts',
-      path: 'flows/nested/orders.mjs',
       contents: expect.any(String),
     });
 
@@ -111,14 +95,11 @@ describe('buildDeploymentArtifact', () => {
     await expect(
       buildDeploymentArtifact({
         version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-        ],
+        flow: {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          trigger: { type: 'webhook' },
+        },
       }),
     ).rejects.toThrow(/Failed to bundle flow "flows\/hello\.ts" for deployment:/);
   });

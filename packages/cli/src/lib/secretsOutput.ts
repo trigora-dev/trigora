@@ -73,22 +73,22 @@ function formatSecretName(secretName: string): string {
   return colors.heading(secretName);
 }
 
-export function formatFlowTarget(flow: { id: string; name?: string }): string {
-  if (flow.name) {
-    return `${colors.flow(colors.heading(`"${flow.name}"`))} (${colors.label(flow.id)})`;
+export function formatFlowTarget(flow: { id: string; slug?: string }): string {
+  if (flow.slug) {
+    return `${colors.flow(colors.heading(`"${flow.slug}"`))} (${colors.label(flow.id)})`;
   }
 
   return colors.label(flow.id);
 }
 
-export function printSettingSecret(secretName: string, flow: { id: string; name?: string }): void {
+export function printSettingSecret(secretName: string, flow: { id: string; slug?: string }): void {
   const flowLabel = formatFlowTarget(flow);
 
   console.log('');
   console.log(`Setting secret ${formatSecretName(secretName)} for flow ${flowLabel}...`);
 }
 
-export function printDeletingSecret(secretName: string, flow: { id: string; name?: string }): void {
+export function printDeletingSecret(secretName: string, flow: { id: string; slug?: string }): void {
   const flowLabel = formatFlowTarget(flow);
 
   console.log('');
@@ -104,7 +104,7 @@ export function printSecretSet(secretName: string): void {
 }
 
 export function printSecretsList(
-  flow: { id: string; name?: string },
+  flow: { id: string; slug?: string },
   secrets: FlowSecretRecord[],
 ): void {
   console.log('');
@@ -120,7 +120,7 @@ export function printSecretsList(
   }
 }
 
-export function printNoSecretsFound(flow: { id: string; name?: string }): void {
+export function printNoSecretsFound(flow: { id: string; slug?: string }): void {
   console.log('');
   console.log(`No secrets set for flow ${formatFlowTarget(flow)}.`);
 }
@@ -162,7 +162,7 @@ export function toFlowResolutionFailure(flowId: string): CliDisplayError {
   return createRequestFailure(
     `Hosted flow "${flowId}" was not found.`,
     secretSteps.resolvingFlow,
-    'Run "trigora flows" to find the correct hosted flow ID and try again.',
+    'Run "trigora flows" to find the correct hosted flow slug and try again.',
   );
 }
 

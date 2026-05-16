@@ -1,25 +1,14 @@
 import type { CronTrigger, WebhookTrigger } from './trigger';
 
-type BaseDeploymentManifestFlow = {
+export type DeploymentManifestFlow = {
   entrypoint: string;
   id: string;
+  trigger: WebhookTrigger | CronTrigger;
 };
-
-export type WebhookDeploymentManifestFlow = BaseDeploymentManifestFlow & {
-  routePath: string;
-  trigger: WebhookTrigger;
-};
-
-export type CronDeploymentManifestFlow = BaseDeploymentManifestFlow & {
-  routePath?: never;
-  trigger: CronTrigger;
-};
-
-export type DeploymentManifestFlow = WebhookDeploymentManifestFlow | CronDeploymentManifestFlow;
 
 export type DeploymentManifest = {
   version: 1;
-  flows: DeploymentManifestFlow[];
+  flow: DeploymentManifestFlow;
 };
 
 export type DeploymentArtifactFile = {
@@ -40,23 +29,19 @@ export type CreateDeploymentRequest = {
   manifest: DeploymentManifest;
 };
 
-export type DeploymentStatus = 'pending' | 'active' | 'failed';
+export type DeploymentStatus = 'active' | 'failed';
 
-export type DeploymentManifestSnapshot = {
-  version: number;
-  flows: DeploymentManifestFlow[];
-};
+export type DeploymentManifestSnapshot = DeploymentManifest;
 
 type BaseDeployedFlowResponse = {
   id: string;
-  flowId: string;
-  status: string;
+  slug: string;
+  status: 'ready' | 'disabled' | 'failed';
 };
 
 export type WebhookDeployedFlowResponse = BaseDeployedFlowResponse & {
   trigger: 'webhook';
-  routePath: string;
-  url: string | null;
+  url: string;
 };
 
 export type CronDeployedFlowResponse = BaseDeployedFlowResponse & {
@@ -73,10 +58,7 @@ export type CreateDeploymentResponse = {
   status: DeploymentStatus;
   manifestVersion: number;
   manifestJson: DeploymentManifestSnapshot;
-  flowCount: number;
-  baseUrl: string | null;
-  url: string | null;
-  flows: DeployedFlowResponse[];
+  flow: DeployedFlowResponse;
   createdAt: string;
   updatedAt: string;
 };

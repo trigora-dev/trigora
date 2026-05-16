@@ -76,21 +76,21 @@ export function createProgram(): Command {
 
   flowsCommand
     .command('inspect')
-    .argument('<flowId>', 'Deployed flow ID')
+    .argument('<flowId>', 'Hosted flow slug or ID')
     .action(async (flowId) => {
       await inspectFlowCommand(flowId);
     });
 
   flowsCommand
     .command('disable')
-    .argument('<flowId>', 'Deployed flow ID')
+    .argument('<flowId>', 'Hosted flow slug or ID')
     .action(async (flowId) => {
       await disableFlowCommand(flowId);
     });
 
   flowsCommand
     .command('enable')
-    .argument('<flowId>', 'Deployed flow ID')
+    .argument('<flowId>', 'Hosted flow slug or ID')
     .action(async (flowId) => {
       await enableFlowCommand(flowId);
     });
@@ -100,7 +100,7 @@ export function createProgram(): Command {
   secretsCommand
     .command('set')
     .argument('<name>', 'Secret name')
-    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
     .option('--value <value>', 'Secret value for non-interactive use')
     .action(async (name, options) => {
       await setSecretCommand({
@@ -112,7 +112,7 @@ export function createProgram(): Command {
 
   secretsCommand
     .command('list')
-    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
     .action(async (options) => {
       await listSecretsCommand({
         flowId: options.flow,
@@ -122,7 +122,7 @@ export function createProgram(): Command {
   secretsCommand
     .command('delete')
     .argument('<name>', 'Secret name')
-    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (name, options) => {
       await deleteSecretCommand({
@@ -136,7 +136,7 @@ export function createProgram(): Command {
 
   logsCommand
     .command('list')
-    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
     .action(async (options) => {
       await listLogsCommand({
         flowId: options.flow,
@@ -146,7 +146,7 @@ export function createProgram(): Command {
   logsCommand
     .command('get')
     .argument('<invocationId>', 'Invocation ID')
-    .requiredOption('--flow <flowId>', 'Hosted flow ID')
+    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
     .action(async (invocationId, options) => {
       await getLogCommand({
         flowId: options.flow,

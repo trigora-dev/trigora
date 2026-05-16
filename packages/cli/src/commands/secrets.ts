@@ -131,7 +131,7 @@ export async function deleteSecretCommand(
 
   if (!options.yes) {
     const confirmed = await confirmAction(
-      `Delete secret "${options.name}" for flow "${flow.name}"?`,
+      `Delete secret "${options.name}" for flow "${flow.slug}"?`,
     );
 
     if (!confirmed) {

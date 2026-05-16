@@ -14,8 +14,8 @@ export const flowSteps = {
   fetchingFlows: 'Fetching deployed flows',
 } as const;
 
-function formatFlowName(name: string): string {
-  return colors.flow(colors.heading(name));
+function formatFlowName(slug: string): string {
+  return colors.flow(colors.heading(slug));
 }
 
 function formatFlowStatus(status: FlowRecord['status']): string {
@@ -62,8 +62,6 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
       return colors.label(flow.createdAt);
     case 'Endpoint':
       return flow.trigger === 'webhook' ? colors.link(flow.endpoint) : undefined;
-    case 'Route':
-      return flow.trigger === 'webhook' ? flow.route : undefined;
     case 'Schedule':
       return flow.trigger === 'cron' ? flow.schedule : undefined;
     case 'Timezone':
@@ -101,7 +99,6 @@ function formatFlowSummaryDetailLines(flow: FlowRecord, indent = ''): string[] {
     'Status',
     'Created',
     'Endpoint',
-    'Route',
     'Schedule',
     'Timezone',
     'Queue',
@@ -148,7 +145,7 @@ export function printFlowList(flows: FlowRecord[]): void {
   for (const [index, flow] of flows.entries()) {
     const itemPrefix = `  ${index + 1}. `;
     const lines = [
-      `${itemPrefix}${formatFlowName(flow.name)}`,
+      `${itemPrefix}${formatFlowName(flow.slug)}`,
       ...formatFlowListDetailLines(flow, ' '.repeat(itemPrefix.length)),
     ];
 
@@ -167,7 +164,7 @@ export function printNoFlowsFound(): void {
 }
 
 export function printFlowSummary(flow: FlowRecord): void {
-  console.log(formatFlowName(flow.name));
+  console.log(formatFlowName(flow.slug));
   console.log('');
 
   for (const line of formatFlowSummaryDetailLines(flow)) {
@@ -186,7 +183,7 @@ function printFlowStatusChange(title: string, flow: FlowStatusResponse['flow']):
   console.log('');
   console.log(`${colors.success('✔')} ${title}`);
   console.log('');
-  console.log(`${colors.label('Flow'.padEnd(6))}  ${formatFlowName(flow.name)}`);
+  console.log(`${colors.label('Flow'.padEnd(6))}  ${formatFlowName(flow.slug)}`);
   console.log(`${colors.label('ID'.padEnd(6))}  ${colors.label(flow.id)}`);
   console.log(`${colors.label('Status'.padEnd(6))}  ${formattedStatus}`);
 }

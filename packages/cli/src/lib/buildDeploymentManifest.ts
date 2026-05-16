@@ -35,57 +35,28 @@ function isDeployableTrigger(trigger: Trigger): trigger is HostedTrigger {
   return trigger.type === 'webhook' || trigger.type === 'cron';
 }
 
-function createRoutePath(flowId: string): string {
-  return `/${flowId}`;
+function validateDeployableFlow(flow: LoadedFlow): DeployableFlow {
+  if (!isDeployableTrigger(flow.trigger)) {
+    throw new Error(
+      `Flow "${flow.id}" in "${flow.entrypoint}" uses unsupported trigger "${flow.trigger.type}". trigora deploy currently supports only webhook- and cron-triggered flows.`,
+    );
+  }
+
+  return {
+    entrypoint: flow.entrypoint,
+    id: flow.id,
+    trigger: flow.trigger,
+  };
 }
 
-function validateDeployableFlows(flows: LoadedFlow[]): DeployableFlow[] {
-  const flowIds = new Map<string, string>();
-  const deployableFlows: DeployableFlow[] = [];
-
-  for (const flow of flows) {
-    if (!isDeployableTrigger(flow.trigger)) {
-      throw new Error(
-        `Flow "${flow.id}" in "${flow.entrypoint}" uses unsupported trigger "${flow.trigger.type}". trigora deploy currently supports only webhook- and cron-triggered flows.`,
-      );
-    }
-
-    const previousPath = flowIds.get(flow.id);
-
-    if (previousPath) {
-      throw new Error(
-        `Duplicate flow id "${flow.id}" found in "${previousPath}" and "${flow.entrypoint}". Flow ids must be unique for deployment.`,
-      );
-    }
-
-    flowIds.set(flow.id, flow.entrypoint);
-    deployableFlows.push({
+function createDeploymentManifest(flow: DeployableFlow): DeploymentManifest {
+  return {
+    version: 1,
+    flow: {
       entrypoint: flow.entrypoint,
       id: flow.id,
       trigger: flow.trigger,
-    });
-  }
-
-  return deployableFlows;
-}
-
-function createDeploymentManifest(flows: DeployableFlow[]): DeploymentManifest {
-  return {
-    version: 1,
-    flows: flows.map((flow) =>
-      flow.trigger.type === 'webhook'
-        ? {
-            entrypoint: flow.entrypoint,
-            routePath: createRoutePath(flow.id),
-            id: flow.id,
-            trigger: flow.trigger,
-          }
-        : {
-            entrypoint: flow.entrypoint,
-            id: flow.id,
-            trigger: flow.trigger,
-          },
-    ),
+    },
   };
 }
 
@@ -136,6 +107,29 @@ async function discoverFlowPaths(cwd: string): Promise<string[]> {
   return flowFiles;
 }
 
+async function resolveDeploymentFlowPath(cwd: string): Promise<string> {
+  const flowFiles = await discoverFlowPaths(cwd);
+
+  if (flowFiles.length === 1) {
+    const [flowPath] = flowFiles;
+
+    if (!flowPath) {
+      throw new Error('Could not resolve the selected flow.');
+    }
+
+    return flowPath;
+  }
+
+  const visiblePaths = flowFiles
+    .map((filePath) => path.relative(cwd, filePath))
+    .map((filePath) => `- ${filePath}`)
+    .join('\n');
+
+  throw new Error(
+    `Multiple flows found. Pass a flow name or file path to deploy one flow.\n${visiblePaths}`,
+  );
+}
+
 async function toEntrypoint(cwd: string, filePath: string): Promise<string> {
   const resolvedCwd = await fs.realpath(cwd).catch(() => path.resolve(cwd));
   const absoluteFilePath = path.resolve(cwd, filePath);
@@ -158,9 +152,9 @@ async function loadDeployableFlow(cwd: string, filePath: string): Promise<Loaded
 
 export async function buildDeploymentManifest(options: DeployOptions): Promise<DeploymentManifest> {
   const cwd = process.cwd();
-  const filePaths = options.filePath ? [options.filePath] : await discoverFlowPaths(cwd);
-  const flows = await Promise.all(filePaths.map((filePath) => loadDeployableFlow(cwd, filePath)));
-  const deployableFlows = validateDeployableFlows(flows);
+  const filePath = options.filePath ?? (await resolveDeploymentFlowPath(cwd));
+  const flow = await loadDeployableFlow(cwd, filePath);
+  const deployableFlow = validateDeployableFlow(flow);
 
-  return createDeploymentManifest(deployableFlows);
+  return createDeploymentManifest(deployableFlow);
 }

@@ -39,28 +39,19 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
       manifestVersion: 1,
       manifestJson: {
         version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-        ],
-      },
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: 'https://trigora.dev/f/df_123',
-      flows: [
-        {
-          id: 'df_123',
-          flowId: 'hello',
-          trigger: 'webhook',
-          routePath: '/hello',
-          status: 'active',
-          url: 'https://trigora.dev/f/df_123',
+        flow: {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          trigger: { type: 'webhook' },
         },
-      ],
+      },
+      flow: {
+        id: 'df_123',
+        slug: 'hello',
+        trigger: 'webhook',
+        status: 'ready',
+        url: 'https://trigora.dev/f/df_123',
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     }),
@@ -131,14 +122,11 @@ describe('deployCommand', () => {
 
     expect(manifest).toEqual({
       version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook' },
-        },
-      ],
+      flow: {
+        id: 'hello',
+        entrypoint: 'flows/hello.ts',
+        trigger: { type: 'webhook' },
+      },
     });
 
     expect(console.log).toHaveBeenCalledWith(
@@ -147,7 +135,6 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
@@ -166,57 +153,10 @@ describe('deployCommand', () => {
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Activating deployment/));
   });
 
-  it('discovers and summarizes all webhook flows in the flows directory', async () => {
+  it('throws a helpful error when multiple flows exist and none is selected', async () => {
     const tempDir = await makeTempDir();
     const helloPath = path.join(tempDir, 'flows', 'hello.ts');
     const ordersPath = path.join(tempDir, 'flows', 'nested', 'orders.ts');
-    const createDeployment = vi.fn().mockResolvedValue({
-      id: 'dep_123',
-      status: 'active',
-      manifestVersion: 1,
-      manifestJson: {
-        version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-          {
-            id: 'orders',
-            entrypoint: 'flows/nested/orders.ts',
-            routePath: '/orders',
-            trigger: { type: 'webhook', event: 'orders.created' },
-          },
-        ],
-      },
-      flowCount: 2,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: null,
-      flows: [
-        {
-          id: 'df_123',
-          flowId: 'hello',
-          trigger: 'webhook',
-          routePath: '/hello',
-          status: 'active',
-          url: 'https://trigora.dev/f/df_123',
-        },
-        {
-          id: 'df_456',
-          flowId: 'orders',
-          trigger: 'webhook',
-          routePath: '/orders',
-          status: 'active',
-          url: 'https://trigora.dev/f/df_456',
-        },
-      ],
-      createdAt: '2026-04-12T00:00:00.000Z',
-      updatedAt: '2026-04-12T00:00:00.000Z',
-    });
-
-    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
 
     await fs.mkdir(path.dirname(ordersPath), { recursive: true });
     await fs.writeFile(
@@ -244,43 +184,8 @@ describe('deployCommand', () => {
 
     process.chdir(tempDir);
 
-    const manifest = await deployCommand({});
-
-    expect(manifest).toEqual({
-      version: 1,
-      flows: [
-        {
-          id: 'hello',
-          entrypoint: 'flows/hello.ts',
-          routePath: '/hello',
-          trigger: { type: 'webhook' },
-        },
-        {
-          id: 'orders',
-          entrypoint: 'flows/nested/orders.ts',
-          routePath: '/orders',
-          trigger: { type: 'webhook', event: 'orders.created' },
-        },
-      ],
-    });
-
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Deploying 2 flows/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/2\. orders/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Trigger\s+webhook:orders\.created/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/orders/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_456/),
+    await expect(deployCommand({})).rejects.toThrow(
+      'Multiple flows found. Pass a flow name or file path to deploy one flow.',
     );
   });
 
@@ -330,28 +235,21 @@ describe('deployCommand', () => {
       manifestVersion: 1,
       manifestJson: {
         version: 1,
-        flows: [
-          {
-            id: 'nightly',
-            entrypoint: 'flows/nightly.ts',
-            trigger: { type: 'cron', cron: '0 2 * * *' },
-          },
-        ],
-      },
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: null,
-      flows: [
-        {
-          id: 'df_789',
-          flowId: 'nightly',
-          trigger: 'cron',
-          schedule: '0 2 * * *',
-          timezone: 'UTC',
-          status: 'active',
-          url: null,
+        flow: {
+          id: 'nightly',
+          entrypoint: 'flows/nightly.ts',
+          trigger: { type: 'cron', cron: '0 2 * * *' },
         },
-      ],
+      },
+      flow: {
+        id: 'df_789',
+        slug: 'nightly',
+        trigger: 'cron',
+        schedule: '0 2 * * *',
+        timezone: 'UTC',
+        status: 'ready',
+        url: null,
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
@@ -379,13 +277,11 @@ describe('deployCommand', () => {
 
     expect(manifest).toEqual({
       version: 1,
-      flows: [
-        {
-          id: 'nightly',
-          entrypoint: 'flows/nightly.ts',
-          trigger: { type: 'cron', cron: '0 2 * * *' },
-        },
-      ],
+      flow: {
+        id: 'nightly',
+        entrypoint: 'flows/nightly.ts',
+        trigger: { type: 'cron', cron: '0 2 * * *' },
+      },
     });
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+nightly/));
@@ -405,28 +301,19 @@ describe('deployCommand', () => {
       manifestVersion: 1,
       manifestJson: {
         version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-        ],
-      },
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: 'https://trigora.dev/f/df_ready',
-      flows: [
-        {
-          id: 'df_ready',
-          flowId: 'hello',
-          trigger: 'webhook',
-          routePath: '/hello',
-          status: 'ready',
-          url: 'https://trigora.dev/f/df_ready',
+        flow: {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          trigger: { type: 'webhook' },
         },
-      ],
+      },
+      flow: {
+        id: 'df_ready',
+        slug: 'hello',
+        trigger: 'webhook',
+        status: 'ready',
+        url: 'https://trigora.dev/f/df_ready',
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });
@@ -456,7 +343,7 @@ describe('deployCommand', () => {
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/^ready$/));
   });
 
-  it('throws a helpful error when duplicate flow ids are found', async () => {
+  it('requires an explicit selection even when multiple flows share the same id', async () => {
     const tempDir = await makeTempDir();
     const firstPath = path.join(tempDir, 'flows', 'hello.ts');
     const secondPath = path.join(tempDir, 'flows', 'nested', 'hello-copy.ts');
@@ -488,7 +375,7 @@ describe('deployCommand', () => {
     process.chdir(tempDir);
 
     await expect(deployCommand({})).rejects.toThrow(
-      'Duplicate flow id "hello" found in "flows/hello.ts" and "flows/nested/hello-copy.ts". Flow ids must be unique for deployment.',
+      'Multiple flows found. Pass a flow name or file path to deploy one flow.',
     );
   });
 
@@ -501,28 +388,19 @@ describe('deployCommand', () => {
       manifestVersion: 1,
       manifestJson: {
         version: 1,
-        flows: [
-          {
-            id: 'hello',
-            entrypoint: 'flows/hello.ts',
-            routePath: '/hello',
-            trigger: { type: 'webhook' },
-          },
-        ],
-      },
-      flowCount: 1,
-      baseUrl: 'https://deploy.trigora.dev',
-      url: 'https://trigora.dev/f/df_123',
-      flows: [
-        {
-          id: 'df_123',
-          flowId: 'hello',
-          trigger: 'webhook',
-          routePath: '/hello',
-          status: 'active',
-          url: 'https://trigora.dev/f/df_123',
+        flow: {
+          id: 'hello',
+          entrypoint: 'flows/hello.ts',
+          trigger: { type: 'webhook' },
         },
-      ],
+      },
+      flow: {
+        id: 'df_123',
+        slug: 'hello',
+        trigger: 'webhook',
+        status: 'ready',
+        url: 'https://trigora.dev/f/df_123',
+      },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
     });

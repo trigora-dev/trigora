@@ -31,17 +31,16 @@ const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 
 const helloFlow = {
   id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-  name: 'hello',
+  slug: 'hello',
   status: 'ready',
   trigger: 'webhook' as const,
   endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
-  route: '/hello',
   createdAt: '2026-04-21T10:00:00.000Z',
 } satisfies FlowRecord;
 
 const cronFlow = {
   id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
-  name: 'nightly-sync',
+  slug: 'nightly-sync',
   status: 'ready',
   trigger: 'cron' as const,
   schedule: '0 2 * * *',
@@ -61,12 +60,12 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     setFlowSecret: vi.fn(),
     disableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
-      name: helloFlow.name,
+      slug: helloFlow.slug,
       status: 'disabled',
     } satisfies FlowStatusResponse['flow']),
     enableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
-      name: helloFlow.name,
+      slug: helloFlow.slug,
       status: 'ready',
     } satisfies FlowStatusResponse['flow']),
     ...overrides,
@@ -142,7 +141,6 @@ describe('flows commands', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+402c04b0/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching flow/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Flow details/));
   });
@@ -150,7 +148,7 @@ describe('flows commands', () => {
   it('prints a success summary when a flow is disabled', async () => {
     await expect(disableFlowCommand(helloFlow.id)).resolves.toEqual({
       id: helloFlow.id,
-      name: helloFlow.name,
+      slug: helloFlow.slug,
       status: 'disabled',
     });
 
@@ -163,7 +161,7 @@ describe('flows commands', () => {
   it('prints a success summary when a flow is enabled', async () => {
     await expect(enableFlowCommand(helloFlow.id)).resolves.toEqual({
       id: helloFlow.id,
-      name: helloFlow.name,
+      slug: helloFlow.slug,
       status: 'ready',
     });
 
