@@ -47,7 +47,7 @@ describe('cliOutput', () => {
       [
         {
           title: 'Endpoint',
-          lines: ['https://trigora.dev/f/example'],
+          lines: ['https://acme.trigora.dev/example'],
         },
       ],
       'Ready to receive events',
@@ -58,7 +58,7 @@ describe('cliOutput', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/https:\/\/trigora\.dev\/f\/example/),
+      expect.stringMatching(/https:\/\/acme\.trigora\.dev\/example/),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
   });

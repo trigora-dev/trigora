@@ -50,7 +50,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
         slug: 'hello',
         trigger: 'webhook',
         status: 'ready',
-        url: 'https://trigora.dev/f/df_123',
+        url: 'https://acme.trigora.dev/hello',
       },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
@@ -64,6 +64,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listFlowSecrets: vi.fn(),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn(),
+    whoAmI: vi.fn(),
     ...overrides,
   };
 }
@@ -137,7 +138,7 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/https:\/\/trigora\.dev\/f\/df_123/),
+      expect.stringMatching(/https:\/\/acme\.trigora\.dev\/hello/),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Validating flow modules/));
@@ -312,7 +313,7 @@ describe('deployCommand', () => {
         slug: 'hello',
         trigger: 'webhook',
         status: 'ready',
-        url: 'https://trigora.dev/f/df_ready',
+        url: 'https://acme.trigora.dev/hello',
       },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
@@ -399,7 +400,7 @@ describe('deployCommand', () => {
         slug: 'hello',
         trigger: 'webhook',
         status: 'ready',
-        url: 'https://trigora.dev/f/df_123',
+        url: 'https://acme.trigora.dev/hello',
       },
       createdAt: '2026-04-12T00:00:00.000Z',
       updatedAt: '2026-04-12T00:00:00.000Z',
