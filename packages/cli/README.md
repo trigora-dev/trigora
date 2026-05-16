@@ -8,6 +8,7 @@ The Trigora CLI for local flow development, hosted deploys, and alpha flow manag
 - run flows locally with real payloads
 - watch flows during development
 - deploy webhook flows to Trigora Cloud
+- show which workspace and deploy token you're using
 - inspect, disable, and enable hosted flows
 
 ## Install
@@ -160,7 +161,7 @@ Behavior:
 - builds a deployment artifact
 - uploads the deployment package
 - activates the deployment in Trigora Cloud
-- prints a deployment summary with route and endpoint details
+- prints a deployment summary with endpoint details
 
 When no flow is passed, `trigora deploy` discovers all `.ts` and `.js` flow files under `flows/`.
 
@@ -168,7 +169,7 @@ Current alpha limitation:
 
 - `trigora deploy` currently supports webhook-triggered flows only
 
-For webhook deployments, the default hosted route is `/<flowId>`.
+For webhook deployments, the default hosted endpoint is `https://<workspace>.trigora.dev/<flow>`.
 
 ### `trigora flows`
 
@@ -181,19 +182,34 @@ trigora flows
 The list output includes:
 
 - flow name
-- hosted flow ID
 - trigger type
 - status
 - endpoint for webhook flows
 - schedule for cron flows
 - queue name for queue flows
 
-### `trigora flows inspect <flowId>`
+### `trigora whoami`
+
+Show the authenticated workspace and deploy token.
+
+```bash
+trigora whoami
+```
+
+Example output:
+
+```text
+Workspace  acme
+Token      local-dev
+Status     active
+```
+
+### `trigora flows inspect <flow>`
 
 Inspect a single hosted flow.
 
 ```bash
-trigora flows inspect 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora flows inspect stripe-checkout
 ```
 
 The detail view shows available metadata such as:
@@ -203,29 +219,29 @@ The detail view shows available metadata such as:
 - trigger
 - status
 - creation time
-- endpoint and route for webhook flows
+- endpoint for webhook flows
 - schedule for cron flows
 - queue name for queue flows
 
-### `trigora flows disable <flowId>`
+### `trigora flows disable <flow>`
 
 Disable a hosted flow.
 
 ```bash
-trigora flows disable 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora flows disable stripe-checkout
 ```
 
-This is idempotent from the CLI point of view. A successful response prints the flow ID and current status.
+This is idempotent from the CLI point of view. A successful response prints the flow and current status.
 
-### `trigora flows enable <flowId>`
+### `trigora flows enable <flow>`
 
 Enable a disabled hosted flow.
 
 ```bash
-trigora flows enable 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora flows enable stripe-checkout
 ```
 
-Like `disable`, this prints a concise success summary with the flow ID and resulting status.
+Like `disable`, this prints a concise success summary with the flow and resulting status.
 
 ### `trigora secrets`
 
@@ -233,9 +249,9 @@ Manage hosted flow secrets separately from deploys.
 
 ```bash
 trigora flows
-trigora secrets set STRIPE_WEBHOOK_SECRET --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
-trigora secrets list --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
-trigora secrets delete STRIPE_WEBHOOK_SECRET --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora secrets set STRIPE_WEBHOOK_SECRET --flow stripe-checkout
+trigora secrets list --flow stripe-checkout
+trigora secrets delete STRIPE_WEBHOOK_SECRET --flow stripe-checkout
 ```
 
 Hosted flows can access these secrets through `ctx.env`:
@@ -244,7 +260,7 @@ Hosted flows can access these secrets through `ctx.env`:
 const secret = ctx.env.STRIPE_WEBHOOK_SECRET;
 ```
 
-Use `trigora flows` to look up the hosted flow ID first. `trigora secrets set` prompts for the value securely by default. You can pass `--value` for automation when needed, but interactive entry is safer because shell history can leak secrets.
+Use `trigora flows` to look up the flow first. `trigora secrets set` prompts for the value securely by default. You can pass `--value` for automation when needed, but interactive entry is safer because shell history can leak secrets.
 
 Secret metadata is listed without values, and `trigora secrets delete` asks for confirmation unless you pass `--yes`.
 
@@ -252,11 +268,11 @@ Secrets are managed separately from deploys. `trigora deploy` uploads code only.
 
 ### `trigora logs`
 
-Inspect recent hosted flow invocations and stored log lines for a hosted flow ID.
+Inspect recent hosted flow invocations and stored log lines for a flow.
 
 ```bash
-trigora logs list --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
-trigora logs get inv_123 --flow 402c04b0-62c8-4d0b-942f-0ee2329436a8
+trigora logs list --flow stripe-checkout
+trigora logs get inv_123 --flow stripe-checkout
 ```
 
 `trigora logs list` shows recent invocations for a hosted flow, newest first. `trigora logs get` opens one invocation with its stored log lines and metadata.
@@ -273,14 +289,15 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 
 - `trigora deploy`
 - `trigora flows`
-- `trigora flows inspect <flowId>`
-- `trigora flows disable <flowId>`
-- `trigora flows enable <flowId>`
-- `trigora secrets set <name> --flow <flowId>`
-- `trigora secrets list --flow <flowId>`
-- `trigora secrets delete <name> --flow <flowId>`
-- `trigora logs list --flow <flowId>`
-- `trigora logs get <invocationId> --flow <flowId>`
+- `trigora whoami`
+- `trigora flows inspect <flow>`
+- `trigora flows disable <flow>`
+- `trigora flows enable <flow>`
+- `trigora secrets set <name> --flow <flow>`
+- `trigora secrets list --flow <flow>`
+- `trigora secrets delete <name> --flow <flow>`
+- `trigora logs list --flow <flow>`
+- `trigora logs get <invocationId> --flow <flow>`
 
 If the token is missing, invalid, or revoked, the CLI returns a clear error message.
 
@@ -337,7 +354,7 @@ Deploying flow "hello"...
 ```
 
 ```text
-✔ Found 3 invocations for flow "stripe-checkout" (402c04b0-...):
+✔ Found 3 invocations for flow "stripe-checkout":
 ```
 
 ## Alpha Notes

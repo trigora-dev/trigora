@@ -61,6 +61,24 @@ export type GetFlowResponse = {
   flow: FlowRecord;
 };
 
+export type WorkspaceRecord = {
+  id: string;
+  slug: string;
+  name: string;
+};
+
+export type DeployTokenRecord = {
+  id: string;
+  label: string;
+  status: string;
+  createdAt: string;
+};
+
+export type WhoAmIResponse = {
+  workspace: WorkspaceRecord;
+  token: DeployTokenRecord;
+};
+
 export type FlowStatusResponse = {
   ok: true;
   flow: {

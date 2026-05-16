@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProgram } from './program';
 import { getLogCommand, listLogsCommand } from './commands/logs';
 import { deleteSecretCommand, listSecretsCommand, setSecretCommand } from './commands/secrets';
+import { whoAmICommand } from './commands/whoami';
 
 vi.mock('./commands/logs', () => ({
   getLogCommand: vi.fn(),
@@ -15,11 +16,16 @@ vi.mock('./commands/secrets', () => ({
   setSecretCommand: vi.fn(),
 }));
 
+vi.mock('./commands/whoami', () => ({
+  whoAmICommand: vi.fn(),
+}));
+
 const mockedGetLogCommand = vi.mocked(getLogCommand);
 const mockedListLogsCommand = vi.mocked(listLogsCommand);
 const mockedDeleteSecretCommand = vi.mocked(deleteSecretCommand);
 const mockedListSecretsCommand = vi.mocked(listSecretsCommand);
 const mockedSetSecretCommand = vi.mocked(setSecretCommand);
+const mockedWhoAmICommand = vi.mocked(whoAmICommand);
 
 beforeEach(() => {
   mockedGetLogCommand.mockReset();
@@ -27,6 +33,7 @@ beforeEach(() => {
   mockedDeleteSecretCommand.mockReset();
   mockedListSecretsCommand.mockReset();
   mockedSetSecretCommand.mockReset();
+  mockedWhoAmICommand.mockReset();
 });
 
 afterEach(() => {
@@ -44,20 +51,12 @@ describe('createProgram', () => {
     });
 
     await program.parseAsync(
-      [
-        'secrets',
-        'set',
-        'STRIPE_WEBHOOK_SECRET',
-        '--flow',
-        '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-        '--value',
-        'x',
-      ],
+      ['secrets', 'set', 'STRIPE_WEBHOOK_SECRET', '--flow', 'stripe-checkout', '--value', 'x'],
       { from: 'user' },
     );
 
     expect(mockedSetSecretCommand).toHaveBeenCalledWith({
-      flowId: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      flow: 'stripe-checkout',
       name: 'STRIPE_WEBHOOK_SECRET',
       value: 'x',
     });
@@ -72,27 +71,17 @@ describe('createProgram', () => {
       writeOut: () => undefined,
     });
 
+    await program.parseAsync(['secrets', 'list', '--flow', 'stripe-checkout'], { from: 'user' });
     await program.parseAsync(
-      ['secrets', 'list', '--flow', '402c04b0-62c8-4d0b-942f-0ee2329436a8'],
-      { from: 'user' },
-    );
-    await program.parseAsync(
-      [
-        'secrets',
-        'delete',
-        'STRIPE_WEBHOOK_SECRET',
-        '--flow',
-        '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-        '--yes',
-      ],
+      ['secrets', 'delete', 'STRIPE_WEBHOOK_SECRET', '--flow', 'stripe-checkout', '--yes'],
       { from: 'user' },
     );
 
     expect(mockedListSecretsCommand).toHaveBeenCalledWith({
-      flowId: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      flow: 'stripe-checkout',
     });
     expect(mockedDeleteSecretCommand).toHaveBeenCalledWith({
-      flowId: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      flow: 'stripe-checkout',
       name: 'STRIPE_WEBHOOK_SECRET',
       yes: true,
     });
@@ -107,21 +96,34 @@ describe('createProgram', () => {
       writeOut: () => undefined,
     });
 
-    await program.parseAsync(['logs', 'list', '--flow', '402c04b0-62c8-4d0b-942f-0ee2329436a8'], {
+    await program.parseAsync(['logs', 'list', '--flow', 'stripe-checkout'], {
       from: 'user',
     });
-    await program.parseAsync(
-      ['logs', 'get', 'inv_123', '--flow', '402c04b0-62c8-4d0b-942f-0ee2329436a8'],
-      { from: 'user' },
-    );
+    await program.parseAsync(['logs', 'get', 'inv_123', '--flow', 'stripe-checkout'], {
+      from: 'user',
+    });
 
     expect(mockedListLogsCommand).toHaveBeenCalledWith({
-      flowId: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      flow: 'stripe-checkout',
     });
     expect(mockedGetLogCommand).toHaveBeenCalledWith({
-      flowId: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      flow: 'stripe-checkout',
       invocationId: 'inv_123',
     });
+  });
+
+  it('routes whoami to its command handler', async () => {
+    const program = createProgram();
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+      writeOut: () => undefined,
+    });
+
+    await program.parseAsync(['whoami'], { from: 'user' });
+
+    expect(mockedWhoAmICommand).toHaveBeenCalledOnce();
   });
 
   it('requires --flow for secrets commands', async () => {

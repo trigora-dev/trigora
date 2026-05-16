@@ -18,6 +18,7 @@ import type {
   SetFlowSecretRequest,
   SetFlowSecretResponse,
   WebhookFlowRecord,
+  WhoAmIResponse,
 } from './api';
 
 describe('API contract types', () => {
@@ -103,6 +104,26 @@ describe('API contract types', () => {
 
     expect(response.ok).toBe(true);
     expect(response.flow.status).toBe('disabled');
+  });
+
+  it('accepts whoami responses with workspace and deploy token metadata', () => {
+    const response: WhoAmIResponse = {
+      workspace: {
+        id: 'ws_123',
+        slug: 'acme',
+        name: 'Acme',
+      },
+      token: {
+        id: 'tok_123',
+        label: 'local-dev',
+        status: 'active',
+        createdAt: '2026-05-17T00:00:00.000Z',
+      },
+    };
+
+    expect(response.workspace.slug).toBe('acme');
+    expect(response.token.label).toBe('local-dev');
+    expect(response.token.status).toBe('active');
   });
 
   it('accepts hosted flow secret contracts', () => {

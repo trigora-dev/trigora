@@ -3,6 +3,7 @@ import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
 import { deleteSecretCommand, listSecretsCommand, setSecretCommand } from './commands/secrets';
 import { getLogCommand, listLogsCommand } from './commands/logs';
+import { whoAmICommand } from './commands/whoami';
 import {
   disableFlowCommand,
   enableFlowCommand,
@@ -31,7 +32,7 @@ export function createProgram(): Command {
 
   program
     .command('trigger')
-    .argument('<flow>', 'Flow name or file path')
+    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' }) or a file path")
     .option('-p, --payload <path>', 'Path to JSON payload file')
     .action(async (flowNameOrPath, options) => {
       const filePath = resolveFlowPath(flowNameOrPath);
@@ -44,7 +45,7 @@ export function createProgram(): Command {
 
   program
     .command('dev')
-    .argument('[flow]', 'Flow name or file path')
+    .argument('[flow]', "The flow identifier defined in defineFlow({ id: '...' }) or a file path")
     .option('-p, --payload <path>', 'Path to JSON payload file')
     .action(async (flowNameOrPath, options) => {
       const filePath = flowNameOrPath
@@ -59,7 +60,7 @@ export function createProgram(): Command {
 
   program
     .command('deploy')
-    .argument('[flow]', 'Flow name or file path')
+    .argument('[flow]', "The flow identifier defined in defineFlow({ id: '...' }) or a file path")
     .action(async (flowNameOrPath) => {
       const filePath = flowNameOrPath ? resolveFlowPath(flowNameOrPath) : undefined;
 
@@ -74,25 +75,32 @@ export function createProgram(): Command {
     await listFlowsCommand();
   });
 
+  program
+    .command('whoami')
+    .description('Show the authenticated workspace and deploy token')
+    .action(async () => {
+      await whoAmICommand();
+    });
+
   flowsCommand
     .command('inspect')
-    .argument('<flowId>', 'Hosted flow slug or ID')
-    .action(async (flowId) => {
-      await inspectFlowCommand(flowId);
+    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
+    .action(async (flow) => {
+      await inspectFlowCommand(flow);
     });
 
   flowsCommand
     .command('disable')
-    .argument('<flowId>', 'Hosted flow slug or ID')
-    .action(async (flowId) => {
-      await disableFlowCommand(flowId);
+    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
+    .action(async (flow) => {
+      await disableFlowCommand(flow);
     });
 
   flowsCommand
     .command('enable')
-    .argument('<flowId>', 'Hosted flow slug or ID')
-    .action(async (flowId) => {
-      await enableFlowCommand(flowId);
+    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
+    .action(async (flow) => {
+      await enableFlowCommand(flow);
     });
 
   const secretsCommand = program.command('secrets').description('Manage hosted flow secrets');
@@ -100,11 +108,11 @@ export function createProgram(): Command {
   secretsCommand
     .command('set')
     .argument('<name>', 'Secret name')
-    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
+    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .option('--value <value>', 'Secret value for non-interactive use')
     .action(async (name, options) => {
       await setSecretCommand({
-        flowId: options.flow,
+        flow: options.flow,
         name,
         value: options.value,
       });
@@ -112,21 +120,21 @@ export function createProgram(): Command {
 
   secretsCommand
     .command('list')
-    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
+    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .action(async (options) => {
       await listSecretsCommand({
-        flowId: options.flow,
+        flow: options.flow,
       });
     });
 
   secretsCommand
     .command('delete')
     .argument('<name>', 'Secret name')
-    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
+    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (name, options) => {
       await deleteSecretCommand({
-        flowId: options.flow,
+        flow: options.flow,
         name,
         yes: options.yes,
       });
@@ -136,20 +144,20 @@ export function createProgram(): Command {
 
   logsCommand
     .command('list')
-    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
+    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .action(async (options) => {
       await listLogsCommand({
-        flowId: options.flow,
+        flow: options.flow,
       });
     });
 
   logsCommand
     .command('get')
     .argument('<invocationId>', 'Invocation ID')
-    .requiredOption('--flow <flowId>', 'Hosted flow slug or ID')
+    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .action(async (invocationId, options) => {
       await getLogCommand({
-        flowId: options.flow,
+        flow: options.flow,
         invocationId,
       });
     });
