@@ -32,7 +32,7 @@ describe('Event contract types', () => {
           'x-github-event': 'issues',
         },
         method: 'POST',
-        url: 'https://trigora.dev/f/hello',
+        url: 'https://acme.trigora.dev/hello',
         rawBody: '{"action":"opened"}',
       },
     };

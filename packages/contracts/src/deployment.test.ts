@@ -88,7 +88,7 @@ describe('Deployment types', () => {
         slug: 'hello',
         trigger: 'webhook',
         status: 'ready',
-        url: 'https://trigora.dev/f/df_123',
+        url: 'https://acme.trigora.dev/hello',
       },
     ];
 
@@ -111,7 +111,7 @@ describe('Deployment types', () => {
 
     expect(request.artifact.files).toHaveLength(1);
     expect(response.status).toBe('active');
-    expect(response.flow.url).toBe('https://trigora.dev/f/df_123');
+    expect(response.flow.url).toBe('https://acme.trigora.dev/hello');
   });
 
   it('accepts the canonical deployed flow response type', () => {
@@ -120,7 +120,7 @@ describe('Deployment types', () => {
       slug: 'hello',
       trigger: 'webhook',
       status: 'ready',
-      url: 'https://trigora.dev/f/df_123',
+      url: 'https://acme.trigora.dev/hello',
     };
 
     expect(deployedFlow.id).toBe('df_123');

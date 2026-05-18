@@ -2,21 +2,28 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ApiErrorResponse,
+  CreateWorkspaceDeployTokenResponse,
+  CreateWorkspaceRequest,
   CronFlowRecord,
+  CurrentWorkspaceResponse,
   DeleteFlowSecretResponse,
+  DeleteFlowResponse,
   FlowInvocationLogRecord,
   FlowInvocationRecord,
   FlowSecretRecord,
   FlowStatusResponse,
-  GetFlowInvocationResponse,
+  GetInvocationResponse,
   GetFlowResponse,
   ListFlowInvocationsQuery,
-  ListFlowInvocationsResponse,
-  ListFlowSecretsResponse,
+  ListInvocationsResponse,
+  ListSecretsResponse,
   ListFlowsResponse,
+  ListWorkspaceDeployTokensResponse,
+  ListWorkspacesResponse,
   QueueFlowRecord,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
+  UpdateWorkspaceRequest,
   WebhookFlowRecord,
   WhoAmIResponse,
 } from './api';
@@ -45,7 +52,7 @@ describe('API contract types', () => {
       trigger: 'webhook',
       status: 'ready',
       createdAt: '2026-04-21T10:00:00.000Z',
-      endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      endpoint: 'https://acme.trigora.dev/hello',
     };
 
     const response: GetFlowResponse = {
@@ -106,8 +113,17 @@ describe('API contract types', () => {
     expect(response.flow.status).toBe('disabled');
   });
 
-  it('accepts whoami responses with workspace and deploy token metadata', () => {
+  it('accepts delete flow responses', () => {
+    const response: DeleteFlowResponse = {
+      deleted: true,
+    };
+
+    expect(response.deleted).toBe(true);
+  });
+
+  it('accepts deploy-token whoami responses', () => {
     const response: WhoAmIResponse = {
+      actorType: 'deploy_token',
       workspace: {
         id: 'ws_123',
         slug: 'acme',
@@ -122,8 +138,69 @@ describe('API contract types', () => {
     };
 
     expect(response.workspace.slug).toBe('acme');
+    if (response.actorType !== 'deploy_token') {
+      throw new Error('Expected deploy token identity');
+    }
     expect(response.token.label).toBe('local-dev');
-    expect(response.token.status).toBe('active');
+  });
+
+  it('accepts user whoami and workspace management contracts', () => {
+    const whoAmI: WhoAmIResponse = {
+      actorType: 'user',
+      user: {
+        id: 'user_123',
+        email: 'user@example.com',
+        emailVerified: true,
+        image: null,
+        name: 'Omar',
+      },
+      workspace: {
+        id: 'ws_123',
+        slug: 'acme',
+        name: 'Acme',
+        role: 'owner',
+      },
+    };
+
+    const createRequest: CreateWorkspaceRequest = {
+      name: 'Acme',
+      slug: 'acme',
+    };
+
+    const updateRequest: UpdateWorkspaceRequest = {
+      name: 'Acme Inc.',
+      slug: 'acme',
+    };
+
+    const currentWorkspace: CurrentWorkspaceResponse = {
+      user: whoAmI.user,
+      workspace: whoAmI.workspace,
+      activity: {
+        createdAt: '2026-05-18T00:00:00.000Z',
+        updatedAt: '2026-05-18T01:00:00.000Z',
+        flowCount: 3,
+        tokenCount: 2,
+      },
+      stats: {
+        recentInvocationCount: 8,
+      },
+      flows: [],
+    };
+
+    const workspaces: ListWorkspacesResponse = {
+      workspaces: [
+        {
+          ...whoAmI.workspace,
+          isCurrent: true,
+        },
+      ],
+    };
+
+    expect(whoAmI.workspace.role).toBe('owner');
+    expect(createRequest.slug).toBe('acme');
+    expect(updateRequest.name).toBe('Acme Inc.');
+    expect(currentWorkspace.activity?.flowCount).toBe(3);
+    expect(workspaces.workspaces[0]?.isCurrent).toBe(true);
   });
 
   it('accepts hosted flow secret contracts', () => {
@@ -133,11 +210,17 @@ describe('API contract types', () => {
       updatedAt: '2026-05-03T12:00:00.000Z',
     };
 
-    const listResponse: ListFlowSecretsResponse = {
-      secrets: [secret],
+    const listResponse: ListSecretsResponse = {
+      secrets: [
+        {
+          ...secret,
+          flowSlug: 'stripe-checkout',
+        },
+      ],
     };
 
     const setRequest: SetFlowSecretRequest = {
+      flow: 'stripe-checkout',
       name: 'STRIPE_WEBHOOK_SECRET',
       value: 'super-secret',
     };
@@ -154,6 +237,7 @@ describe('API contract types', () => {
     };
 
     expect(listResponse.secrets[0]?.name).toBe('STRIPE_WEBHOOK_SECRET');
+    expect(listResponse.secrets[0]?.flowSlug).toBe('stripe-checkout');
     expect(setRequest.name).toBe('STRIPE_WEBHOOK_SECRET');
     expect(setResponse.secret.updatedAt).toBe('2026-05-03T12:00:00.000Z');
     expect(deleteResponse.deleted).toBe(true);
@@ -182,26 +266,68 @@ describe('API contract types', () => {
     };
 
     const listQuery: ListFlowInvocationsQuery = {
+      flow: 'stripe-checkout',
       limit: 20,
+      range: '7d',
       status: 'failed',
     };
 
-    const listResponse: ListFlowInvocationsResponse = {
-      invocations: [invocation],
+    const listResponse: ListInvocationsResponse = {
+      invocations: [
+        {
+          ...invocation,
+          flowSlug: 'stripe-checkout',
+        },
+      ],
     };
 
-    const detailResponse: GetFlowInvocationResponse = {
+    const detailResponse: GetInvocationResponse = {
       invocation: {
         ...invocation,
+        flowSlug: 'stripe-checkout',
+        triggerType: 'webhook',
         logs: [log],
       },
     };
 
     expect(listQuery.status).toBe('failed');
+    expect(listQuery.range).toBe('7d');
     expect(listResponse.invocations[0]?.status).toBe('failed');
+    expect(listResponse.invocations[0]?.flowSlug).toBe('stripe-checkout');
+    expect(detailResponse.invocation.triggerType).toBe('webhook');
     expect(detailResponse.invocation.logs[0]?.level).toBe('warn');
     expect(detailResponse.invocation.logs[0]?.metadata).toEqual({
       source: 'stripe',
     });
+  });
+
+  it('accepts workspace deploy token contracts', () => {
+    const tokens: ListWorkspaceDeployTokensResponse = {
+      tokens: [
+        {
+          id: 'tok_123',
+          label: 'local-dev',
+          status: 'active',
+          plan: 'developer',
+          lastUsedAt: null,
+          createdAt: '2026-05-18T00:00:00.000Z',
+        },
+      ],
+    };
+
+    const createResponse: CreateWorkspaceDeployTokenResponse = {
+      ok: true,
+      rawToken: 'trg_secret',
+      token: tokens.tokens[0]!,
+      workspace: {
+        id: 'ws_123',
+        slug: 'acme',
+        name: 'Acme',
+        role: 'owner',
+      },
+    };
+
+    expect(tokens.tokens[0]?.plan).toBe('developer');
+    expect(createResponse.workspace.role).toBe('owner');
   });
 });

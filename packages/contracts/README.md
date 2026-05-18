@@ -48,9 +48,9 @@ import type {
   FlowInvocationRecord,
   FlowRecord,
   FlowStatusResponse,
-  GetFlowInvocationResponse,
-  ListFlowInvocationsResponse,
-  ListFlowSecretsResponse,
+  GetInvocationResponse,
+  ListInvocationsResponse,
+  ListSecretsResponse,
   Trigger,
 } from '@trigora/contracts';
 ```
@@ -113,14 +113,11 @@ import type { CreateDeploymentRequest, DeploymentManifest } from '@trigora/contr
 
 const manifest: DeploymentManifest = {
   version: 1,
-  flows: [
-    {
-      id: 'hello',
-      entrypoint: 'flows/hello.ts',
-      routePath: '/hello',
-      trigger: { type: 'webhook' },
-    },
-  ],
+  flow: {
+    id: 'hello',
+    entrypoint: 'flows/hello.ts',
+    trigger: { type: 'webhook' },
+  },
 };
 
 const request: CreateDeploymentRequest = {
@@ -172,7 +169,7 @@ These contracts support hosted flow management responses used by the CLI and oth
 - `GetFlowResponse`
 - `FlowStatusResponse`
 - `FlowSecretRecord`
-- `ListFlowSecretsResponse`
+- `ListSecretsResponse`
 - `SetFlowSecretRequest`
 - `SetFlowSecretResponse`
 - `DeleteFlowSecretResponse`
@@ -180,8 +177,8 @@ These contracts support hosted flow management responses used by the CLI and oth
 - `FlowInvocationLogLevel`
 - `FlowInvocationRecord`
 - `FlowInvocationLogRecord`
-- `ListFlowInvocationsResponse`
-- `GetFlowInvocationResponse`
+- `ListInvocationsResponse`
+- `GetInvocationResponse`
 - `ListFlowInvocationsQuery`
 
 Example:
@@ -192,13 +189,12 @@ import type { ListFlowsResponse } from '@trigora/contracts';
 const response: ListFlowsResponse = {
   flows: [
     {
-      id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
-      name: 'hello',
+      id: 'hello',
+      slug: 'hello',
       trigger: 'webhook',
       status: 'ready',
       createdAt: '2026-04-21T10:00:00.000Z',
-      endpoint: 'https://trigora.dev/f/402c04b0-62c8-4d0b-942f-0ee2329436a8',
-      route: '/hello',
+      endpoint: 'https://acme.trigora.dev/hello',
     },
   ],
 };
