@@ -25,6 +25,7 @@ const originalEnv = { ...process.env };
 const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 
 const identity = {
+  actorType: 'deploy_token' as const,
   workspace: {
     id: 'ws_123',
     slug: 'acme',
@@ -41,12 +42,13 @@ const identity = {
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn(),
+    deleteFlow: vi.fn(),
     deleteFlowSecret: vi.fn(),
     disableFlow: vi.fn(),
     enableFlow: vi.fn(),
     getFlow: vi.fn(),
-    getFlowInvocation: vi.fn(),
-    listFlowInvocations: vi.fn(),
+    getInvocation: vi.fn(),
+    listInvocations: vi.fn(),
     listFlowSecrets: vi.fn(),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn(),

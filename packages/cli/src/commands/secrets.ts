@@ -77,16 +77,11 @@ async function getSecretValue(name: string, providedValue?: string): Promise<str
 export async function setSecretCommand(options: SetSecretOptions): Promise<FlowSecretRecord> {
   validateSecretName(options.name);
   const apiClient = createSecretsApiClient();
-
-  const flow = await apiClient.getFlow(options.flow).catch((error) => {
-    throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
-  });
-
-  printSettingSecret(options.name, flow);
+  printSettingSecret(options.name, options.flow);
   const value = await getSecretValue(options.name, options.value);
 
   const secret = await apiClient
-    .setFlowSecret(flow.slug, {
+    .setFlowSecret(options.flow, {
       name: options.name,
       value,
     })
@@ -101,20 +96,16 @@ export async function setSecretCommand(options: SetSecretOptions): Promise<FlowS
 
 export async function listSecretsCommand(options: ListSecretsOptions): Promise<FlowSecretRecord[]> {
   const apiClient = createSecretsApiClient();
-  const flow = await apiClient.getFlow(options.flow).catch((error) => {
-    throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
-  });
-
-  const secrets = await apiClient.listFlowSecrets(flow.slug).catch((error) => {
+  const secrets = await apiClient.listFlowSecrets(options.flow).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.fetchingSecrets, 'secret');
   });
 
   if (secrets.length === 0) {
-    printNoSecretsFound(flow);
+    printNoSecretsFound(options.flow);
     return secrets;
   }
 
-  printSecretsList(flow, secrets);
+  printSecretsList(options.flow, secrets);
 
   return secrets;
 }
@@ -125,13 +116,9 @@ export async function deleteSecretCommand(
   validateSecretName(options.name);
   const apiClient = createSecretsApiClient();
 
-  const flow = await apiClient.getFlow(options.flow).catch((error) => {
-    throw toSecretsApiFailure(error, secretSteps.resolvingFlow, 'flow');
-  });
-
   if (!options.yes) {
     const confirmed = await confirmAction(
-      `Delete secret "${options.name}" for flow "${flow.slug}"?`,
+      `Delete secret "${options.name}" for flow "${options.flow}"?`,
     );
 
     if (!confirmed) {
@@ -140,9 +127,9 @@ export async function deleteSecretCommand(
     }
   }
 
-  printDeletingSecret(options.name, flow);
+  printDeletingSecret(options.name, options.flow);
 
-  const response = await apiClient.deleteFlowSecret(flow.slug, options.name).catch((error) => {
+  const response = await apiClient.deleteFlowSecret(options.flow, options.name).catch((error) => {
     throw toSecretsApiFailure(error, secretSteps.deletingSecret, 'secret');
   });
 

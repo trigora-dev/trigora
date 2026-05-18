@@ -1,6 +1,9 @@
 import type { FlowStatusResponse, FlowRecord } from '@trigora/contracts';
 import { createDeployApiClient } from '../lib/createDeployApiClient';
+import { printWarning } from '../lib/cliOutput';
+import { promptForTypedConfirmation } from '../lib/interactive';
 import {
+  printFlowDeleted,
   flowSteps,
   printFlowDisabled,
   printFlowEnabled,
@@ -79,4 +82,31 @@ export async function enableFlowCommand(flow: string): Promise<FlowStatusRespons
   printFlowEnabled(flowRecord);
 
   return flowRecord;
+}
+
+export async function deleteFlowCommand(
+  flow: string,
+  options: { yes?: boolean } = {},
+): Promise<void | null> {
+  if (!options.yes) {
+    const confirmed = await promptForTypedConfirmation({
+      expectedValue: flow,
+      message: `This will delete flow "${flow}", including deployments, invocations, logs, schedules, secrets, and hosted workers.`,
+      nonInteractiveHint: 'Re-run with --yes to confirm in non-interactive environments.',
+      nonInteractiveReason: `Confirmation is required before deleting flow "${flow}".`,
+    });
+
+    if (!confirmed) {
+      printWarning(`Skipped deleting flow "${flow}".`);
+      return null;
+    }
+  }
+
+  await createFlowsApiClient()
+    .deleteFlow(flow)
+    .catch((error) => {
+      throw toFlowsApiFailure(error, flowSteps.deletingFlow);
+    });
+
+  printFlowDeleted(flow);
 }

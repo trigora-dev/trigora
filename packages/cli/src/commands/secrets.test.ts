@@ -1,4 +1,9 @@
-import type { DeleteFlowSecretResponse, FlowRecord, FlowSecretRecord } from '@trigora/contracts';
+import type {
+  DeleteFlowSecretResponse,
+  FlowRecord,
+  FlowSecretRecord,
+  ListSecretsResponse,
+} from '@trigora/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDeployApiClient, type DeployApiClient } from '../lib/createDeployApiClient';
@@ -38,14 +43,16 @@ const stripeFlow = {
 } satisfies FlowRecord;
 
 const webhookSecret = {
+  flowSlug: stripeFlow.slug,
   name: 'STRIPE_WEBHOOK_SECRET',
   createdAt: '2026-05-03T12:00:00.000Z',
   updatedAt: '2026-05-03T12:00:00.000Z',
-} satisfies FlowSecretRecord;
+} satisfies ListSecretsResponse['secrets'][number];
 
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn(),
+    deleteFlow: vi.fn(),
     deleteFlowSecret: vi.fn().mockResolvedValue({
       ok: true,
       deleted: true,
@@ -54,8 +61,8 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     disableFlow: vi.fn(),
     enableFlow: vi.fn(),
     getFlow: vi.fn().mockResolvedValue(stripeFlow),
-    getFlowInvocation: vi.fn(),
-    listFlowInvocations: vi.fn(),
+    getInvocation: vi.fn(),
+    listInvocations: vi.fn(),
     listFlowSecrets: vi.fn().mockResolvedValue([webhookSecret]),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn().mockResolvedValue(webhookSecret),
@@ -115,7 +122,6 @@ describe('secrets commands', () => {
       }),
     ).resolves.toEqual(webhookSecret);
 
-    expect(apiClient.getFlow).toHaveBeenCalledWith(stripeFlow.slug);
     expect(apiClient.setFlowSecret).toHaveBeenCalledWith(stripeFlow.slug, {
       name: 'STRIPE_WEBHOOK_SECRET',
       value: 'super-secret',
@@ -164,10 +170,11 @@ describe('secrets commands', () => {
       listFlowSecrets: vi.fn().mockResolvedValue([
         webhookSecret,
         {
+          flowSlug: stripeFlow.slug,
           name: 'RESEND_API_KEY',
           createdAt: '2026-05-02T12:00:00.000Z',
           updatedAt: '2026-05-02T14:00:00.000Z',
-        } satisfies FlowSecretRecord,
+        } satisfies ListSecretsResponse['secrets'][number],
       ]),
     });
 
@@ -180,6 +187,7 @@ describe('secrets commands', () => {
     ).resolves.toEqual([
       webhookSecret,
       {
+        flowSlug: stripeFlow.slug,
         name: 'RESEND_API_KEY',
         createdAt: '2026-05-02T12:00:00.000Z',
         updatedAt: '2026-05-02T14:00:00.000Z',

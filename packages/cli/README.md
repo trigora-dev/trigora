@@ -9,7 +9,9 @@ The Trigora CLI for local flow development, hosted deploys, and alpha flow manag
 - watch flows during development
 - deploy webhook flows to Trigora Cloud
 - show which workspace and deploy token you're using
-- inspect, disable, and enable hosted flows
+- list and manage hosted flows
+- manage hosted flow secrets
+- inspect hosted invocations and logs
 
 ## Install
 
@@ -181,7 +183,7 @@ trigora flows
 
 The list output includes:
 
-- flow name
+- flow
 - trigger type
 - status
 - endpoint for webhook flows
@@ -214,8 +216,7 @@ trigora flows inspect stripe-checkout
 
 The detail view shows available metadata such as:
 
-- name
-- ID
+- flow
 - trigger
 - status
 - creation time
@@ -243,6 +244,26 @@ trigora flows enable stripe-checkout
 
 Like `disable`, this prints a concise success summary with the flow and resulting status.
 
+### `trigora flows delete <flow>`
+
+Delete a hosted flow and its hosted resources.
+
+```bash
+trigora flows delete stripe-checkout
+trigora flows delete stripe-checkout --yes
+trigora flows delete stripe-checkout -y
+```
+
+By default, the CLI requires typed confirmation before deleting a flow:
+
+```text
+This will delete flow "stripe-checkout", including deployments, invocations, logs, schedules, secrets, and hosted workers.
+
+Type "stripe-checkout" to confirm:
+```
+
+Use `--yes` or `-y` to skip the prompt in automation or non-interactive environments.
+
 ### `trigora secrets`
 
 Manage hosted flow secrets separately from deploys.
@@ -250,7 +271,7 @@ Manage hosted flow secrets separately from deploys.
 ```bash
 trigora flows
 trigora secrets set STRIPE_WEBHOOK_SECRET --flow stripe-checkout
-trigora secrets list --flow stripe-checkout
+trigora secrets --flow stripe-checkout
 trigora secrets delete STRIPE_WEBHOOK_SECRET --flow stripe-checkout
 ```
 
@@ -266,16 +287,29 @@ Secret metadata is listed without values, and `trigora secrets delete` asks for 
 
 Secrets are managed separately from deploys. `trigora deploy` uploads code only.
 
-### `trigora logs`
+### `trigora invocations`
 
-Inspect recent hosted flow invocations and stored log lines for a flow.
+List and inspect hosted flow invocations.
 
 ```bash
-trigora logs list --flow stripe-checkout
-trigora logs get inv_123 --flow stripe-checkout
+trigora invocations
+trigora invocations --flow stripe-checkout
+trigora invocations --status failed
+trigora invocations --range 7d
+trigora invocations inspect inv_123
 ```
 
-`trigora logs list` shows recent invocations for a hosted flow, newest first. `trigora logs get` opens one invocation with its stored log lines and metadata.
+`trigora invocations` lists recent invocations, newest first. Use `inspect` to open one invocation with its metadata and status details.
+
+### `trigora logs <invocation>`
+
+Show stored logs for a single invocation.
+
+```bash
+trigora logs inv_123
+```
+
+`trigora logs <invocation>` prints the log output for one invocation without requiring a separate flow argument.
 
 ## Authentication
 
@@ -293,11 +327,16 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 - `trigora flows inspect <flow>`
 - `trigora flows disable <flow>`
 - `trigora flows enable <flow>`
+- `trigora flows delete <flow>`
+- `trigora secrets --flow <flow>`
 - `trigora secrets set <name> --flow <flow>`
-- `trigora secrets list --flow <flow>`
 - `trigora secrets delete <name> --flow <flow>`
-- `trigora logs list --flow <flow>`
-- `trigora logs get <invocationId> --flow <flow>`
+- `trigora invocations`
+- `trigora invocations --flow <flow>`
+- `trigora invocations --status <status>`
+- `trigora invocations --range <range>`
+- `trigora invocations inspect <invocation>`
+- `trigora logs <invocation>`
 
 If the token is missing, invalid, or revoked, the CLI returns a clear error message.
 
@@ -354,7 +393,7 @@ Deploying flow "hello"...
 ```
 
 ```text
-✔ Found 3 invocations for flow "stripe-checkout":
+✔ Found 3 invocations
 ```
 
 ## Alpha Notes
@@ -363,13 +402,14 @@ Current alpha scope:
 
 - local development with `trigger` and `dev`
 - hosted deploys with `deploy`
-- hosted flow listing and inspection
-- hosted flow enable and disable actions
+- hosted flow listing, inspection, enable, disable, and delete actions
+- hosted secrets management
+- hosted invocation listing and inspection
+- hosted invocation log output
 
 Not in the CLI yet:
 
 - webhook signature verification
-- flow deletion
 - full hosted trigger management from the CLI
 - advanced environment management
 

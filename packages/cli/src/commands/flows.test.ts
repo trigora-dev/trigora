@@ -7,7 +7,9 @@ import {
   DeployApiNetworkError,
   DeployApiRequestError,
 } from '../lib/createDeployApiClient';
+import { promptForTypedConfirmation } from '../lib/interactive';
 import {
+  deleteFlowCommand,
   disableFlowCommand,
   enableFlowCommand,
   inspectFlowCommand,
@@ -25,9 +27,15 @@ vi.mock('../lib/createDeployApiClient', async () => {
   };
 });
 
+vi.mock('../lib/interactive', () => ({
+  promptForTypedConfirmation: vi.fn(),
+}));
+
 const originalConsoleLog = console.log;
+const originalConsoleWarn = console.warn;
 const originalEnv = { ...process.env };
 const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
+const mockedPromptForTypedConfirmation = vi.mocked(promptForTypedConfirmation);
 
 const helloFlow = {
   id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
@@ -51,11 +59,15 @@ const cronFlow = {
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn(),
+    deleteFlow: vi.fn().mockResolvedValue({
+      ok: true,
+      deleted: true,
+    }),
     deleteFlowSecret: vi.fn(),
     listFlows: vi.fn().mockResolvedValue([helloFlow]),
     getFlow: vi.fn().mockResolvedValue(helloFlow),
-    getFlowInvocation: vi.fn(),
-    listFlowInvocations: vi.fn(),
+    getInvocation: vi.fn(),
+    listInvocations: vi.fn(),
     listFlowSecrets: vi.fn(),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
@@ -75,16 +87,19 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
 
 beforeEach(() => {
   console.log = vi.fn();
+  console.warn = vi.fn();
   process.env = {
     ...originalEnv,
     TRIGORA_DEPLOY_TOKEN: 'secret-token',
   };
   mockedCreateDeployApiClient.mockReset();
   mockedCreateDeployApiClient.mockReturnValue(createMockApiClient());
+  mockedPromptForTypedConfirmation.mockReset();
 });
 
 afterEach(() => {
   console.log = originalConsoleLog;
+  console.warn = originalConsoleWarn;
   process.env = originalEnv;
 });
 
@@ -170,6 +185,50 @@ describe('flows commands', () => {
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Enabling flow/));
   });
 
+  it('deletes a flow without prompting when --yes is used', async () => {
+    const apiClient = createMockApiClient();
+
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+
+    await expect(deleteFlowCommand(helloFlow.slug, { yes: true })).resolves.toBeUndefined();
+
+    expect(mockedPromptForTypedConfirmation).not.toHaveBeenCalled();
+    expect(apiClient.deleteFlow).toHaveBeenCalledWith(helloFlow.slug);
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow deleted/));
+  });
+
+  it('requires typed confirmation before deleting a flow', async () => {
+    const apiClient = createMockApiClient();
+
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+    mockedPromptForTypedConfirmation.mockResolvedValue(true);
+
+    await deleteFlowCommand(helloFlow.slug);
+
+    expect(mockedPromptForTypedConfirmation).toHaveBeenCalledWith({
+      expectedValue: helloFlow.slug,
+      message:
+        'This will delete flow "hello", including deployments, invocations, logs, schedules, secrets, and hosted workers.',
+      nonInteractiveHint: 'Re-run with --yes to confirm in non-interactive environments.',
+      nonInteractiveReason: 'Confirmation is required before deleting flow "hello".',
+    });
+    expect(apiClient.deleteFlow).toHaveBeenCalledWith(helloFlow.slug);
+  });
+
+  it('skips flow deletion when typed confirmation does not match', async () => {
+    const apiClient = createMockApiClient();
+
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+    mockedPromptForTypedConfirmation.mockResolvedValue(false);
+
+    await expect(deleteFlowCommand(helloFlow.slug)).resolves.toBeNull();
+
+    expect(apiClient.deleteFlow).not.toHaveBeenCalled();
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringMatching(/Skipped deleting flow "hello"/),
+    );
+  });
+
   it('throws a polished error when the deploy token is missing', async () => {
     delete process.env.TRIGORA_DEPLOY_TOKEN;
 
@@ -252,6 +311,21 @@ describe('flows commands', () => {
     await expect(enableFlowCommand(helloFlow.slug)).rejects.toMatchObject({
       details: expect.arrayContaining([
         expect.objectContaining({ label: 'Step', value: 'Enabling flow' }),
+        expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),
+      ]),
+    });
+  });
+
+  it('maps delete failures to the matching delete step', async () => {
+    mockedCreateDeployApiClient.mockReturnValue(
+      createMockApiClient({
+        deleteFlow: vi.fn().mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED')),
+      }),
+    );
+
+    await expect(deleteFlowCommand(helloFlow.slug, { yes: true })).rejects.toMatchObject({
+      details: expect.arrayContaining([
+        expect.objectContaining({ label: 'Step', value: 'Deleting flow' }),
         expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),
       ]),
     });

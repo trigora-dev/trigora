@@ -8,6 +8,7 @@ import { CliDisplayError, pluralize } from './cliOutput';
 import { colors } from './colors';
 
 export const flowSteps = {
+  deletingFlow: 'Deleting flow',
   disablingFlow: 'Disabling flow',
   enablingFlow: 'Enabling flow',
   fetchingFlow: 'Fetching flow',
@@ -188,6 +189,13 @@ export function printFlowDisabled(flow: FlowStatusResponse['flow']): void {
 
 export function printFlowEnabled(flow: FlowStatusResponse['flow']): void {
   printFlowStatusChange('Flow enabled', flow);
+}
+
+export function printFlowDeleted(flowSlug: string): void {
+  console.log('');
+  console.log(`${colors.success('✔')} Flow deleted`);
+  console.log('');
+  console.log(`${colors.label('Flow'.padEnd(6))}  ${formatFlowName(flowSlug)}`);
 }
 
 export function toFlowsTokenFailure(): CliDisplayError {

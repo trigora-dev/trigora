@@ -1,5 +1,5 @@
 import type { FlowStatusResponse, WhoAmIResponse } from '@trigora/contracts';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createDeployApiClient,
@@ -10,6 +10,7 @@ import {
 } from './createDeployApiClient';
 
 describe('createDeployApiClient', () => {
+  const originalEnv = { ...process.env };
   const manifest = {
     version: 1 as const,
     flow: {
@@ -49,6 +50,7 @@ describe('createDeployApiClient', () => {
     errorMessage: 'Invalid Stripe signature.',
   };
   const identity = {
+    actorType: 'deploy_token' as const,
     workspace: {
       id: 'ws_123',
       slug: 'acme',
@@ -61,6 +63,10 @@ describe('createDeployApiClient', () => {
       createdAt: '2026-05-17T00:00:00.000Z',
     },
   } satisfies WhoAmIResponse;
+
+  afterEach(() => {
+    process.env = { ...originalEnv };
+  });
 
   it('posts the deployment manifest to the default deploy API', async () => {
     const fetch = vi.fn().mockResolvedValue({
@@ -352,6 +358,37 @@ describe('createDeployApiClient', () => {
     });
   });
 
+  it('uses TRIGORA_API_BASE_URL from the environment when no base url override is provided', async () => {
+    process.env.TRIGORA_API_BASE_URL = 'http://localhost:8787/';
+
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          flows: [managedFlow],
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.listFlows()).resolves.toEqual([managedFlow]);
+
+    expect(fetch).toHaveBeenCalledWith('http://localhost:8787/v1/flows', {
+      method: 'GET',
+      headers: {
+        Authorization: 'Bearer secret-token',
+      },
+    });
+  });
+
   it('lists deployed flows from the flows endpoint', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -492,6 +529,38 @@ describe('createDeployApiClient', () => {
     });
   });
 
+  it('deletes a hosted flow from the delete endpoint', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          ok: true,
+          deleted: true,
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.deleteFlow(managedFlow.slug)).resolves.toEqual({
+      deleted: true,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.slug}`, {
+      method: 'DELETE',
+      headers: {
+        Authorization: 'Bearer secret-token',
+      },
+    });
+  });
+
   it('reads workspace and token metadata from the whoami endpoint', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -511,7 +580,7 @@ describe('createDeployApiClient', () => {
 
     await expect(client.whoAmI()).resolves.toEqual(identity);
 
-    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/auth/whoami`, {
+    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/whoami`, {
       method: 'GET',
       headers: {
         Authorization: 'Bearer secret-token',
@@ -636,20 +705,18 @@ describe('createDeployApiClient', () => {
       updatedAt: '2026-05-03T12:00:00.000Z',
     });
 
-    expect(fetch).toHaveBeenCalledWith(
-      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.slug}/secrets`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: 'Bearer secret-token',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: 'STRIPE_WEBHOOK_SECRET',
-          value: 'super-secret',
-        }),
+    expect(fetch).toHaveBeenCalledWith(`${TRIGORA_API_BASE_URL}/v1/secrets`, {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer secret-token',
+        'Content-Type': 'application/json',
       },
-    );
+      body: JSON.stringify({
+        name: 'STRIPE_WEBHOOK_SECRET',
+        value: 'super-secret',
+        flow: managedFlow.slug,
+      }),
+    });
   });
 
   it('lists hosted flow secret metadata without returning values', async () => {
@@ -660,11 +727,13 @@ describe('createDeployApiClient', () => {
         return {
           secrets: [
             {
+              flowSlug: managedFlow.slug,
               name: 'STRIPE_WEBHOOK_SECRET',
               createdAt: '2026-05-03T12:00:00.000Z',
               updatedAt: '2026-05-03T12:00:00.000Z',
             },
             {
+              flowSlug: managedFlow.slug,
               name: 'RESEND_API_KEY',
               createdAt: '2026-05-02T12:00:00.000Z',
               updatedAt: '2026-05-02T15:00:00.000Z',
@@ -684,11 +753,13 @@ describe('createDeployApiClient', () => {
 
     await expect(client.listFlowSecrets(managedFlow.slug)).resolves.toEqual([
       {
+        flowSlug: managedFlow.slug,
         name: 'STRIPE_WEBHOOK_SECRET',
         createdAt: '2026-05-03T12:00:00.000Z',
         updatedAt: '2026-05-03T12:00:00.000Z',
       },
       {
+        flowSlug: managedFlow.slug,
         name: 'RESEND_API_KEY',
         createdAt: '2026-05-02T12:00:00.000Z',
         updatedAt: '2026-05-02T15:00:00.000Z',
@@ -696,7 +767,7 @@ describe('createDeployApiClient', () => {
     ]);
 
     expect(fetch).toHaveBeenCalledWith(
-      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.slug}/secrets`,
+      `${TRIGORA_API_BASE_URL}/v1/secrets?flow=${managedFlow.slug}`,
       {
         method: 'GET',
         headers: {
@@ -706,15 +777,19 @@ describe('createDeployApiClient', () => {
     );
   });
 
-  it('lists flow invocations from the hosted invocations endpoint', async () => {
+  it('lists invocations from the global invocations endpoint for a flow filter', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       async json() {
         return {
           invocations: [
-            failedInvocation,
             {
+              ...failedInvocation,
+              flowSlug: managedFlow.slug,
+            },
+            {
+              flowSlug: managedFlow.slug,
               id: 'inv_124',
               status: 'succeeded',
               startedAt: '2026-05-05T09:00:00.000Z',
@@ -737,9 +812,13 @@ describe('createDeployApiClient', () => {
       fetch,
     });
 
-    await expect(client.listFlowInvocations(managedFlow.slug)).resolves.toEqual([
-      failedInvocation,
+    await expect(client.listInvocations({ flow: managedFlow.slug })).resolves.toEqual([
       {
+        ...failedInvocation,
+        flowSlug: managedFlow.slug,
+      },
+      {
+        flowSlug: managedFlow.slug,
         id: 'inv_124',
         status: 'succeeded',
         startedAt: '2026-05-05T09:00:00.000Z',
@@ -752,7 +831,56 @@ describe('createDeployApiClient', () => {
     ]);
 
     expect(fetch).toHaveBeenCalledWith(
-      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.slug}/invocations`,
+      `${TRIGORA_API_BASE_URL}/v1/invocations?flow=${managedFlow.slug}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: 'Bearer secret-token',
+        },
+      },
+    );
+  });
+
+  it('lists invocations from the global invocations endpoint with filters', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      async json() {
+        return {
+          invocations: [
+            {
+              ...failedInvocation,
+              flowSlug: managedFlow.slug,
+            },
+          ],
+        };
+      },
+      async text() {
+        return '';
+      },
+    });
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(
+      client.listInvocations({
+        flow: managedFlow.slug,
+        limit: 20,
+        range: '7d',
+        status: 'failed',
+      }),
+    ).resolves.toEqual([
+      {
+        ...failedInvocation,
+        flowSlug: managedFlow.slug,
+      },
+    ]);
+
+    expect(fetch).toHaveBeenCalledWith(
+      `${TRIGORA_API_BASE_URL}/v1/invocations?flow=${managedFlow.slug}&limit=20&range=7d&status=failed`,
       {
         method: 'GET',
         headers: {
@@ -770,6 +898,8 @@ describe('createDeployApiClient', () => {
         return {
           invocation: {
             ...failedInvocation,
+            flowSlug: managedFlow.slug,
+            triggerType: 'webhook',
             logs: [
               {
                 sequence: 1,
@@ -801,8 +931,10 @@ describe('createDeployApiClient', () => {
       fetch,
     });
 
-    await expect(client.getFlowInvocation(managedFlow.slug, failedInvocation.id)).resolves.toEqual({
+    await expect(client.getInvocation(failedInvocation.id)).resolves.toEqual({
       ...failedInvocation,
+      flowSlug: managedFlow.slug,
+      triggerType: 'webhook',
       logs: [
         {
           sequence: 1,
@@ -824,7 +956,7 @@ describe('createDeployApiClient', () => {
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.slug}/invocations/${failedInvocation.id}`,
+      `${TRIGORA_API_BASE_URL}/v1/invocations/${failedInvocation.id}`,
       {
         method: 'GET',
         headers: {
@@ -864,7 +996,7 @@ describe('createDeployApiClient', () => {
     });
 
     expect(fetch).toHaveBeenCalledWith(
-      `${TRIGORA_API_BASE_URL}/v1/flows/${managedFlow.slug}/secrets/STRIPE_WEBHOOK_SECRET`,
+      `${TRIGORA_API_BASE_URL}/v1/secrets/STRIPE_WEBHOOK_SECRET?flow=${managedFlow.slug}`,
       {
         method: 'DELETE',
         headers: {

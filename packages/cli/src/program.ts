@@ -2,9 +2,11 @@ import { Command } from 'commander';
 import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
 import { deleteSecretCommand, listSecretsCommand, setSecretCommand } from './commands/secrets';
-import { getLogCommand, listLogsCommand } from './commands/logs';
+import { inspectInvocationCommand, listInvocationsCommand } from './commands/invocations';
+import { getLogCommand } from './commands/logs';
 import { whoAmICommand } from './commands/whoami';
 import {
+  deleteFlowCommand,
   disableFlowCommand,
   enableFlowCommand,
   inspectFlowCommand,
@@ -103,63 +105,97 @@ export function createProgram(): Command {
       await enableFlowCommand(flow);
     });
 
-  const secretsCommand = program.command('secrets').description('Manage hosted flow secrets');
+  flowsCommand
+    .command('delete')
+    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
+    .option('-y, --yes', 'Skip confirmation prompt')
+    .action(async (flow, options) => {
+      await deleteFlowCommand(flow, { yes: options.yes });
+    });
+
+  const secretsCommand = program
+    .command('secrets')
+    .description('Manage hosted flow secrets')
+    .enablePositionalOptions()
+    .option('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })");
+
+  secretsCommand.action(async (options, command) => {
+    if (!options.flow) {
+      command.error("required option '--flow <flow>' not specified");
+    }
+
+    await listSecretsCommand({
+      flow: options.flow,
+    });
+  });
 
   secretsCommand
     .command('set')
     .argument('<name>', 'Secret name')
-    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .option('--value <value>', 'Secret value for non-interactive use')
-    .action(async (name, options) => {
+    .action(async (name, options, command) => {
+      const flow = options.flow ?? command.parent?.opts().flow;
+
+      if (!flow) {
+        command.error("required option '--flow <flow>' not specified");
+      }
+
       await setSecretCommand({
-        flow: options.flow,
+        flow,
         name,
         value: options.value,
       });
     });
 
   secretsCommand
-    .command('list')
-    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .action(async (options) => {
-      await listSecretsCommand({
-        flow: options.flow,
-      });
-    });
-
-  secretsCommand
     .command('delete')
     .argument('<name>', 'Secret name')
-    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
     .option('-y, --yes', 'Skip confirmation prompt')
-    .action(async (name, options) => {
+    .action(async (name, options, command) => {
+      const flow = options.flow ?? command.parent?.opts().flow;
+
+      if (!flow) {
+        command.error("required option '--flow <flow>' not specified");
+      }
+
       await deleteSecretCommand({
-        flow: options.flow,
+        flow,
         name,
         yes: options.yes,
       });
     });
 
-  const logsCommand = program.command('logs').description('Inspect hosted flow invocations');
+  const invocationsCommand = program
+    .command('invocations')
+    .description('Inspect hosted flow invocations');
 
-  logsCommand
-    .command('list')
-    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
+  invocationsCommand
+    .option('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
+    .option('--status <status>', 'Invocation status filter')
+    .option('--range <range>', 'Time range filter like 7d or 24h')
     .action(async (options) => {
-      await listLogsCommand({
+      await listInvocationsCommand({
         flow: options.flow,
+        range: options.range,
+        status: options.status,
       });
     });
 
-  logsCommand
-    .command('get')
-    .argument('<invocationId>', 'Invocation ID')
-    .requiredOption('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .action(async (invocationId, options) => {
-      await getLogCommand({
-        flow: options.flow,
+  invocationsCommand
+    .command('inspect')
+    .argument('<invocation>', 'Invocation ID')
+    .action(async (invocationId) => {
+      await inspectInvocationCommand({
         invocationId,
       });
+    });
+
+  program
+    .command('logs')
+    .description('Show logs for a single invocation')
+    .argument('<invocation>', 'Invocation ID')
+    .action(async (invocationId) => {
+      await getLogCommand(invocationId);
     });
 
   return program;

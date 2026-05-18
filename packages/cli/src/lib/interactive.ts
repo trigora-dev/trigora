@@ -112,3 +112,28 @@ export async function confirmAction(message: string): Promise<boolean> {
     rl.close();
   }
 }
+
+export async function promptForTypedConfirmation(options: {
+  expectedValue: string;
+  message: string;
+  nonInteractiveHint: string;
+  nonInteractiveReason: string;
+}): Promise<boolean> {
+  if (!stdin.isTTY || !stdout.isTTY) {
+    throw createInteractiveFailure(options.nonInteractiveReason, options.nonInteractiveHint);
+  }
+
+  const rl = readline.createInterface({
+    input: stdin,
+    output: stdout,
+    terminal: true,
+  });
+
+  try {
+    stdout.write(`\n${options.message}\n\n`);
+    const answer = await rl.question(`Type "${options.expectedValue}" to confirm: `);
+    return answer.trim() === options.expectedValue;
+  } finally {
+    rl.close();
+  }
+}

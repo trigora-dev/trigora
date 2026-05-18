@@ -1,7 +1,8 @@
 import type {
   FlowInvocationLogLevel,
   FlowInvocationLogRecord,
-  FlowInvocationRecord,
+  GetInvocationResponse,
+  ListInvocationsResponse,
 } from '@trigora/contracts';
 import {
   DeployApiNetworkError,
@@ -12,15 +13,14 @@ import { CliDisplayError, pluralize } from './cliOutput';
 import { colors } from './colors';
 import { formatFlowTarget } from './secretsOutput';
 
-export const logSteps = {
+export const invocationSteps = {
   fetchingInvocation: 'Fetching invocation',
   fetchingInvocations: 'Fetching invocations',
-  resolvingFlow: 'Resolving flow',
 } as const;
 
-type InvocationWithLogs = FlowInvocationRecord & {
-  logs: FlowInvocationLogRecord[];
-};
+type InvocationSummary = ListInvocationsResponse['invocations'][number];
+
+type InvocationWithLogs = GetInvocationResponse['invocation'];
 
 function createRequestFailure(reason: string, step?: string, hint?: string): CliDisplayError {
   const details = step
@@ -71,7 +71,7 @@ function formatRelativeTime(timestamp: string, now = Date.now()): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
-function formatInvocationStatus(status: FlowInvocationRecord['status']): string {
+function formatInvocationStatus(status: InvocationSummary['status']): string {
   switch (status) {
     case 'succeeded':
       return colors.success(status);
@@ -120,7 +120,7 @@ function formatMetadata(metadata: Record<string, unknown> | null | undefined): s
 }
 
 function formatInvocationSummaryDetailLines(
-  invocation: FlowInvocationRecord,
+  invocation: InvocationSummary,
   indent: string,
 ): string[] {
   const details = [
@@ -145,8 +145,9 @@ function formatInvocationSummaryDetailLines(
   );
 }
 
-function formatInvocationDetailLines(invocation: FlowInvocationRecord): string[] {
+function formatInvocationDetailLines(invocation: InvocationWithLogs): string[] {
   const details = [
+    { label: 'Trigger', value: invocation.triggerType },
     { label: 'Status', value: formatInvocationStatus(invocation.status) },
     { label: 'Started', value: colors.label(invocation.startedAt) },
     { label: 'Completed', value: colors.label(formatValue(invocation.completedAt)) },
@@ -179,14 +180,35 @@ function printInvocationLogs(logs: FlowInvocationLogRecord[]): void {
   }
 }
 
+function printAppliedFilters(filters: { flow?: string; range?: string; status?: string }): void {
+  const details = [
+    filters.flow
+      ? `${colors.label('Flow'.padEnd(6))}  ${colors.flow(colors.heading(filters.flow))}`
+      : undefined,
+    filters.status ? `${colors.label('Status'.padEnd(6))}  ${filters.status}` : undefined,
+    filters.range ? `${colors.label('Range'.padEnd(6))}  ${filters.range}` : undefined,
+  ].filter((line): line is string => Boolean(line));
+
+  if (details.length === 0) {
+    return;
+  }
+
+  console.log('');
+
+  for (const detail of details) {
+    console.log(detail);
+  }
+}
+
 export function printInvocationList(
-  flow: { id: string; slug?: string },
-  invocations: FlowInvocationRecord[],
+  invocations: InvocationSummary[],
+  filters: { flow?: string; range?: string; status?: string } = {},
 ): void {
   console.log('');
   console.log(
-    `${colors.success('✔')} Found ${invocations.length} ${pluralize(invocations.length, 'invocation')} for flow ${formatFlowTarget(flow)}:`,
+    `${colors.success('✔')} Found ${invocations.length} ${pluralize(invocations.length, 'invocation')}`,
   );
+  printAppliedFilters(filters);
   console.log('');
 
   for (const [index, invocation] of invocations.entries()) {
@@ -194,6 +216,12 @@ export function printInvocationList(
     console.log(
       `${itemPrefix}${colors.heading(invocation.id)}   ${colors.label(formatRelativeTime(invocation.startedAt))}`,
     );
+
+    if (invocation.flowSlug) {
+      console.log(
+        `${' '.repeat(itemPrefix.length)}${colors.label('Flow'.padEnd(8))}  ${colors.flow(colors.heading(invocation.flowSlug))}`,
+      );
+    }
 
     for (const line of formatInvocationSummaryDetailLines(
       invocation,
@@ -208,24 +236,38 @@ export function printInvocationList(
   }
 }
 
-export function printNoInvocationsFound(flow: { id: string; slug?: string }): void {
+export function printNoInvocationsFound(
+  filters: { flow?: string; range?: string; status?: string } = {},
+): void {
   console.log('');
-  console.log(`No invocations found for flow ${formatFlowTarget(flow)}.`);
+  console.log('No invocations found.');
+  printAppliedFilters(filters);
 }
 
-export function printInvocationDetail(
-  flow: { id: string; slug?: string },
-  invocation: InvocationWithLogs,
-): void {
+export function printInvocationDetail(invocation: InvocationWithLogs): void {
   console.log('');
   console.log(`Invocation ${colors.heading(invocation.id)}`);
   console.log('');
-  console.log(`${colors.label('Flow'.padEnd(9))}  ${formatFlowTarget(flow)}`);
+
+  console.log(
+    `${colors.label('Flow'.padEnd(9))}  ${formatFlowTarget({ id: invocation.flowSlug, slug: invocation.flowSlug })}`,
+  );
 
   for (const line of formatInvocationDetailLines(invocation)) {
     console.log(line);
   }
+}
 
+export function printInvocationLogsOutput(invocation: InvocationWithLogs): void {
+  console.log('');
+  console.log(`Logs for invocation ${colors.heading(invocation.id)}`);
+  console.log('');
+
+  console.log(
+    `${colors.label('Flow'.padEnd(9))}  ${formatFlowTarget({ id: invocation.flowSlug, slug: invocation.flowSlug })}`,
+  );
+  console.log(`${colors.label('Trigger'.padEnd(9))}  ${invocation.triggerType}`);
+  console.log(`${colors.label('Status'.padEnd(9))}  ${formatInvocationStatus(invocation.status)}`);
   console.log('');
 
   if (invocation.logs.length === 0) {
@@ -236,7 +278,7 @@ export function printInvocationDetail(
   printInvocationLogs(invocation.logs);
 }
 
-export function toLogsTokenFailure(): CliDisplayError {
+export function toInvocationTokenFailure(): CliDisplayError {
   return createRequestFailure(
     'TRIGORA_DEPLOY_TOKEN is not set.',
     undefined,
@@ -244,10 +286,10 @@ export function toLogsTokenFailure(): CliDisplayError {
   );
 }
 
-export function toLogsApiFailure(
+export function toInvocationApiFailure(
   error: unknown,
   step: string,
-  target: 'flow' | 'invocation',
+  target: 'invocation' | 'list',
 ): CliDisplayError {
   if (error instanceof DeployApiRequestError) {
     if (error.code === 'unauthorized' || error.code === 'forbidden') {
@@ -260,7 +302,9 @@ export function toLogsApiFailure(
 
     if (error.code === 'not_found' || error.code === 'deployment_not_found') {
       return createRequestFailure(
-        target === 'invocation' ? 'Invocation not found.' : 'Flow not found.',
+        target === 'invocation'
+          ? 'Invocation not found.'
+          : 'No invocations matched the requested filters.',
         step,
       );
     }

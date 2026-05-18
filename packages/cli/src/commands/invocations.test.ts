@@ -1,7 +1,7 @@
 import type {
   FlowRecord,
-  GetFlowInvocationResponse,
-  ListFlowInvocationsResponse,
+  GetInvocationResponse,
+  ListInvocationsResponse,
 } from '@trigora/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,7 +11,8 @@ import {
   DeployApiNetworkError,
   DeployApiRequestError,
 } from '../lib/createDeployApiClient';
-import { getLogCommand, listLogsCommand } from './logs';
+import { inspectInvocationCommand, listInvocationsCommand } from './invocations';
+import { getLogCommand } from './logs';
 
 vi.mock('../lib/createDeployApiClient', async () => {
   const actual = await vi.importActual<typeof import('../lib/createDeployApiClient')>(
@@ -39,6 +40,7 @@ const stripeFlow = {
 
 const failedInvocation = {
   id: 'inv_123',
+  flowSlug: stripeFlow.slug,
   status: 'failed' as const,
   startedAt: '2026-05-05T10:00:00.000Z',
   completedAt: '2026-05-05T10:00:00.842Z',
@@ -50,6 +52,7 @@ const failedInvocation = {
 
 const invocationDetail = {
   ...failedInvocation,
+  triggerType: 'webhook',
   logs: [
     {
       sequence: 1,
@@ -68,20 +71,22 @@ const invocationDetail = {
       metadata: null,
     },
   ],
-} satisfies GetFlowInvocationResponse['invocation'];
+} satisfies GetInvocationResponse['invocation'];
 
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn(),
+    deleteFlow: vi.fn(),
     deleteFlowSecret: vi.fn(),
     disableFlow: vi.fn(),
     enableFlow: vi.fn(),
     getFlow: vi.fn().mockResolvedValue(stripeFlow),
-    getFlowInvocation: vi.fn().mockResolvedValue(invocationDetail),
-    listFlowInvocations: vi.fn().mockResolvedValue([
+    getInvocation: vi.fn().mockResolvedValue(invocationDetail),
+    listInvocations: vi.fn().mockResolvedValue([
       failedInvocation,
       {
         id: 'inv_124',
+        flowSlug: stripeFlow.slug,
         status: 'succeeded',
         startedAt: '2026-05-05T09:00:00.000Z',
         completedAt: '2026-05-05T09:00:00.210Z',
@@ -90,7 +95,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
         errorCode: null,
         errorMessage: null,
       },
-    ] satisfies ListFlowInvocationsResponse['invocations']),
+    ] satisfies ListInvocationsResponse['invocations']),
     listFlowSecrets: vi.fn(),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn(),
@@ -114,8 +119,8 @@ afterEach(() => {
   process.env = originalEnv;
 });
 
-describe('logs commands', () => {
-  it('lists recent invocations for a hosted flow', async () => {
+describe('invocation commands', () => {
+  it('lists recent invocations with applied filters', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-05-05T10:02:00.000Z'));
 
@@ -123,13 +128,16 @@ describe('logs commands', () => {
     mockedCreateDeployApiClient.mockReturnValue(apiClient);
 
     await expect(
-      listLogsCommand({
+      listInvocationsCommand({
         flow: stripeFlow.slug,
+        range: '7d',
+        status: 'failed',
       }),
     ).resolves.toEqual([
       failedInvocation,
       {
         id: 'inv_124',
+        flowSlug: stripeFlow.slug,
         status: 'succeeded',
         startedAt: '2026-05-05T09:00:00.000Z',
         completedAt: '2026-05-05T09:00:00.210Z',
@@ -140,79 +148,79 @@ describe('logs commands', () => {
       },
     ]);
 
-    expect(apiClient.getFlow).toHaveBeenCalledWith(stripeFlow.slug);
-    expect(apiClient.listFlowInvocations).toHaveBeenCalledWith(stripeFlow.slug);
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/✔ Found 2 invocations for flow .*stripe-checkout.*:/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\.\s+inv_123\s+2m ago/));
+    expect(apiClient.listInvocations).toHaveBeenCalledWith({
+      flow: stripeFlow.slug,
+      range: '7d',
+      status: 'failed',
+    });
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Found 2 invocations/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+stripe-checkout/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+failed/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/HTTP\s+400/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Error\s+stripe_signature_invalid/),
-    );
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Error\s+-/));
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Message\s+-/));
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching invocations/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Range\s+7d/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\.\s+inv_123\s+2m ago/));
 
     vi.useRealTimers();
   });
 
-  it('shows an empty state when a hosted flow has no invocations', async () => {
+  it('shows an empty state when no invocations match the filters', async () => {
     const apiClient = createMockApiClient({
-      listFlowInvocations: vi.fn().mockResolvedValue([]),
+      listInvocations: vi.fn().mockResolvedValue([]),
     });
 
     mockedCreateDeployApiClient.mockReturnValue(apiClient);
 
     await expect(
-      listLogsCommand({
+      listInvocationsCommand({
         flow: stripeFlow.slug,
       }),
     ).resolves.toEqual([]);
 
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/No invocations found for flow .*stripe-checkout.*\./),
-    );
+    expect(console.log).toHaveBeenCalledWith('No invocations found.');
   });
 
-  it('prints a detailed invocation view with ordered log lines', async () => {
+  it('prints invocation details for inspect', async () => {
     const apiClient = createMockApiClient();
     mockedCreateDeployApiClient.mockReturnValue(apiClient);
 
     await expect(
-      getLogCommand({
-        flow: stripeFlow.slug,
+      inspectInvocationCommand({
         invocationId: failedInvocation.id,
       }),
     ).resolves.toEqual(invocationDetail);
 
-    expect(apiClient.getFlowInvocation).toHaveBeenCalledWith(stripeFlow.slug, failedInvocation.id);
+    expect(apiClient.getInvocation).toHaveBeenCalledWith(failedInvocation.id);
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Invocation inv_123/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*stripe-checkout/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+failed/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/^Logs$/));
+  });
+
+  it('prints logs for a single invocation', async () => {
+    const apiClient = createMockApiClient();
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+
+    await expect(getLogCommand(failedInvocation.id)).resolves.toEqual(invocationDetail);
+
+    expect(apiClient.getInvocation).toHaveBeenCalledWith(failedInvocation.id);
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Logs for invocation inv_123/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*stripe-checkout/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Logs/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/1\.\s+2026-05-05T10:00:00.100Z\s+INFO\s+Received webhook event/),
-    );
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/Metadata\s+\{"eventType":"checkout\.session\.completed"\}/),
     );
   });
 
   it('throws a polished error when the deploy token is missing', async () => {
     delete process.env.TRIGORA_DEPLOY_TOKEN;
 
-    await expect(
-      listLogsCommand({
-        flow: stripeFlow.slug,
-      }),
-    ).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
+    await expect(listInvocationsCommand({})).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
   });
 
-  it('maps invocation not found to a concise hosted error', async () => {
+  it('maps invocation not found errors', async () => {
     const apiClient = createMockApiClient({
-      getFlowInvocation: vi.fn().mockRejectedValue(
+      getInvocation: vi.fn().mockRejectedValue(
         new DeployApiRequestError(
           {
             code: 'not_found',
@@ -226,8 +234,7 @@ describe('logs commands', () => {
     mockedCreateDeployApiClient.mockReturnValue(apiClient);
 
     await expect(
-      getLogCommand({
-        flow: stripeFlow.slug,
+      inspectInvocationCommand({
         invocationId: failedInvocation.id,
       }),
     ).rejects.toMatchObject({
@@ -240,18 +247,12 @@ describe('logs commands', () => {
 
   it('maps network failures while listing invocations', async () => {
     const apiClient = createMockApiClient({
-      listFlowInvocations: vi
-        .fn()
-        .mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED')),
+      listInvocations: vi.fn().mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED')),
     });
 
     mockedCreateDeployApiClient.mockReturnValue(apiClient);
 
-    await expect(
-      listLogsCommand({
-        flow: stripeFlow.slug,
-      }),
-    ).rejects.toMatchObject({
+    await expect(listInvocationsCommand({})).rejects.toMatchObject({
       details: expect.arrayContaining([
         expect.objectContaining({ label: 'Step', value: 'Fetching invocations' }),
         expect.objectContaining({ label: 'Reason', value: 'Network request failed.' }),

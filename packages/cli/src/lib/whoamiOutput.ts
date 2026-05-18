@@ -41,20 +41,36 @@ function formatTokenStatus(status: string): string {
 }
 
 export function printWhoAmI(identity: WhoAmIResponse): void {
-  const details = [
-    {
-      label: 'Workspace',
-      value: colors.flow(colors.heading(identity.workspace.slug)),
-    },
-    {
-      label: 'Token',
-      value: colors.heading(identity.token.label),
-    },
-    {
-      label: 'Status',
-      value: formatTokenStatus(identity.token.status),
-    },
-  ];
+  const details =
+    identity.actorType === 'deploy_token'
+      ? [
+          {
+            label: 'Workspace',
+            value: colors.flow(colors.heading(identity.workspace.slug)),
+          },
+          {
+            label: 'Token',
+            value: colors.heading(identity.token.label),
+          },
+          {
+            label: 'Status',
+            value: formatTokenStatus(identity.token.status),
+          },
+        ]
+      : [
+          {
+            label: 'Workspace',
+            value: colors.flow(colors.heading(identity.workspace.slug)),
+          },
+          {
+            label: 'User',
+            value: colors.heading(identity.user.email),
+          },
+          {
+            label: 'Role',
+            value: identity.workspace.role,
+          },
+        ];
   const labelWidth = details.reduce((width, detail) => Math.max(width, detail.label.length), 0);
 
   console.log('');

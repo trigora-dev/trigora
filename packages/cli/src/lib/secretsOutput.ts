@@ -12,7 +12,6 @@ const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const secretSteps = {
   deletingSecret: 'Deleting secret',
   fetchingSecrets: 'Fetching flow secrets',
-  resolvingFlow: 'Resolving flow',
   settingSecret: 'Setting secret',
 } as const;
 
@@ -81,15 +80,25 @@ export function formatFlowTarget(flow: { id: string; slug?: string }): string {
   return colors.label(flow.id);
 }
 
-export function printSettingSecret(secretName: string, flow: { id: string; slug?: string }): void {
-  const flowLabel = formatFlowTarget(flow);
+function toFlowTarget(flow: string | { id: string; slug?: string }): { id: string; slug?: string } {
+  return typeof flow === 'string' ? { id: flow, slug: flow } : flow;
+}
+
+export function printSettingSecret(
+  secretName: string,
+  flow: string | { id: string; slug?: string },
+): void {
+  const flowLabel = formatFlowTarget(toFlowTarget(flow));
 
   console.log('');
   console.log(`Setting secret ${formatSecretName(secretName)} for flow ${flowLabel}...`);
 }
 
-export function printDeletingSecret(secretName: string, flow: { id: string; slug?: string }): void {
-  const flowLabel = formatFlowTarget(flow);
+export function printDeletingSecret(
+  secretName: string,
+  flow: string | { id: string; slug?: string },
+): void {
+  const flowLabel = formatFlowTarget(toFlowTarget(flow));
 
   console.log('');
   console.log(`Deleting secret ${formatSecretName(secretName)} for flow ${flowLabel}...`);
@@ -104,11 +113,11 @@ export function printSecretSet(secretName: string): void {
 }
 
 export function printSecretsList(
-  flow: { id: string; slug?: string },
+  flow: string | { id: string; slug?: string },
   secrets: FlowSecretRecord[],
 ): void {
   console.log('');
-  console.log(`Secrets for flow ${formatFlowTarget(flow)}:`);
+  console.log(`Secrets for flow ${formatFlowTarget(toFlowTarget(flow))}:`);
   console.log('');
 
   const nameWidth = secrets.reduce((width, secret) => Math.max(width, secret.name.length), 0);
@@ -120,9 +129,9 @@ export function printSecretsList(
   }
 }
 
-export function printNoSecretsFound(flow: { id: string; slug?: string }): void {
+export function printNoSecretsFound(flow: string | { id: string; slug?: string }): void {
   console.log('');
-  console.log(`No secrets set for flow ${formatFlowTarget(flow)}.`);
+  console.log(`No secrets set for flow ${formatFlowTarget(toFlowTarget(flow))}.`);
 }
 
 export function printSecretDeleted(secretName: string): void {
@@ -161,7 +170,7 @@ export function toEmptySecretValueFailure(name: string): CliDisplayError {
 export function toFlowResolutionFailure(flow: string): CliDisplayError {
   return createRequestFailure(
     `Hosted flow "${flow}" was not found.`,
-    secretSteps.resolvingFlow,
+    secretSteps.fetchingSecrets,
     'Run "trigora flows" to find the correct flow and try again.',
   );
 }

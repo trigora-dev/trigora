@@ -1,13 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createProgram } from './program';
-import { getLogCommand, listLogsCommand } from './commands/logs';
+import { deleteFlowCommand } from './commands/flows';
+import { inspectInvocationCommand, listInvocationsCommand } from './commands/invocations';
+import { getLogCommand } from './commands/logs';
 import { deleteSecretCommand, listSecretsCommand, setSecretCommand } from './commands/secrets';
 import { whoAmICommand } from './commands/whoami';
 
+vi.mock('./commands/flows', () => ({
+  deleteFlowCommand: vi.fn(),
+}));
+
+vi.mock('./commands/invocations', () => ({
+  inspectInvocationCommand: vi.fn(),
+  listInvocationsCommand: vi.fn(),
+}));
+
 vi.mock('./commands/logs', () => ({
   getLogCommand: vi.fn(),
-  listLogsCommand: vi.fn(),
 }));
 
 vi.mock('./commands/secrets', () => ({
@@ -20,16 +30,20 @@ vi.mock('./commands/whoami', () => ({
   whoAmICommand: vi.fn(),
 }));
 
+const mockedDeleteFlowCommand = vi.mocked(deleteFlowCommand);
+const mockedInspectInvocationCommand = vi.mocked(inspectInvocationCommand);
+const mockedListInvocationsCommand = vi.mocked(listInvocationsCommand);
 const mockedGetLogCommand = vi.mocked(getLogCommand);
-const mockedListLogsCommand = vi.mocked(listLogsCommand);
 const mockedDeleteSecretCommand = vi.mocked(deleteSecretCommand);
 const mockedListSecretsCommand = vi.mocked(listSecretsCommand);
 const mockedSetSecretCommand = vi.mocked(setSecretCommand);
 const mockedWhoAmICommand = vi.mocked(whoAmICommand);
 
 beforeEach(() => {
+  mockedDeleteFlowCommand.mockReset();
+  mockedInspectInvocationCommand.mockReset();
+  mockedListInvocationsCommand.mockReset();
   mockedGetLogCommand.mockReset();
-  mockedListLogsCommand.mockReset();
   mockedDeleteSecretCommand.mockReset();
   mockedListSecretsCommand.mockReset();
   mockedSetSecretCommand.mockReset();
@@ -71,7 +85,7 @@ describe('createProgram', () => {
       writeOut: () => undefined,
     });
 
-    await program.parseAsync(['secrets', 'list', '--flow', 'stripe-checkout'], { from: 'user' });
+    await program.parseAsync(['secrets', '--flow', 'stripe-checkout'], { from: 'user' });
     await program.parseAsync(
       ['secrets', 'delete', 'STRIPE_WEBHOOK_SECRET', '--flow', 'stripe-checkout', '--yes'],
       { from: 'user' },
@@ -87,7 +101,7 @@ describe('createProgram', () => {
     });
   });
 
-  it('routes logs list and get options to their handlers', async () => {
+  it('routes invocations list options to their handler', async () => {
     const program = createProgram();
 
     program.exitOverride();
@@ -96,19 +110,53 @@ describe('createProgram', () => {
       writeOut: () => undefined,
     });
 
-    await program.parseAsync(['logs', 'list', '--flow', 'stripe-checkout'], {
-      from: 'user',
+    await program.parseAsync(
+      ['invocations', '--flow', 'stripe-checkout', '--status', 'failed', '--range', '7d'],
+      {
+        from: 'user',
+      },
+    );
+
+    expect(mockedListInvocationsCommand).toHaveBeenCalledWith({
+      flow: 'stripe-checkout',
+      range: '7d',
+      status: 'failed',
     });
-    await program.parseAsync(['logs', 'get', 'inv_123', '--flow', 'stripe-checkout'], {
-      from: 'user',
+  });
+
+  it('routes invocation inspect and logs commands to their handlers', async () => {
+    const program = createProgram();
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+      writeOut: () => undefined,
     });
 
-    expect(mockedListLogsCommand).toHaveBeenCalledWith({
-      flow: 'stripe-checkout',
+    await program.parseAsync(['invocations', 'inspect', 'inv_123'], {
+      from: 'user',
     });
-    expect(mockedGetLogCommand).toHaveBeenCalledWith({
-      flow: 'stripe-checkout',
+    await program.parseAsync(['logs', 'inv_123'], { from: 'user' });
+
+    expect(mockedInspectInvocationCommand).toHaveBeenCalledWith({
       invocationId: 'inv_123',
+    });
+    expect(mockedGetLogCommand).toHaveBeenCalledWith('inv_123');
+  });
+
+  it('routes flows delete to its handler', async () => {
+    const program = createProgram();
+
+    program.exitOverride();
+    program.configureOutput({
+      writeErr: () => undefined,
+      writeOut: () => undefined,
+    });
+
+    await program.parseAsync(['flows', 'delete', 'hello', '--yes'], { from: 'user' });
+
+    expect(mockedDeleteFlowCommand).toHaveBeenCalledWith('hello', {
+      yes: true,
     });
   });
 
@@ -148,7 +196,7 @@ describe('createProgram', () => {
     expect(mockedSetSecretCommand).not.toHaveBeenCalled();
   });
 
-  it('requires --flow for logs commands', async () => {
+  it('requires --flow for secrets root command', async () => {
     const program = createProgram();
 
     vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
@@ -162,9 +210,9 @@ describe('createProgram', () => {
       writeOut: () => undefined,
     });
 
-    await expect(program.parseAsync(['logs', 'list'], { from: 'user' })).rejects.toThrow(
+    await expect(program.parseAsync(['secrets'], { from: 'user' })).rejects.toThrow(
       'process.exit unexpectedly called with "1"',
     );
-    expect(mockedListLogsCommand).not.toHaveBeenCalled();
+    expect(mockedListSecretsCommand).not.toHaveBeenCalled();
   });
 });

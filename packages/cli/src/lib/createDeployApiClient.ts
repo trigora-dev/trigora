@@ -4,6 +4,7 @@ import type {
   ApiErrorStep,
   CreateDeploymentRequest,
   CreateDeploymentResponse,
+  DeleteFlowResponse,
   DeleteFlowSecretResponse,
   FlowInvocationLogLevel,
   FlowInvocationLogRecord,
@@ -15,10 +16,10 @@ import type {
   FlowStatus,
   FlowTriggerType,
   GetFlowResponse,
-  GetFlowInvocationResponse,
+  GetInvocationResponse,
   ListFlowInvocationsQuery,
-  ListFlowInvocationsResponse,
-  ListFlowSecretsResponse,
+  ListInvocationsResponse,
+  ListSecretsResponse,
   ListFlowsResponse,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
@@ -27,28 +28,32 @@ import type {
 
 export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
+  deleteFlow(flowSlug: string): Promise<DeleteFlowResponse>;
   deleteFlowSecret(flowSlug: string, name: string): Promise<DeleteFlowSecretResponse>;
   disableFlow(flowSlug: string): Promise<FlowStatusResponse['flow']>;
   enableFlow(flowSlug: string): Promise<FlowStatusResponse['flow']>;
   getFlow(flowSlug: string): Promise<GetFlowResponse['flow']>;
-  getFlowInvocation(
-    flowSlug: string,
-    invocationId: string,
-  ): Promise<GetFlowInvocationResponse['invocation']>;
-  listFlowInvocations(
-    flowSlug: string,
+  getInvocation(invocationId: string): Promise<GetInvocationResponse['invocation']>;
+  listInvocations(
     query?: ListFlowInvocationsQuery,
-  ): Promise<ListFlowInvocationsResponse['invocations']>;
-  listFlowSecrets(flowSlug: string): Promise<ListFlowSecretsResponse['secrets']>;
+  ): Promise<ListInvocationsResponse['invocations']>;
+  listFlowSecrets(flowSlug: string): Promise<ListSecretsResponse['secrets']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
   setFlowSecret(
     flowSlug: string,
-    request: SetFlowSecretRequest,
+    request: Omit<SetFlowSecretRequest, 'flow'>,
   ): Promise<SetFlowSecretResponse['secret']>;
   whoAmI(): Promise<WhoAmIResponse>;
 };
 
 export const TRIGORA_API_BASE_URL = 'https://api.trigora.dev';
+
+function getConfiguredApiBaseUrl(): string {
+  const configuredBaseUrl = process.env.TRIGORA_API_BASE_URL?.trim();
+  return configuredBaseUrl && configuredBaseUrl.length > 0
+    ? configuredBaseUrl
+    : TRIGORA_API_BASE_URL;
+}
 
 type FetchHeaders = Record<string, string>;
 
@@ -405,28 +410,64 @@ function readWhoAmIResponse(payload: unknown): WhoAmIResponse | undefined {
     typeof payload.workspace.id !== 'string' ||
     typeof payload.workspace.slug !== 'string' ||
     typeof payload.workspace.name !== 'string' ||
-    !isRecord(payload.token) ||
-    typeof payload.token.id !== 'string' ||
-    typeof payload.token.label !== 'string' ||
-    typeof payload.token.status !== 'string' ||
-    typeof payload.token.createdAt !== 'string'
+    typeof payload.actorType !== 'string'
   ) {
     return undefined;
   }
 
-  return {
-    workspace: {
-      id: payload.workspace.id,
-      slug: payload.workspace.slug,
-      name: payload.workspace.name,
-    },
-    token: {
-      id: payload.token.id,
-      label: payload.token.label,
-      status: payload.token.status,
-      createdAt: payload.token.createdAt,
-    },
+  const workspace = {
+    id: payload.workspace.id,
+    slug: payload.workspace.slug,
+    name: payload.workspace.name,
   };
+
+  if (
+    payload.actorType === 'deploy_token' &&
+    isRecord(payload.token) &&
+    typeof payload.token.id === 'string' &&
+    typeof payload.token.label === 'string' &&
+    typeof payload.token.status === 'string' &&
+    typeof payload.token.createdAt === 'string'
+  ) {
+    return {
+      actorType: 'deploy_token',
+      workspace,
+      token: {
+        id: payload.token.id,
+        label: payload.token.label,
+        status: payload.token.status,
+        createdAt: payload.token.createdAt,
+      },
+    };
+  }
+
+  if (
+    payload.actorType === 'user' &&
+    isRecord(payload.user) &&
+    typeof payload.user.id === 'string' &&
+    typeof payload.user.email === 'string' &&
+    typeof payload.user.emailVerified === 'boolean' &&
+    (payload.user.image === null || typeof payload.user.image === 'string') &&
+    typeof payload.user.name === 'string' &&
+    typeof payload.workspace.role === 'string'
+  ) {
+    return {
+      actorType: 'user',
+      user: {
+        id: payload.user.id,
+        email: payload.user.email,
+        emailVerified: payload.user.emailVerified,
+        image: payload.user.image,
+        name: payload.user.name,
+      },
+      workspace: {
+        ...workspace,
+        role: payload.workspace.role,
+      },
+    };
+  }
+
+  return undefined;
 }
 
 function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefined {
@@ -452,6 +493,27 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
   };
 }
 
+function normalizeFlowSecretRecord(
+  value: unknown,
+): ListSecretsResponse['secrets'][number] | undefined {
+  if (
+    !isRecord(value) ||
+    typeof value.flowSlug !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.createdAt !== 'string' ||
+    typeof value.updatedAt !== 'string'
+  ) {
+    return undefined;
+  }
+
+  return {
+    flowSlug: value.flowSlug,
+    name: value.name,
+    createdAt: value.createdAt,
+    updatedAt: value.updatedAt,
+  };
+}
+
 function isFlowSecretRecord(value: unknown): value is FlowSecretRecord {
   return (
     isRecord(value) &&
@@ -461,14 +523,16 @@ function isFlowSecretRecord(value: unknown): value is FlowSecretRecord {
   );
 }
 
-function readFlowSecretsResponse(payload: unknown): ListFlowSecretsResponse | undefined {
+function readFlowSecretsResponse(payload: unknown): ListSecretsResponse | undefined {
   if (!isRecord(payload) || !Array.isArray(payload.secrets)) {
     return undefined;
   }
 
-  const secrets = payload.secrets.filter(isFlowSecretRecord);
+  const secrets = payload.secrets.map((value) => normalizeFlowSecretRecord(value));
 
-  if (secrets.length !== payload.secrets.length) {
+  if (
+    !secrets.every((secret): secret is ListSecretsResponse['secrets'][number] => Boolean(secret))
+  ) {
     return undefined;
   }
 
@@ -502,6 +566,16 @@ function readDeleteFlowSecretResponse(payload: unknown): DeleteFlowSecretRespons
     ok: true,
     deleted: true,
     name: payload.name,
+  };
+}
+
+function readDeleteFlowResponse(payload: unknown): DeleteFlowResponse | undefined {
+  if (!isRecord(payload) || payload.deleted !== true) {
+    return undefined;
+  }
+
+  return {
+    deleted: true,
   };
 }
 
@@ -544,6 +618,23 @@ function normalizeFlowInvocationRecord(value: unknown): FlowInvocationRecord | u
   };
 }
 
+function normalizeInvocationSummaryRecord(
+  value: unknown,
+): ListInvocationsResponse['invocations'][number] | undefined {
+  if (!isRecord(value) || typeof value.flowSlug !== 'string') {
+    return undefined;
+  }
+
+  const invocation = normalizeFlowInvocationRecord(value);
+
+  return invocation
+    ? {
+        ...invocation,
+        flowSlug: value.flowSlug,
+      }
+    : undefined;
+}
+
 function normalizeFlowInvocationLogRecord(value: unknown): FlowInvocationLogRecord | undefined {
   if (!isRecord(value)) {
     return undefined;
@@ -575,37 +666,51 @@ function normalizeFlowInvocationLogRecord(value: unknown): FlowInvocationLogReco
   };
 }
 
-function readFlowInvocationsResponse(payload: unknown): ListFlowInvocationsResponse | undefined {
+function readFlowInvocationsResponse(payload: unknown): ListInvocationsResponse | undefined {
   if (!isRecord(payload) || !Array.isArray(payload.invocations)) {
     return undefined;
   }
 
-  const invocations = payload.invocations.map((value) => normalizeFlowInvocationRecord(value));
+  const invocations = payload.invocations.map((value) => normalizeInvocationSummaryRecord(value));
 
-  if (!invocations.every((invocation): invocation is FlowInvocationRecord => Boolean(invocation))) {
+  if (
+    !invocations.every((invocation): invocation is ListInvocationsResponse['invocations'][number] =>
+      Boolean(invocation),
+    )
+  ) {
     return undefined;
   }
 
   return { invocations };
 }
 
-function readFlowInvocationResponse(payload: unknown): GetFlowInvocationResponse | undefined {
+function readFlowInvocationResponse(payload: unknown): GetInvocationResponse | undefined {
   if (!isRecord(payload) || !('invocation' in payload) || !isRecord(payload.invocation)) {
     return undefined;
   }
 
   const invocation = normalizeFlowInvocationRecord(payload.invocation);
+  const flowSlug = getOptionalString(payload.invocation.flowSlug);
+  const triggerType = getOptionalString(payload.invocation.triggerType);
   const logs = Array.isArray(payload.invocation.logs)
     ? payload.invocation.logs.map((value) => normalizeFlowInvocationLogRecord(value))
     : undefined;
 
-  if (!invocation || !logs || !logs.every((log): log is FlowInvocationLogRecord => Boolean(log))) {
+  if (
+    !invocation ||
+    !flowSlug ||
+    !triggerType ||
+    !logs ||
+    !logs.every((log): log is FlowInvocationLogRecord => Boolean(log))
+  ) {
     return undefined;
   }
 
   return {
     invocation: {
       ...invocation,
+      flowSlug,
+      triggerType,
       logs,
     },
   };
@@ -695,7 +800,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
     throw new Error('Fetch is not available in this environment.');
   }
 
-  const baseUrl = normalizeBaseUrl(config.baseUrl ?? TRIGORA_API_BASE_URL);
+  const baseUrl = normalizeBaseUrl(config.baseUrl ?? getConfiguredApiBaseUrl());
 
   function createAuthorizedHeaders(includeJsonContentType = false): FetchHeaders {
     return {
@@ -705,6 +810,36 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
   }
 
   return {
+    async deleteFlow(flowSlug) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowSlug)}`, {
+          method: 'DELETE',
+          headers: createAuthorizedHeaders(),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(error.message);
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const deleteFlowResponse = readDeleteFlowResponse(payload);
+
+      if (!deleteFlowResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return deleteFlowResponse;
+    },
     async createDeployment(request) {
       let response: FetchResponse;
 
@@ -739,10 +874,13 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       let response: FetchResponse;
 
       try {
-        response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowSlug)}/secrets`, {
+        response = await fetchImpl(`${baseUrl}/v1/secrets`, {
           method: 'POST',
           headers: createAuthorizedHeaders(true),
-          body: JSON.stringify(request),
+          body: JSON.stringify({
+            ...request,
+            flow: flowSlug,
+          }),
         });
       } catch (error) {
         if (error instanceof Error) {
@@ -768,9 +906,10 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
     },
     async listFlowSecrets(flowSlug) {
       let response: FetchResponse;
+      const url = `${baseUrl}/v1/secrets?flow=${encodeURIComponent(flowSlug)}`;
 
       try {
-        response = await fetchImpl(`${baseUrl}/v1/flows/${encodeURIComponent(flowSlug)}/secrets`, {
+        response = await fetchImpl(url, {
           method: 'GET',
           headers: createAuthorizedHeaders(),
         });
@@ -860,7 +999,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       let response: FetchResponse;
 
       try {
-        response = await fetchImpl(`${baseUrl}/v1/auth/whoami`, {
+        response = await fetchImpl(`${baseUrl}/v1/whoami`, {
           method: 'GET',
           headers: createAuthorizedHeaders(),
         });
@@ -886,21 +1025,27 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
 
       return whoAmIResponse;
     },
-    async listFlowInvocations(flowSlug, query) {
+    async listInvocations(query) {
       let response: FetchResponse;
       const search = new URLSearchParams();
 
+      if (query?.flow) {
+        search.set('flow', query.flow);
+      }
+
       if (query?.limit !== undefined) {
         search.set('limit', String(query.limit));
+      }
+
+      if (query?.range) {
+        search.set('range', query.range);
       }
 
       if (query?.status) {
         search.set('status', query.status);
       }
 
-      const url = `${baseUrl}/v1/flows/${encodeURIComponent(flowSlug)}/invocations${
-        search.size > 0 ? `?${search.toString()}` : ''
-      }`;
+      const url = `${baseUrl}/v1/invocations${search.size > 0 ? `?${search.toString()}` : ''}`;
 
       try {
         response = await fetchImpl(url, {
@@ -929,12 +1074,12 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
 
       return invocationsResponse.invocations;
     },
-    async getFlowInvocation(flowSlug, invocationId) {
+    async getInvocation(invocationId) {
       let response: FetchResponse;
 
       try {
         response = await fetchImpl(
-          `${baseUrl}/v1/flows/${encodeURIComponent(flowSlug)}/invocations/${encodeURIComponent(invocationId)}`,
+          `${baseUrl}/v1/invocations/${encodeURIComponent(invocationId)}`,
           {
             method: 'GET',
             headers: createAuthorizedHeaders(),
@@ -1024,15 +1169,13 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
     },
     async deleteFlowSecret(flowSlug, name) {
       let response: FetchResponse;
+      const url = `${baseUrl}/v1/secrets/${encodeURIComponent(name)}?flow=${encodeURIComponent(flowSlug)}`;
 
       try {
-        response = await fetchImpl(
-          `${baseUrl}/v1/flows/${encodeURIComponent(flowSlug)}/secrets/${encodeURIComponent(name)}`,
-          {
-            method: 'DELETE',
-            headers: createAuthorizedHeaders(),
-          },
-        );
+        response = await fetchImpl(url, {
+          method: 'DELETE',
+          headers: createAuthorizedHeaders(),
+        });
       } catch (error) {
         if (error instanceof Error) {
           throw new DeployApiNetworkError(error.message);
