@@ -16,6 +16,7 @@ import type {
   GetFlowResponse,
   ListFlowInvocationsQuery,
   ListInvocationsResponse,
+  ListSecretsQuery,
   ListSecretsResponse,
   ListFlowsResponse,
   ListWorkspaceDeployTokensResponse,
@@ -229,6 +230,10 @@ describe('API contract types', () => {
       ],
     };
 
+    const listQuery: ListSecretsQuery = {
+      flow: 'stripe-checkout',
+    };
+
     const setRequest: SetFlowSecretRequest = {
       flow: 'stripe-checkout',
       name: 'STRIPE_WEBHOOK_SECRET',
@@ -248,6 +253,7 @@ describe('API contract types', () => {
 
     expect(listResponse.secrets[0]?.name).toBe('STRIPE_WEBHOOK_SECRET');
     expect(listResponse.secrets[0]?.flowSlug).toBe('stripe-checkout');
+    expect(listQuery.flow).toBe('stripe-checkout');
     expect(setRequest.name).toBe('STRIPE_WEBHOOK_SECRET');
     expect(setResponse.secret.updatedAt).toBe('2026-05-03T12:00:00.000Z');
     expect(deleteResponse.deleted).toBe(true);
