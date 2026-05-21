@@ -287,26 +287,46 @@ Use `--yes` or `-y` to skip the prompt in automation or non-interactive environm
 
 ### `trigora secrets`
 
-Manage hosted flow secrets separately from deploys.
+List hosted secret metadata (names and timestamps, never values).
 
 ```bash
-trigora flows
-trigora secrets set STRIPE_WEBHOOK_SECRET --flow stripe-checkout
+trigora secrets
 trigora secrets --flow stripe-checkout
-trigora secrets delete STRIPE_WEBHOOK_SECRET --flow stripe-checkout
 ```
 
-Hosted flows can access these secrets through `ctx.env`:
+With no options, lists secrets across all flows in the workspace. With `--flow`, lists secrets for one flow only.
+
+There is no `secrets list` subcommand. The root command is the list action.
+
+### `trigora secrets set <name> --flow <flow>`
+
+Set a hosted flow secret.
+
+```bash
+trigora secrets set STRIPE_WEBHOOK_SECRET --flow stripe-checkout
+trigora secrets set STRIPE_WEBHOOK_SECRET --flow stripe-checkout --value super-secret
+```
+
+`--flow` is required. The CLI prompts for the value securely by default. Pass `--value` for automation when needed, but interactive entry is safer because shell history can leak secrets.
+
+### `trigora secrets delete <name> --flow <flow>`
+
+Delete a hosted flow secret.
+
+```bash
+trigora secrets delete STRIPE_WEBHOOK_SECRET --flow stripe-checkout
+trigora secrets delete STRIPE_WEBHOOK_SECRET --flow stripe-checkout --yes
+```
+
+`--flow` is required. The CLI asks for confirmation unless you pass `--yes` or `-y`.
+
+Hosted flows can access secrets through `ctx.env`:
 
 ```ts
 const secret = ctx.env.STRIPE_WEBHOOK_SECRET;
 ```
 
-Use `trigora flows` to look up the flow first. `trigora secrets set` prompts for the value securely by default. You can pass `--value` for automation when needed, but interactive entry is safer because shell history can leak secrets.
-
-Secret metadata is listed without values, and `trigora secrets delete` asks for confirmation unless you pass `--yes`.
-
-Secrets are managed separately from deploys. `trigora deploy` uploads code only.
+Use `trigora flows` or `trigora secrets` to look up flow ids first. Secrets are managed separately from deploys. `trigora deploy` uploads code only.
 
 ### `trigora invocations`
 
@@ -322,6 +342,8 @@ trigora invocations inspect inv_123
 
 `trigora invocations` lists recent invocations, newest first. Use `inspect` to open one invocation with its metadata and status details.
 
+`--status` accepts `running`, `succeeded`, or `failed`. `--range` accepts values like `7d` or `24h`.
+
 ### `trigora logs <invocation>`
 
 Show stored logs for a single invocation.
@@ -330,7 +352,7 @@ Show stored logs for a single invocation.
 trigora logs inv_123
 ```
 
-`trigora logs <invocation>` prints the log output for one invocation without requiring a separate flow argument.
+`trigora logs <invocation>` prints the log output for one invocation. It does not take `--flow`. Use `trigora invocations` to find invocation ids first.
 
 ## Authentication
 
@@ -338,6 +360,12 @@ Hosted commands require a deploy token:
 
 ```bash
 TRIGORA_DEPLOY_TOKEN=your-deploy-token
+```
+
+Optional API override (defaults to `https://api.trigora.dev`):
+
+```bash
+TRIGORA_API_BASE_URL=https://api.trigora.dev
 ```
 
 Commands that require `TRIGORA_DEPLOY_TOKEN`:
@@ -349,6 +377,7 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 - `trigora flows disable <flow>`
 - `trigora flows enable <flow>`
 - `trigora flows delete <flow>`
+- `trigora secrets`
 - `trigora secrets --flow <flow>`
 - `trigora secrets set <name> --flow <flow>`
 - `trigora secrets delete <name> --flow <flow>`
@@ -378,9 +407,11 @@ In local `trigora trigger` and `trigora dev` runs, those values are available in
 
 This makes it easy to keep `TRIGORA_DEPLOY_TOKEN` and local secrets out of source control.
 
-## Flow Resolution
+## Flow Arguments
 
-For commands that accept `<flow>`, the CLI resolves flows in this order:
+For hosted commands, `<flow>` means the internal id from `defineFlow({ id: '...' })`, not the public webhook `route`.
+
+For local commands that accept a flow name or path, the CLI resolves flows in this order:
 
 1. the exact path you passed
 2. `flows/<name>.ts`
@@ -415,6 +446,10 @@ Deploying flow "hello"...
 
 ```text
 ✔ Found 3 invocations
+```
+
+```text
+✔ Found 2 secrets:
 ```
 
 ## Alpha Notes
