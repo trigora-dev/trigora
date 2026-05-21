@@ -54,8 +54,9 @@ describe('createDeployApiClient', () => {
     actorType: 'deploy_token' as const,
     workspace: {
       id: 'ws_123',
-      slug: 'acme',
       name: 'Acme',
+      plan: 'pro',
+      slug: 'acme',
     },
     token: {
       id: 'tok_123',
@@ -75,6 +76,7 @@ describe('createDeployApiClient', () => {
       status: 200,
       async json() {
         return {
+          plan: 'pro',
           id: 'dep_123',
           status: 'active',
           manifestVersion: 1,
@@ -102,6 +104,7 @@ describe('createDeployApiClient', () => {
     });
 
     await expect(client.createDeployment({ manifest, artifact })).resolves.toEqual({
+      plan: 'pro',
       id: 'dep_123',
       status: 'active',
       manifestVersion: 1,
@@ -300,10 +303,13 @@ describe('createDeployApiClient', () => {
       fetch,
     });
 
-    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+    const promise = client.createDeployment({ manifest, artifact });
+
+    await expect(promise).rejects.toThrow(
+      'Could not reach the Trigora API. Check your network connection.',
+    );
+    await expect(promise).rejects.toMatchObject({
       name: 'DeployApiNetworkError',
-      message:
-        'Could not reach the Trigora API. Check your network connection or TRIGORA_API_BASE_URL.',
     } satisfies Partial<DeployApiNetworkError>);
   });
 
@@ -338,6 +344,7 @@ describe('createDeployApiClient', () => {
       status: 200,
       async json() {
         return {
+          plan: 'pro',
           id: 'dep_123',
           status: 'active',
           manifestVersion: 1,
@@ -473,6 +480,7 @@ describe('createDeployApiClient', () => {
       status: 200,
       async json() {
         return {
+          plan: 'pro',
           id: 'dep_789',
           status: 'active',
           manifestVersion: 1,
@@ -501,6 +509,7 @@ describe('createDeployApiClient', () => {
     });
 
     await expect(client.createDeployment({ manifest: cronManifest, artifact })).resolves.toEqual({
+      plan: 'pro',
       id: 'dep_789',
       status: 'active',
       manifestVersion: 1,

@@ -34,6 +34,7 @@ const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
   return {
     createDeployment: vi.fn().mockResolvedValue({
+      plan: 'pro',
       id: 'dep_123',
       status: 'active',
       manifestVersion: 1,
@@ -234,6 +235,7 @@ describe('deployCommand', () => {
     const tempDir = await makeTempDir();
     const flowPath = path.join(tempDir, 'flows', 'nightly.ts');
     const createDeployment = vi.fn().mockResolvedValue({
+      plan: 'pro',
       id: 'dep_789',
       status: 'active',
       manifestVersion: 1,
@@ -300,6 +302,7 @@ describe('deployCommand', () => {
     const tempDir = await makeTempDir();
     const flowPath = path.join(tempDir, 'flows', 'hello.ts');
     const createDeployment = vi.fn().mockResolvedValue({
+      plan: 'pro',
       id: 'dep_ready',
       status: 'active',
       manifestVersion: 1,
@@ -388,6 +391,7 @@ describe('deployCommand', () => {
     const tempDir = await makeTempDir();
     const flowPath = path.join(tempDir, 'flows', 'hello.ts');
     const createDeployment = vi.fn().mockResolvedValue({
+      plan: 'pro',
       id: 'dep_123',
       status: 'active',
       manifestVersion: 1,

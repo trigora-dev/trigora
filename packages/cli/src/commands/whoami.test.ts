@@ -28,8 +28,9 @@ const identity = {
   actorType: 'deploy_token' as const,
   workspace: {
     id: 'ws_123',
-    slug: 'acme',
     name: 'Acme',
+    plan: 'pro',
+    slug: 'acme',
   },
   token: {
     id: 'tok_123',

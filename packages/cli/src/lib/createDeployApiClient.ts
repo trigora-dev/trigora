@@ -256,6 +256,14 @@ export class DeployApiResponseError extends Error {
   }
 }
 
+function getNetworkErrorMessage(error: Error): string {
+  if (error.message === 'Failed to fetch') {
+    return 'Could not reach the Trigora API. Check your network connection.';
+  }
+
+  return error.message;
+}
+
 function isWebhookTrigger(
   value: unknown,
 ): value is { type: 'webhook'; event?: string; route?: string } {
@@ -290,6 +298,10 @@ function getOptionalString(value: unknown): string | undefined {
 
 function isFlowStatus(value: unknown): value is FlowStatus {
   return value === 'ready' || value === 'disabled' || value === 'failed';
+}
+
+function isPlan(value: unknown): value is CreateDeploymentResponse['plan'] {
+  return value === 'free' || value === 'pro' || value === 'scale' || value === 'internal';
 }
 
 function isFlowInvocationStatus(value: unknown): value is FlowInvocationStatus {
@@ -415,6 +427,7 @@ function readWhoAmIResponse(payload: unknown): WhoAmIResponse | undefined {
     typeof payload.workspace.id !== 'string' ||
     typeof payload.workspace.slug !== 'string' ||
     typeof payload.workspace.name !== 'string' ||
+    !isPlan(payload.workspace.plan) ||
     typeof payload.actorType !== 'string'
   ) {
     return undefined;
@@ -422,8 +435,9 @@ function readWhoAmIResponse(payload: unknown): WhoAmIResponse | undefined {
 
   const workspace = {
     id: payload.workspace.id,
-    slug: payload.workspace.slug,
     name: payload.workspace.name,
+    plan: payload.workspace.plan,
+    slug: payload.workspace.slug,
   };
 
   if (
@@ -835,6 +849,8 @@ function isDeploymentResponse(payload: unknown): payload is CreateDeploymentResp
     payload !== null &&
     'id' in payload &&
     typeof payload.id === 'string' &&
+    'plan' in payload &&
+    isPlan(payload.plan) &&
     'status' in payload &&
     (payload.status === 'active' || payload.status === 'failed') &&
     'manifestVersion' in payload &&
@@ -882,7 +898,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -913,7 +929,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -946,7 +962,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -977,7 +993,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1007,7 +1023,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1037,7 +1053,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1067,7 +1083,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1116,7 +1132,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1149,7 +1165,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         );
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1179,7 +1195,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1209,7 +1225,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
@@ -1240,7 +1256,7 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
         });
       } catch (error) {
         if (error instanceof Error) {
-          throw new DeployApiNetworkError(error.message);
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
         }
 
         throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');

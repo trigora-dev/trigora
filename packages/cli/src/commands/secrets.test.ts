@@ -1,9 +1,4 @@
-import type {
-  DeleteFlowSecretResponse,
-  FlowRecord,
-  FlowSecretRecord,
-  ListSecretsResponse,
-} from '@trigora/contracts';
+import type { DeleteFlowSecretResponse, FlowRecord, ListSecretsResponse } from '@trigora/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createDeployApiClient, type DeployApiClient } from '../lib/createDeployApiClient';
