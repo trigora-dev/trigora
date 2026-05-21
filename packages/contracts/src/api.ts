@@ -228,6 +228,10 @@ export type ListSecretsResponse = {
   >;
 };
 
+export type ListSecretsQuery = {
+  flow?: string;
+};
+
 export type SetFlowSecretRequest = {
   flow: string;
   name: string;
