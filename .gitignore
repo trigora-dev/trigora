@@ -81,3 +81,6 @@ temp/
 # =========================
 packages/cli/flows/
 packages/cli/payload.json
+
+# context
+context.md
