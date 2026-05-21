@@ -19,6 +19,7 @@ import type {
   GetInvocationResponse,
   ListFlowInvocationsQuery,
   ListInvocationsResponse,
+  ListSecretsQuery,
   ListSecretsResponse,
   ListFlowsResponse,
   SetFlowSecretRequest,
@@ -37,7 +38,7 @@ export type DeployApiClient = {
   listInvocations(
     query?: ListFlowInvocationsQuery,
   ): Promise<ListInvocationsResponse['invocations']>;
-  listFlowSecrets(flowSlug: string): Promise<ListSecretsResponse['secrets']>;
+  listSecrets(query?: ListSecretsQuery): Promise<ListSecretsResponse['secrets']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
   setFlowSecret(
     flowSlug: string,
@@ -982,9 +983,12 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
 
       return setSecretResponse.secret;
     },
-    async listFlowSecrets(flowSlug) {
+    async listSecrets(query = {}) {
       let response: FetchResponse;
-      const url = `${baseUrl}/v1/secrets?flow=${encodeURIComponent(flowSlug)}`;
+      const url =
+        query.flow !== undefined
+          ? `${baseUrl}/v1/secrets?flow=${encodeURIComponent(query.flow)}`
+          : `${baseUrl}/v1/secrets`;
 
       try {
         response = await fetchImpl(url, {

@@ -196,23 +196,17 @@ describe('createProgram', () => {
     expect(mockedSetSecretCommand).not.toHaveBeenCalled();
   });
 
-  it('requires --flow for secrets root command', async () => {
+  it('routes bare secrets to the list handler', async () => {
     const program = createProgram();
 
-    vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
-      throw new Error(`process.exit unexpectedly called with "${code ?? ''}"`);
-    }) as typeof process.exit);
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-
+    program.exitOverride();
     program.configureOutput({
-      outputError: () => undefined,
       writeErr: () => undefined,
       writeOut: () => undefined,
     });
 
-    await expect(program.parseAsync(['secrets'], { from: 'user' })).rejects.toThrow(
-      'process.exit unexpectedly called with "1"',
-    );
-    expect(mockedListSecretsCommand).not.toHaveBeenCalled();
+    await program.parseAsync(['secrets'], { from: 'user' });
+
+    expect(mockedListSecretsCommand).toHaveBeenCalledWith({});
   });
 });

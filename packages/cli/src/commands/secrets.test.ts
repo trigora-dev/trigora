@@ -59,7 +59,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     getFlow: vi.fn().mockResolvedValue(stripeFlow),
     getInvocation: vi.fn(),
     listInvocations: vi.fn(),
-    listFlowSecrets: vi.fn().mockResolvedValue([webhookSecret]),
+    listSecrets: vi.fn().mockResolvedValue([webhookSecret]),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn().mockResolvedValue(webhookSecret),
     whoAmI: vi.fn(),
@@ -163,7 +163,7 @@ describe('secrets commands', () => {
     vi.setSystemTime(new Date('2026-05-03T14:00:00.000Z'));
 
     const apiClient = createMockApiClient({
-      listFlowSecrets: vi.fn().mockResolvedValue([
+      listSecrets: vi.fn().mockResolvedValue([
         webhookSecret,
         {
           flowSlug: stripeFlow.slug,
@@ -198,14 +198,48 @@ describe('secrets commands', () => {
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/RESEND_API_KEY\s+set 1d ago/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringContaining('super-secret'));
-    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching flow secrets/));
+    expect(apiClient.listSecrets).toHaveBeenCalledWith({ flow: stripeFlow.slug });
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching secrets/));
+
+    vi.useRealTimers();
+  });
+
+  it('lists secrets across all flows when no flow filter is provided', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-05-03T14:00:00.000Z'));
+
+    const otherFlowSecret = {
+      flowSlug: 'email-digest',
+      name: 'RESEND_API_KEY',
+      createdAt: '2026-05-02T12:00:00.000Z',
+      updatedAt: '2026-05-02T14:00:00.000Z',
+    } satisfies ListSecretsResponse['secrets'][number];
+
+    const apiClient = createMockApiClient({
+      listSecrets: vi.fn().mockResolvedValue([otherFlowSecret, webhookSecret]),
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+
+    await expect(listSecretsCommand()).resolves.toEqual([otherFlowSecret, webhookSecret]);
+
+    expect(apiClient.listSecrets).toHaveBeenCalledWith({});
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Found 2 secrets:/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/1\. RESEND_API_KEY\s+set 1d ago/),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*email-digest/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/2\. STRIPE_WEBHOOK_SECRET\s+set 2h ago/),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*stripe-checkout/));
 
     vi.useRealTimers();
   });
 
   it('shows an empty state when a flow has no secrets', async () => {
     const apiClient = createMockApiClient({
-      listFlowSecrets: vi.fn().mockResolvedValue([]),
+      listSecrets: vi.fn().mockResolvedValue([]),
     });
 
     mockedCreateDeployApiClient.mockReturnValue(apiClient);
@@ -219,6 +253,18 @@ describe('secrets commands', () => {
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/No secrets set for flow .*stripe-checkout.*\./),
     );
+  });
+
+  it('shows a workspace empty state when no secrets exist', async () => {
+    const apiClient = createMockApiClient({
+      listSecrets: vi.fn().mockResolvedValue([]),
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+
+    await expect(listSecretsCommand()).resolves.toEqual([]);
+
+    expect(console.log).toHaveBeenCalledWith('No secrets found.');
   });
 
   it('skips deletion when confirmation is declined', async () => {
