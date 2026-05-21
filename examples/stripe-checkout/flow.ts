@@ -1,5 +1,18 @@
-import { defineFlow } from '@trigora/sdk';
+import { defineFlow, type FlowContext } from '@trigora/sdk';
 import { StripeWebhookVerificationError, verifyStripeWebhook } from '@trigora/sdk/stripe';
+
+type StripeCheckoutEnv = {
+  STRIPE_WEBHOOK_SECRET: string;
+  APP_API_URL: string;
+  APP_API_TOKEN: string;
+  SLACK_WEBHOOK_URL?: string;
+  ANALYTICS_ENDPOINT?: string;
+  ANALYTICS_TOKEN?: string;
+  EMAIL_API_URL?: string;
+  EMAIL_API_KEY?: string;
+};
+
+type StripeCheckoutCtx = Pick<FlowContext<StripeCheckoutEnv>, 'env'>;
 
 type CheckoutSession = {
   id: string;
@@ -21,11 +34,7 @@ type StripeEvent = {
   };
 };
 
-async function appRequest(
-  path: string,
-  init: RequestInit,
-  ctx: { env: Record<string, string | undefined> },
-) {
+async function appRequest(path: string, init: RequestInit, ctx: StripeCheckoutCtx) {
   const response = await fetch(`${ctx.env.APP_API_URL}${path}`, {
     ...init,
     headers: {
@@ -41,7 +50,7 @@ async function appRequest(
   }
 }
 
-async function markOrderPaid(session: CheckoutSession, eventId: string, ctx: any) {
+async function markOrderPaid(session: CheckoutSession, eventId: string, ctx: StripeCheckoutCtx) {
   await appRequest(
     `/internal/orders/${session.metadata?.orderId}/paid`,
     {
@@ -60,7 +69,7 @@ async function markOrderPaid(session: CheckoutSession, eventId: string, ctx: any
   );
 }
 
-async function sendSlackNotification(session: CheckoutSession, ctx: any) {
+async function sendSlackNotification(session: CheckoutSession, ctx: StripeCheckoutCtx) {
   if (!ctx.env.SLACK_WEBHOOK_URL) return;
 
   await fetch(ctx.env.SLACK_WEBHOOK_URL, {
@@ -72,7 +81,11 @@ async function sendSlackNotification(session: CheckoutSession, ctx: any) {
   });
 }
 
-async function sendAnalyticsEvent(session: CheckoutSession, eventId: string, ctx: any) {
+async function sendAnalyticsEvent(
+  session: CheckoutSession,
+  eventId: string,
+  ctx: StripeCheckoutCtx,
+) {
   if (!ctx.env.ANALYTICS_ENDPOINT || !ctx.env.ANALYTICS_TOKEN) return;
 
   await fetch(ctx.env.ANALYTICS_ENDPOINT, {
@@ -93,7 +106,7 @@ async function sendAnalyticsEvent(session: CheckoutSession, eventId: string, ctx
   });
 }
 
-async function sendReceiptEmail(session: CheckoutSession, ctx: any) {
+async function sendReceiptEmail(session: CheckoutSession, ctx: StripeCheckoutCtx) {
   if (!ctx.env.EMAIL_API_URL || !ctx.env.EMAIL_API_KEY || !session.customer_email) return;
 
   await fetch(ctx.env.EMAIL_API_URL, {
@@ -114,9 +127,9 @@ async function sendReceiptEmail(session: CheckoutSession, ctx: any) {
   });
 }
 
-export default defineFlow<StripeEvent>({
+export default defineFlow<StripeEvent, StripeCheckoutEnv>({
   id: 'stripe-checkout',
-  trigger: { type: 'webhook' },
+  trigger: { type: 'webhook', route: '/hooks/stripe' },
 
   async run(event, ctx) {
     let stripeEvent: StripeEvent;
