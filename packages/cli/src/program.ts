@@ -119,11 +119,7 @@ export function createProgram(): Command {
     .enablePositionalOptions()
     .option('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })");
 
-  secretsCommand.action(async (options, command) => {
-    if (!options.flow) {
-      command.error("required option '--flow <flow>' not specified");
-    }
-
+  secretsCommand.action(async (options) => {
     await listSecretsCommand({
       flow: options.flow,
     });

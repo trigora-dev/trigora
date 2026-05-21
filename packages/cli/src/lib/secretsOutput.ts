@@ -1,17 +1,19 @@
-import type { FlowSecretRecord } from '@trigora/contracts';
+import type { ListSecretsResponse } from '@trigora/contracts';
 import {
   DeployApiNetworkError,
   DeployApiRequestError,
   DeployApiResponseError,
 } from './createDeployApiClient';
-import { CliDisplayError, printWarning } from './cliOutput';
+import { CliDisplayError, pluralize, printWarning } from './cliOutput';
 import { colors } from './colors';
 
 const SECRET_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+type SecretWithFlow = ListSecretsResponse['secrets'][number];
+
 export const secretSteps = {
   deletingSecret: 'Deleting secret',
-  fetchingSecrets: 'Fetching flow secrets',
+  fetchingSecrets: 'Fetching secrets',
   settingSecret: 'Setting secret',
 } as const;
 
@@ -108,9 +110,9 @@ export function printSecretSet(secretName: string): void {
   console.log(`ctx.env.${formatSecretName(secretName)}`);
 }
 
-export function printSecretsList(
+function printFlowSecretsList(
   flow: string | { id: string; slug?: string },
-  secrets: FlowSecretRecord[],
+  secrets: SecretWithFlow[],
 ): void {
   console.log('');
   console.log(`Secrets for flow ${formatFlowTarget(toFlowTarget(flow))}:`);
@@ -125,9 +127,60 @@ export function printSecretsList(
   }
 }
 
-export function printNoSecretsFound(flow: string | { id: string; slug?: string }): void {
+function printWorkspaceSecretsList(secrets: SecretWithFlow[]): void {
+  const sortedSecrets = [...secrets].sort((left, right) => {
+    const flowComparison = left.flowSlug.localeCompare(right.flowSlug);
+
+    if (flowComparison !== 0) {
+      return flowComparison;
+    }
+
+    return left.name.localeCompare(right.name);
+  });
+
   console.log('');
-  console.log(`No secrets set for flow ${formatFlowTarget(toFlowTarget(flow))}.`);
+  console.log(
+    `${colors.success('✔')} Found ${sortedSecrets.length} ${pluralize(sortedSecrets.length, 'secret')}:`,
+  );
+  console.log('');
+
+  for (const [index, secret] of sortedSecrets.entries()) {
+    const itemPrefix = `  ${index + 1}. `;
+
+    console.log(
+      `${itemPrefix}${formatSecretName(secret.name)}   ${colors.label(`set ${formatRelativeTime(secret.updatedAt)}`)}`,
+    );
+    console.log(
+      `${' '.repeat(itemPrefix.length)}${colors.label('Flow'.padEnd(8))}  ${formatFlowTarget({
+        id: secret.flowSlug,
+        slug: secret.flowSlug,
+      })}`,
+    );
+
+    if (index < sortedSecrets.length - 1) {
+      console.log('');
+    }
+  }
+}
+
+export function printSecretsList(secrets: SecretWithFlow[], filters: { flow?: string } = {}): void {
+  if (filters.flow) {
+    printFlowSecretsList(filters.flow, secrets);
+    return;
+  }
+
+  printWorkspaceSecretsList(secrets);
+}
+
+export function printNoSecretsFound(filters: { flow?: string } = {}): void {
+  console.log('');
+
+  if (filters.flow) {
+    console.log(`No secrets set for flow ${formatFlowTarget(toFlowTarget(filters.flow))}.`);
+    return;
+  }
+
+  console.log('No secrets found.');
 }
 
 export function printSecretDeleted(secretName: string): void {

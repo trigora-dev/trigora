@@ -25,7 +25,7 @@ type SetSecretOptions = {
 };
 
 type ListSecretsOptions = {
-  flow: string;
+  flow?: string;
 };
 
 type DeleteSecretOptions = {
@@ -94,18 +94,22 @@ export async function setSecretCommand(options: SetSecretOptions): Promise<FlowS
   return secret;
 }
 
-export async function listSecretsCommand(options: ListSecretsOptions): Promise<FlowSecretRecord[]> {
+export async function listSecretsCommand(
+  options: ListSecretsOptions = {},
+): Promise<FlowSecretRecord[]> {
   const apiClient = createSecretsApiClient();
-  const secrets = await apiClient.listFlowSecrets(options.flow).catch((error) => {
-    throw toSecretsApiFailure(error, secretSteps.fetchingSecrets, 'secret');
-  });
+  const secrets = await apiClient
+    .listSecrets(options.flow ? { flow: options.flow } : {})
+    .catch((error) => {
+      throw toSecretsApiFailure(error, secretSteps.fetchingSecrets, 'secret');
+    });
 
   if (secrets.length === 0) {
-    printNoSecretsFound(options.flow);
+    printNoSecretsFound(options);
     return secrets;
   }
 
-  printSecretsList(options.flow, secrets);
+  printSecretsList(secrets, options);
 
   return secrets;
 }

@@ -97,7 +97,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
         errorMessage: null,
       },
     ] satisfies ListInvocationsResponse['invocations']),
-    listFlowSecrets: vi.fn(),
+    listSecrets: vi.fn(),
     listFlows: vi.fn(),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
