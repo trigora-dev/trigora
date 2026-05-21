@@ -134,8 +134,9 @@ describe('API contract types', () => {
       actorType: 'deploy_token',
       workspace: {
         id: 'ws_123',
-        slug: 'acme',
         name: 'Acme',
+        plan: 'pro',
+        slug: 'acme',
       },
       token: {
         id: 'tok_123',
@@ -164,8 +165,9 @@ describe('API contract types', () => {
       },
       workspace: {
         id: 'ws_123',
-        slug: 'acme',
         name: 'Acme',
+        plan: 'pro',
+        slug: 'acme',
         role: 'owner',
       },
     };
@@ -316,7 +318,6 @@ describe('API contract types', () => {
           id: 'tok_123',
           label: 'local-dev',
           status: 'active',
-          plan: 'developer',
           lastUsedAt: null,
           createdAt: '2026-05-18T00:00:00.000Z',
         },
@@ -329,13 +330,15 @@ describe('API contract types', () => {
       token: tokens.tokens[0]!,
       workspace: {
         id: 'ws_123',
-        slug: 'acme',
         name: 'Acme',
+        plan: 'pro',
+        slug: 'acme',
         role: 'owner',
       },
     };
 
-    expect(tokens.tokens[0]?.plan).toBe('developer');
+    expect(tokens.tokens[0]?.lastUsedAt).toBeNull();
     expect(createResponse.workspace.role).toBe('owner');
+    expect(createResponse.workspace.plan).toBe('pro');
   });
 });

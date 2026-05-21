@@ -99,6 +99,7 @@ describe('Deployment types', () => {
 
     const response: CreateDeploymentResponse = {
       id: 'dep_123',
+      plan: 'pro',
       status: 'active',
       manifestVersion: 1,
       manifestJson: {
@@ -115,6 +116,7 @@ describe('Deployment types', () => {
     };
 
     expect(request.artifact.files).toHaveLength(1);
+    expect(response.plan).toBe('pro');
     expect(response.status).toBe('active');
     expect(response.flow.url).toBe('https://acme.trigora.dev/hello');
   });
@@ -139,6 +141,7 @@ describe('Deployment types', () => {
   it('accepts cron deployment responses without webhook fields', () => {
     const response: CreateDeploymentResponse = {
       id: 'dep_456',
+      plan: 'free',
       status: 'active',
       manifestVersion: 1,
       manifestJson: {
