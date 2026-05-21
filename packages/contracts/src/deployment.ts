@@ -40,6 +40,7 @@ type BaseDeployedFlowResponse = {
 };
 
 export type WebhookDeployedFlowResponse = BaseDeployedFlowResponse & {
+  routePath: string;
   trigger: 'webhook';
   url: string;
 };

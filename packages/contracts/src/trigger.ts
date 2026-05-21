@@ -9,10 +9,15 @@ export type ManualTrigger = {
  * Run a flow from an incoming HTTP request.
  *
  * `event` can be used to describe a webhook or event name when needed.
+ * `route` controls the public hosted webhook path and is optional.
+ * When omitted, hosted ingress defaults to `/${flow.id}`.
  */
+export type WebhookRoute = `/${string}`;
+
 export type WebhookTrigger = {
   type: 'webhook';
   event?: string;
+  route?: WebhookRoute;
 };
 
 /**

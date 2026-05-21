@@ -47,11 +47,12 @@ describe('API contract types', () => {
 
   it('accepts webhook flow records in flow management responses', () => {
     const flow: WebhookFlowRecord = {
-      id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+      id: 'hello',
       slug: 'hello',
       trigger: 'webhook',
       status: 'ready',
       createdAt: '2026-04-21T10:00:00.000Z',
+      routePath: '/hello',
       endpoint: 'https://acme.trigora.dev/hello',
     };
 
@@ -68,7 +69,7 @@ describe('API contract types', () => {
 
   it('accepts cron and queue flow records in flow lists', () => {
     const cronFlow: CronFlowRecord = {
-      id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
+      id: 'nightly-sync',
       slug: 'nightly-sync',
       trigger: 'cron',
       status: 'ready',
@@ -78,7 +79,7 @@ describe('API contract types', () => {
     };
 
     const queueFlow: QueueFlowRecord = {
-      id: '9b5d04b0-62c8-4d0b-942f-0ee2329436c0',
+      id: 'orders-processor',
       slug: 'orders-processor',
       trigger: 'queue',
       status: 'disabled',
@@ -103,14 +104,21 @@ describe('API contract types', () => {
     const response: FlowStatusResponse = {
       ok: true,
       flow: {
-        id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+        id: 'hello',
         slug: 'hello',
+        trigger: 'webhook',
         status: 'disabled',
+        routePath: '/hello',
+        endpoint: 'https://acme.trigora.dev/hello',
       },
     };
 
     expect(response.ok).toBe(true);
     expect(response.flow.status).toBe('disabled');
+    if (response.flow.trigger !== 'webhook') {
+      throw new Error('Expected webhook flow status response');
+    }
+    expect(response.flow.routePath).toBe('/hello');
   });
 
   it('accepts delete flow responses', () => {

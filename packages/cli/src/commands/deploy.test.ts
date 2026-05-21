@@ -49,6 +49,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
         id: 'df_123',
         slug: 'hello',
         trigger: 'webhook',
+        routePath: '/hello',
         status: 'ready',
         url: 'https://acme.trigora.dev/hello',
       },
@@ -135,7 +136,8 @@ describe('deployCommand', () => {
       expect.stringMatching(/Deploying flow .*"hello".*\.\.\./),
     );
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
     expect(console.log).toHaveBeenCalledWith(
@@ -286,7 +288,7 @@ describe('deployCommand', () => {
       },
     });
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+nightly/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+nightly/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+cron/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Schedule\s+0 2 \* \* \*/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Timezone\s+UTC/));
@@ -313,6 +315,7 @@ describe('deployCommand', () => {
         id: 'df_ready',
         slug: 'hello',
         trigger: 'webhook',
+        routePath: '/hello',
         status: 'ready',
         url: 'https://acme.trigora.dev/hello',
       },
@@ -400,6 +403,7 @@ describe('deployCommand', () => {
         id: 'df_123',
         slug: 'hello',
         trigger: 'webhook',
+        routePath: '/hello',
         status: 'ready',
         url: 'https://acme.trigora.dev/hello',
       },

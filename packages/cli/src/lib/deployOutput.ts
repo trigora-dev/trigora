@@ -183,6 +183,21 @@ function getOptionalEndpoint(flow: DeployedFlowResponse | undefined): string | u
   return flow?.trigger === 'webhook' ? flow.url : undefined;
 }
 
+function getOptionalRoutePath(
+  manifestFlow: DeploymentManifestFlow,
+  deployedFlow: DeployedFlowResponse | undefined,
+): string | undefined {
+  if (manifestFlow.trigger.type !== 'webhook') {
+    return undefined;
+  }
+
+  if (deployedFlow?.trigger === 'webhook') {
+    return deployedFlow.routePath;
+  }
+
+  return manifestFlow.trigger.route ?? `/${manifestFlow.id}`;
+}
+
 function formatDetailLines(
   items: ReadonlyArray<{ label: string; value: string | undefined }>,
   indent = '   ',
@@ -218,6 +233,7 @@ function formatDeploymentBlock(
 ): string[] {
   const deployedFlow = deployment.flow;
   const detailItems = [
+    { label: 'Route', value: getOptionalRoutePath(flow, deployedFlow) },
     { label: 'Trigger', value: formatTriggerLabel(flow) },
     { label: 'Schedule', value: flow.trigger.type === 'cron' ? flow.trigger.cron : undefined },
     {
@@ -234,10 +250,10 @@ function formatDeploymentBlock(
     .filter((item) => Boolean(item.value))
     .map((item) => item.label);
   const singleFlowLabelWidth = Math.max(
-    'Flow'.length,
+    'ID'.length,
     ...visibleDetailLabels.map((label) => label.length),
   );
-  const nameLine = `${colors.label('Flow'.padEnd(singleFlowLabelWidth))}  ${formatFlowName(deployedFlow.slug)}`;
+  const nameLine = `${colors.label('ID'.padEnd(singleFlowLabelWidth))}  ${formatFlowName(flow.id)}`;
   const details = formatDetailLines(detailItems, '', singleFlowLabelWidth);
   const endpointLines = formatEndpointLines(getOptionalEndpoint(deployedFlow), '');
   const isReadyLikeStatus = deployedFlow?.status === 'ready';

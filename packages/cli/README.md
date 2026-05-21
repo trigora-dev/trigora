@@ -129,6 +129,7 @@ Webhook dev mode:
 - watches the flow file and reloads it on save without executing it
 
 Webhook dev mode does not use `payload.json`; send payloads with HTTP requests instead.
+Hosted webhook `route` settings do not change local dev routing today. The local dev server still accepts `POST /`.
 
 Manual / payload dev mode:
 
@@ -171,7 +172,25 @@ Current alpha limitation:
 
 - `trigora deploy` currently supports webhook-triggered flows only
 
-For webhook deployments, the default hosted endpoint is `https://<workspace>.trigora.dev/<flow>`.
+`<flow>` always means the internal flow identifier from `defineFlow({ id: '...' })`.
+Webhook `route` is a separate public hosted path.
+
+For webhook deployments:
+
+- if `route` is omitted, the hosted endpoint defaults to `https://<workspace>.trigora.dev/<flow>`
+- if `route` is set, the hosted endpoint uses that public path instead
+
+Example:
+
+```ts
+export default defineFlow({
+  id: 'stripe-webhook',
+  trigger: { type: 'webhook', route: '/hooks/stripe' },
+  async run() {
+    return { ok: true };
+  },
+});
+```
 
 ### `trigora flows`
 
@@ -183,9 +202,10 @@ trigora flows
 
 The list output includes:
 
-- flow
+- flow id
 - trigger type
 - status
+- route for webhook flows
 - endpoint for webhook flows
 - schedule for cron flows
 - queue name for queue flows
@@ -216,8 +236,9 @@ trigora flows inspect stripe-checkout
 
 The detail view shows available metadata such as:
 
-- flow
+- flow id
 - trigger
+- route for webhook flows
 - status
 - creation time
 - endpoint for webhook flows

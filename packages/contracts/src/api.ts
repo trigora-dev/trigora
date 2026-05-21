@@ -37,6 +37,7 @@ type BaseFlowRecord = {
 
 export type WebhookFlowRecord = BaseFlowRecord & {
   endpoint: string;
+  routePath: string;
   trigger: 'webhook';
 };
 
@@ -174,13 +175,37 @@ export type CreateWorkspaceDeployTokenResponse = {
   workspace: CurrentWorkspaceRecord;
 };
 
+type BaseFlowStatusRecord = {
+  id: string;
+  slug: string;
+  status: FlowStatus;
+};
+
+export type WebhookFlowStatusRecord = BaseFlowStatusRecord & {
+  endpoint: string;
+  routePath: string;
+  trigger: 'webhook';
+};
+
+export type CronFlowStatusRecord = BaseFlowStatusRecord & {
+  schedule: string;
+  timezone: 'UTC';
+  trigger: 'cron';
+};
+
+export type QueueFlowStatusRecord = BaseFlowStatusRecord & {
+  queue?: string;
+  trigger: 'queue';
+};
+
+export type FlowStatusRecord =
+  | WebhookFlowStatusRecord
+  | CronFlowStatusRecord
+  | QueueFlowStatusRecord;
+
 export type FlowStatusResponse = {
   ok: true;
-  flow: {
-    id: string;
-    slug: string;
-    status: FlowStatus;
-  };
+  flow: FlowStatusRecord;
 };
 
 export type DeleteFlowResponse = {

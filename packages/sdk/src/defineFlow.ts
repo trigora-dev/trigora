@@ -40,11 +40,15 @@ type DefineFlowOutput<
  * Define a Trigora flow.
  *
  * Flows are plain TypeScript modules with three core parts:
- * - `id`: the source identifier for the flow in your project
+ * - `id`: the internal identifier for the flow in your project
  * - `trigger`: how the flow is invoked
  * - `run`: the function that executes when the flow is triggered
  *
  * `run` receives the incoming `event` and a `ctx` object with logging and environment access.
+ *
+ * For webhook flows, `trigger.route` controls the public hosted path and defaults to `/${id}`.
+ * This is separate from the flow `id`, which is still what the CLI uses for commands like
+ * `trigora deploy hello` or `trigora flows inspect hello`.
  *
  * Webhook flows can return HTTP-friendly values:
  * - `Response`
@@ -57,8 +61,8 @@ type DefineFlowOutput<
  * @example
  * ```ts
  * export default defineFlow({
- *   id: 'hello',
- *   trigger: { type: 'webhook' },
+ *   id: 'stripe-webhook',
+ *   trigger: { type: 'webhook', route: '/hooks/stripe' },
  *   async run(event, ctx) {
  *     await ctx.log.info('Received event', event.payload);
  *     return { ok: true };

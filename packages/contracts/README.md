@@ -90,6 +90,16 @@ const flow: FlowDefinition = {
 
 Trigger contracts are strict, so invalid or mixed trigger fields should fail at compile time.
 
+For webhook triggers:
+
+- `id` remains the internal flow identifier used by the CLI
+- `route` is an optional public hosted webhook path
+- `route` must start with `/`
+- `route` is normalized before persistence
+- when omitted, the hosted default is `/${id}`
+- hosted routes must be unique per workspace
+- reserved hosted path prefixes are blocked
+
 ## Deployment Contracts (Advanced)
 
 These contracts are primarily intended for advanced integrations and tooling. Most users will not need to interact with these directly.
@@ -114,9 +124,9 @@ import type { CreateDeploymentRequest, DeploymentManifest } from '@trigora/contr
 const manifest: DeploymentManifest = {
   version: 1,
   flow: {
-    id: 'hello',
-    entrypoint: 'flows/hello.ts',
-    trigger: { type: 'webhook' },
+    id: 'stripe-webhook',
+    entrypoint: 'flows/stripe-webhook.ts',
+    trigger: { type: 'webhook', route: '/hooks/stripe' },
   },
 };
 
@@ -189,18 +199,20 @@ import type { ListFlowsResponse } from '@trigora/contracts';
 const response: ListFlowsResponse = {
   flows: [
     {
-      id: 'hello',
-      slug: 'hello',
+      id: 'stripe-webhook',
+      slug: 'stripe-webhook',
       trigger: 'webhook',
       status: 'ready',
       createdAt: '2026-04-21T10:00:00.000Z',
-      endpoint: 'https://acme.trigora.dev/hello',
+      routePath: '/hooks/stripe',
+      endpoint: 'https://acme.trigora.dev/hooks/stripe',
     },
   ],
 };
 ```
 
 `FlowStatusResponse` is the shared response shape for flow status changes such as disable and enable.
+Webhook flow records expose both `routePath` and `endpoint` so clients do not need to infer public URLs from `slug`.
 
 Hosted secret responses expose secret metadata only. Secret values are write-only and should not be returned by the API.
 

@@ -33,6 +33,23 @@ describe('validateFlowModule', () => {
     expect(flow.run).toBe(run);
   });
 
+  it('returns a valid webhook flow with a normalized route', () => {
+    const run = vi.fn();
+
+    const flow = validateFlowModule('flows/stripe.ts', {
+      id: 'stripe-webhook',
+      trigger: { type: 'webhook', route: ' /hooks/stripe ' },
+      run,
+    });
+
+    expect(flow.id).toBe('stripe-webhook');
+    expect(flow.trigger).toEqual({
+      type: 'webhook',
+      route: '/hooks/stripe',
+    });
+    expect(flow.run).toBe(run);
+  });
+
   it('returns a valid cron flow', () => {
     const run = vi.fn();
 
@@ -144,6 +161,52 @@ describe('validateFlowModule', () => {
       });
     }).toThrow(
       'Invalid flow in "flows/payment.ts": "trigger.event" must be a string when provided.',
+    );
+  });
+
+  it('throws when webhook route is not a string', () => {
+    expect(() => {
+      validateFlowModule('flows/payment.ts', {
+        id: 'payment',
+        trigger: { type: 'webhook', route: 123 },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/payment.ts": "trigger.route" must be a string when provided.',
+    );
+  });
+
+  it('throws when webhook route does not start with a slash', () => {
+    expect(() => {
+      validateFlowModule('flows/payment.ts', {
+        id: 'payment',
+        trigger: { type: 'webhook', route: 'hooks/stripe' },
+        run: vi.fn(),
+      });
+    }).toThrow('Invalid flow in "flows/payment.ts": "trigger.route" must start with "/".');
+  });
+
+  it('throws when webhook route ends with a slash', () => {
+    expect(() => {
+      validateFlowModule('flows/payment.ts', {
+        id: 'payment',
+        trigger: { type: 'webhook', route: '/hooks/stripe/' },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/payment.ts": "trigger.route" must not end with "/" unless the route is "/".',
+    );
+  });
+
+  it('throws when webhook route contains empty path segments', () => {
+    expect(() => {
+      validateFlowModule('flows/payment.ts', {
+        id: 'payment',
+        trigger: { type: 'webhook', route: '/hooks//stripe' },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/payment.ts": "trigger.route" must not contain empty path segments.',
     );
   });
 

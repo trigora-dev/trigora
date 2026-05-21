@@ -256,13 +256,16 @@ export class DeployApiResponseError extends Error {
   }
 }
 
-function isWebhookTrigger(value: unknown): value is { type: 'webhook'; event?: string } {
+function isWebhookTrigger(
+  value: unknown,
+): value is { type: 'webhook'; event?: string; route?: string } {
   return (
     typeof value === 'object' &&
     value !== null &&
     'type' in value &&
     value.type === 'webhook' &&
-    (!('event' in value) || typeof value.event === 'string')
+    (!('event' in value) || typeof value.event === 'string') &&
+    (!('route' in value) || typeof value.route === 'string')
   );
 }
 
@@ -335,8 +338,9 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
   switch (trigger) {
     case 'webhook': {
       const endpoint = getOptionalString(value.endpoint) ?? getOptionalString(value.url);
+      const routePath = getOptionalString(value.routePath);
 
-      if (!endpoint) {
+      if (!endpoint || !routePath) {
         return undefined;
       }
 
@@ -346,6 +350,7 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
         trigger,
         status,
         createdAt,
+        routePath,
         endpoint,
       };
     }
@@ -471,16 +476,66 @@ function readWhoAmIResponse(payload: unknown): WhoAmIResponse | undefined {
 }
 
 function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefined {
+  if (!isRecord(payload) || payload.ok !== true || !('flow' in payload)) {
+    return undefined;
+  }
+
+  const trigger = normalizeFlowTriggerType(
+    isRecord(payload.flow) ? payload.flow.trigger : undefined,
+  );
+
   if (
-    !isRecord(payload) ||
-    payload.ok !== true ||
-    !('flow' in payload) ||
     !isRecord(payload.flow) ||
     typeof payload.flow.id !== 'string' ||
     !isFlowStatus(payload.flow.status) ||
-    typeof payload.flow.slug !== 'string'
+    typeof payload.flow.slug !== 'string' ||
+    !trigger
   ) {
     return undefined;
+  }
+
+  if (trigger === 'webhook') {
+    const routePath = getOptionalString(payload.flow.routePath);
+    const endpoint =
+      getOptionalString(payload.flow.endpoint) ?? getOptionalString(payload.flow.url);
+
+    if (!routePath || !endpoint) {
+      return undefined;
+    }
+
+    return {
+      ok: true,
+      flow: {
+        id: payload.flow.id,
+        slug: payload.flow.slug,
+        status: payload.flow.status,
+        trigger,
+        routePath,
+        endpoint,
+      },
+    };
+  }
+
+  if (trigger === 'cron') {
+    const schedule =
+      getOptionalString(payload.flow.schedule) ?? getOptionalString(payload.flow.cron);
+    const timezone = getOptionalString(payload.flow.timezone);
+
+    if (!schedule || timezone !== 'UTC') {
+      return undefined;
+    }
+
+    return {
+      ok: true,
+      flow: {
+        id: payload.flow.id,
+        slug: payload.flow.slug,
+        status: payload.flow.status,
+        trigger,
+        schedule,
+        timezone,
+      },
+    };
   }
 
   return {
@@ -489,6 +544,8 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
       id: payload.flow.id,
       slug: payload.flow.slug,
       status: payload.flow.status,
+      trigger,
+      queue: getOptionalString(payload.flow.queue) ?? getOptionalString(payload.flow.topic),
     },
   };
 }
@@ -750,7 +807,12 @@ function isDeploymentFlowResponse(value: unknown): value is CreateDeploymentResp
   }
 
   if (value.trigger === 'webhook') {
-    return 'url' in value && typeof value.url === 'string';
+    return (
+      'url' in value &&
+      typeof value.url === 'string' &&
+      'routePath' in value &&
+      typeof value.routePath === 'string'
+    );
   }
 
   if (value.trigger === 'cron') {

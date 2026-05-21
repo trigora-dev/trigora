@@ -32,10 +32,11 @@ describe('createDeployApiClient', () => {
     ],
   };
   const managedFlow = {
-    id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+    id: 'hello',
     slug: 'hello',
     status: 'ready',
     trigger: 'webhook' as const,
+    routePath: '/hello',
     endpoint: 'https://acme.trigora.dev/hello',
     createdAt: '2026-04-21T10:00:00.000Z',
   };
@@ -82,6 +83,7 @@ describe('createDeployApiClient', () => {
             id: 'df_123',
             slug: 'hello',
             trigger: 'webhook',
+            routePath: '/hello',
             status: 'ready',
             url: 'https://acme.trigora.dev/hello',
           },
@@ -108,6 +110,7 @@ describe('createDeployApiClient', () => {
         id: 'df_123',
         slug: 'hello',
         trigger: 'webhook',
+        routePath: '/hello',
         status: 'ready',
         url: 'https://acme.trigora.dev/hello',
       },
@@ -289,6 +292,21 @@ describe('createDeployApiClient', () => {
     } satisfies Partial<DeployApiNetworkError>);
   });
 
+  it('normalizes generic fetch failures into a clearer network error', async () => {
+    const fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    const client = createDeployApiClient({
+      token: 'secret-token',
+      fetch,
+    });
+
+    await expect(client.createDeployment({ manifest, artifact })).rejects.toMatchObject({
+      name: 'DeployApiNetworkError',
+      message:
+        'Could not reach the Trigora API. Check your network connection or TRIGORA_API_BASE_URL.',
+    } satisfies Partial<DeployApiNetworkError>);
+  });
+
   it('throws when the API returns an invalid success payload', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -328,6 +346,7 @@ describe('createDeployApiClient', () => {
             id: 'df_123',
             slug: 'hello',
             trigger: 'webhook',
+            routePath: '/hello',
             status: 'ready',
             url: 'https://acme.trigora.dev/hello',
           },
@@ -598,7 +617,10 @@ describe('createDeployApiClient', () => {
           flow: {
             id: managedFlow.id,
             slug: managedFlow.slug,
+            trigger: 'webhook',
             status: 'disabled',
+            routePath: managedFlow.routePath,
+            endpoint: managedFlow.endpoint,
           },
         };
       },
@@ -615,7 +637,10 @@ describe('createDeployApiClient', () => {
     await expect(client.disableFlow(managedFlow.slug)).resolves.toEqual({
       id: managedFlow.id,
       slug: managedFlow.slug,
+      trigger: 'webhook',
       status: 'disabled',
+      routePath: managedFlow.routePath,
+      endpoint: managedFlow.endpoint,
     } satisfies FlowStatusResponse['flow']);
 
     expect(fetch).toHaveBeenCalledWith(
@@ -639,7 +664,10 @@ describe('createDeployApiClient', () => {
           flow: {
             id: managedFlow.id,
             slug: managedFlow.slug,
+            trigger: 'webhook',
             status: 'ready',
+            routePath: managedFlow.routePath,
+            endpoint: managedFlow.endpoint,
           },
         };
       },
@@ -656,7 +684,10 @@ describe('createDeployApiClient', () => {
     await expect(client.enableFlow(managedFlow.slug)).resolves.toEqual({
       id: managedFlow.id,
       slug: managedFlow.slug,
+      trigger: 'webhook',
       status: 'ready',
+      routePath: managedFlow.routePath,
+      endpoint: managedFlow.endpoint,
     } satisfies FlowStatusResponse['flow']);
 
     expect(fetch).toHaveBeenCalledWith(

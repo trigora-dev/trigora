@@ -30,10 +30,11 @@ const originalEnv = { ...process.env };
 const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 
 const stripeFlow = {
-  id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+  id: 'stripe-checkout',
   slug: 'stripe-checkout',
   status: 'ready',
   trigger: 'webhook' as const,
+  routePath: '/stripe-checkout',
   endpoint: 'https://acme.trigora.dev/stripe-checkout',
   createdAt: '2026-05-03T10:00:00.000Z',
 } satisfies FlowRecord;

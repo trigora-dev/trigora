@@ -15,8 +15,8 @@ export const flowSteps = {
   fetchingFlows: 'Fetching deployed flows',
 } as const;
 
-function formatFlowName(slug: string): string {
-  return colors.flow(colors.heading(slug));
+function formatFlowName(flowId: string): string {
+  return colors.flow(colors.heading(flowId));
 }
 
 function formatFlowStatus(status: FlowRecord['status']): string {
@@ -34,6 +34,8 @@ function formatFlowListValue(label: string, flow: FlowRecord): string | undefine
   switch (label) {
     case 'Trigger':
       return flow.trigger;
+    case 'Route':
+      return flow.trigger === 'webhook' ? flow.routePath : undefined;
     case 'Status':
       return formatFlowStatus(flow.status);
     case 'Endpoint':
@@ -53,6 +55,8 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
   switch (label) {
     case 'Trigger':
       return flow.trigger;
+    case 'Route':
+      return flow.trigger === 'webhook' ? flow.routePath : undefined;
     case 'Status':
       return formatFlowStatus(flow.status);
     case 'Created':
@@ -71,7 +75,15 @@ function formatFlowSummaryValue(label: string, flow: FlowRecord): string | undef
 }
 
 function formatFlowListDetailLines(flow: FlowRecord, indent = '   '): string[] {
-  const labels = ['Trigger', 'Status', 'Endpoint', 'Schedule', 'Timezone', 'Queue'] as const;
+  const labels = [
+    'Trigger',
+    'Route',
+    'Status',
+    'Endpoint',
+    'Schedule',
+    'Timezone',
+    'Queue',
+  ] as const;
   const visibleItems = labels
     .map((label) => ({ label, value: formatFlowListValue(label, flow) }))
     .filter((item): item is { label: (typeof labels)[number]; value: string } =>
@@ -91,7 +103,9 @@ function formatFlowListDetailLines(flow: FlowRecord, indent = '   '): string[] {
 
 function formatFlowSummaryDetailLines(flow: FlowRecord, indent = ''): string[] {
   const labels = [
+    'ID',
     'Trigger',
+    'Route',
     'Status',
     'Created',
     'Endpoint',
@@ -100,7 +114,10 @@ function formatFlowSummaryDetailLines(flow: FlowRecord, indent = ''): string[] {
     'Queue',
   ] as const;
   const visibleItems = labels
-    .map((label) => ({ label, value: formatFlowSummaryValue(label, flow) }))
+    .map((label) => ({
+      label,
+      value: label === 'ID' ? formatFlowName(flow.id) : formatFlowSummaryValue(label, flow),
+    }))
     .filter((item): item is { label: (typeof labels)[number]; value: string } =>
       Boolean(item.value),
     );
@@ -141,7 +158,7 @@ export function printFlowList(flows: FlowRecord[]): void {
   for (const [index, flow] of flows.entries()) {
     const itemPrefix = `  ${index + 1}. `;
     const lines = [
-      `${itemPrefix}${formatFlowName(flow.slug)}`,
+      `${itemPrefix}${formatFlowName(flow.id)}`,
       ...formatFlowListDetailLines(flow, ' '.repeat(itemPrefix.length)),
     ];
 
@@ -160,7 +177,7 @@ export function printNoFlowsFound(): void {
 }
 
 export function printFlowSummary(flow: FlowRecord): void {
-  console.log(formatFlowName(flow.slug));
+  console.log(formatFlowName(flow.id));
   console.log('');
 
   for (const line of formatFlowSummaryDetailLines(flow)) {
@@ -179,8 +196,13 @@ function printFlowStatusChange(title: string, flow: FlowStatusResponse['flow']):
   console.log('');
   console.log(`${colors.success('✔')} ${title}`);
   console.log('');
-  console.log(`${colors.label('Flow'.padEnd(6))}  ${formatFlowName(flow.slug)}`);
-  console.log(`${colors.label('Status'.padEnd(6))}  ${formattedStatus}`);
+  console.log(`${colors.label('ID'.padEnd(8))}  ${formatFlowName(flow.id)}`);
+  console.log(`${colors.label('Status'.padEnd(8))}  ${formattedStatus}`);
+
+  if (flow.trigger === 'webhook') {
+    console.log(`${colors.label('Route'.padEnd(8))}  ${flow.routePath}`);
+    console.log(`${colors.label('Endpoint'.padEnd(8))}  ${colors.link(flow.endpoint)}`);
+  }
 }
 
 export function printFlowDisabled(flow: FlowStatusResponse['flow']): void {

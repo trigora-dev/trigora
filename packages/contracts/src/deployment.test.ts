@@ -15,12 +15,16 @@ describe('Deployment types', () => {
       flow: {
         id: 'hello',
         entrypoint: 'flows/hello.ts',
-        trigger: { type: 'webhook', event: 'orders.created' },
+        trigger: { type: 'webhook', event: 'orders.created', route: '/hooks/orders' },
       },
     };
 
     expect(manifest.version).toBe(1);
     expect(manifest.flow.id).toBe('hello');
+    if (manifest.flow.trigger.type !== 'webhook') {
+      throw new Error('Expected webhook manifest flow');
+    }
+    expect(manifest.flow.trigger.route).toBe('/hooks/orders');
   });
 
   it('accepts cron deployment manifests without route paths', () => {
@@ -86,6 +90,7 @@ describe('Deployment types', () => {
       {
         id: 'df_123',
         slug: 'hello',
+        routePath: '/hello',
         trigger: 'webhook',
         status: 'ready',
         url: 'https://acme.trigora.dev/hello',
@@ -118,12 +123,17 @@ describe('Deployment types', () => {
     const deployedFlow: DeployedFlowResponse = {
       id: 'df_123',
       slug: 'hello',
+      routePath: '/hello',
       trigger: 'webhook',
       status: 'ready',
       url: 'https://acme.trigora.dev/hello',
     };
 
     expect(deployedFlow.id).toBe('df_123');
+    if (deployedFlow.trigger !== 'webhook') {
+      throw new Error('Expected webhook deployed flow');
+    }
+    expect(deployedFlow.routePath).toBe('/hello');
   });
 
   it('accepts cron deployment responses without webhook fields', () => {

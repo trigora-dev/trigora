@@ -59,6 +59,39 @@ describe('buildDeploymentManifest', () => {
     });
   });
 
+  it('preserves a custom webhook route in the deployment manifest', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'stripe.ts');
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'stripe-webhook',
+          trigger: { type: 'webhook', route: '/hooks/stripe' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      buildDeploymentManifest({
+        filePath: flowPath,
+      }),
+    ).resolves.toEqual({
+      version: 1,
+      flow: {
+        id: 'stripe-webhook',
+        entrypoint: 'flows/stripe.ts',
+        trigger: { type: 'webhook', route: '/hooks/stripe' },
+      },
+    });
+  });
+
   it('auto-picks the only flow in the flows directory', async () => {
     const tempDir = await makeTempDir();
     const helloPath = path.join(tempDir, 'flows', 'hello.ts');

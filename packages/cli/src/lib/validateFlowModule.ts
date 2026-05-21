@@ -4,6 +4,34 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
 
+function normalizeWebhookRoute(route: string, filePath: string): `/${string}` {
+  const normalizedRoute = route.trim();
+
+  if (normalizedRoute.length === 0) {
+    throw new Error(
+      `Invalid flow in "${filePath}": "trigger.route" must be a non-empty string when provided.`,
+    );
+  }
+
+  if (!normalizedRoute.startsWith('/')) {
+    throw new Error(`Invalid flow in "${filePath}": "trigger.route" must start with "/".`);
+  }
+
+  if (normalizedRoute !== '/' && normalizedRoute.endsWith('/')) {
+    throw new Error(
+      `Invalid flow in "${filePath}": "trigger.route" must not end with "/" unless the route is "/".`,
+    );
+  }
+
+  if (normalizedRoute.includes('//')) {
+    throw new Error(
+      `Invalid flow in "${filePath}": "trigger.route" must not contain empty path segments.`,
+    );
+  }
+
+  return normalizedRoute as `/${string}`;
+}
+
 function validateTrigger(trigger: unknown, filePath: string): Trigger {
   if (!isObject(trigger)) {
     throw new Error(`Invalid flow in "${filePath}": "trigger" must be an object.`);
@@ -24,9 +52,19 @@ function validateTrigger(trigger: unknown, filePath: string): Trigger {
         );
       }
 
+      if ('route' in trigger && trigger.route !== undefined && typeof trigger.route !== 'string') {
+        throw new Error(
+          `Invalid flow in "${filePath}": "trigger.route" must be a string when provided.`,
+        );
+      }
+
       return {
         type: 'webhook',
         event: typeof trigger.event === 'string' ? trigger.event : undefined,
+        route:
+          typeof trigger.route === 'string'
+            ? normalizeWebhookRoute(trigger.route, filePath)
+            : undefined,
       };
     }
 

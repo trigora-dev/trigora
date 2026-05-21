@@ -86,18 +86,21 @@ Use webhook triggers for hosted HTTP entrypoints.
 import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
-  id: 'ping',
-  trigger: { type: 'webhook' },
+  id: 'stripe-webhook',
+  trigger: { type: 'webhook', route: '/hooks/stripe' },
   async run() {
     return 'pong';
   },
 });
 ```
 
+`id` is the internal flow identifier used by the CLI. `route` is the optional public hosted webhook path.
+When `route` is omitted, hosted ingress defaults to `/${id}`.
+
 You can also include an optional event name:
 
 ```ts
-trigger: { type: 'webhook', event: 'orders.created' }
+trigger: { type: 'webhook', event: 'orders.created', route: '/hooks/orders' }
 ```
 
 ### Cron
@@ -139,7 +142,7 @@ import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
   id: 'status',
-  trigger: { type: 'webhook' },
+  trigger: { type: 'webhook', route: '/status' },
   async run() {
     return {
       ok: true,
@@ -189,10 +192,19 @@ For webhook flows, request metadata may also be available on `event.request`, in
 Trigora includes a small helper for verifying Stripe webhook signatures:
 
 ```ts
+import { defineFlow } from '@trigora/sdk';
 import { verifyStripeWebhook } from '@trigora/sdk/stripe';
 
-const stripeEvent = await verifyStripeWebhook(event, {
-  secret: ctx.env.STRIPE_WEBHOOK_SECRET,
+export default defineFlow({
+  id: 'stripe-webhook',
+  trigger: { type: 'webhook', route: '/hooks/stripe' },
+  async run(event, ctx) {
+    await verifyStripeWebhook(event, {
+      secret: ctx.env.STRIPE_WEBHOOK_SECRET,
+    });
+
+    return { ok: true };
+  },
 });
 ```
 
@@ -205,10 +217,19 @@ Production Stripe webhooks should verify signatures before trusting payloads.
 Trigora includes a small helper for verifying GitHub webhook signatures:
 
 ```ts
+import { defineFlow } from '@trigora/sdk';
 import { verifyGitHubWebhook } from '@trigora/sdk/github';
 
-const githubEvent = await verifyGitHubWebhook(event, {
-  secret: ctx.env.GITHUB_WEBHOOK_SECRET,
+export default defineFlow({
+  id: 'github-webhook',
+  trigger: { type: 'webhook', route: '/hooks/github' },
+  async run(event, ctx) {
+    await verifyGitHubWebhook(event, {
+      secret: ctx.env.GITHUB_WEBHOOK_SECRET,
+    });
+
+    return { ok: true };
+  },
 });
 ```
 

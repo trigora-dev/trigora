@@ -9,7 +9,7 @@ import { defineFlow } from './defineFlow';
 
 void defineFlow({
   id: 'valid-webhook-flow',
-  trigger: { type: 'webhook', event: 'orders.created' },
+  trigger: { type: 'webhook', event: 'orders.created', route: '/hooks/orders' },
   async run() {
     return { ok: true };
   },
@@ -19,6 +19,12 @@ const invalidWebhookTrigger: WebhookTrigger = {
   type: 'webhook',
   // @ts-expect-error webhook triggers must not accept cron-only fields
   cron: '* * * * *',
+};
+
+const invalidWebhookRouteTrigger: WebhookTrigger = {
+  type: 'webhook',
+  // @ts-expect-error webhook routes must start with "/"
+  route: 'hooks/orders',
 };
 
 const invalidManualTrigger: ManualTrigger = {
@@ -46,13 +52,14 @@ const invalidCronTrigger: CronTrigger = {
 };
 
 void invalidWebhookTrigger;
+void invalidWebhookRouteTrigger;
 void invalidManualTrigger;
 void invalidManualReturnFlow;
 void invalidCronTrigger;
 
 void defineFlow({
   id: 'valid-webhook-inference-flow',
-  trigger: { type: 'webhook' },
+  trigger: { type: 'webhook', route: '/hooks/inferred' },
   async run() {
     return {
       ok: true,
@@ -163,7 +170,7 @@ describe('defineFlow', () => {
   it('allows webhook flows to return HTTP-friendly values', async () => {
     const flow = defineFlow({
       id: 'webhook-flow',
-      trigger: { type: 'webhook' },
+      trigger: { type: 'webhook', route: '/hooks/test' },
       async run() {
         return {
           ok: true,
@@ -199,6 +206,8 @@ describe('defineFlow', () => {
       ok: true,
       userId: '123',
     });
+
+    expect(flow.trigger.route).toBe('/hooks/test');
   });
 
   it('allows cron flows to run without returning a response body', async () => {

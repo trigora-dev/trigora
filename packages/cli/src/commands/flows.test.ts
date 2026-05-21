@@ -38,16 +38,17 @@ const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
 const mockedPromptForTypedConfirmation = vi.mocked(promptForTypedConfirmation);
 
 const helloFlow = {
-  id: '402c04b0-62c8-4d0b-942f-0ee2329436a8',
+  id: 'hello',
   slug: 'hello',
   status: 'ready',
   trigger: 'webhook' as const,
+  routePath: '/hello',
   endpoint: 'https://acme.trigora.dev/hello',
   createdAt: '2026-04-21T10:00:00.000Z',
 } satisfies FlowRecord;
 
 const cronFlow = {
-  id: '8a4c04b0-62c8-4d0b-942f-0ee2329436b9',
+  id: 'nightly-sync',
   slug: 'nightly-sync',
   status: 'ready',
   trigger: 'cron' as const,
@@ -60,7 +61,6 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
   return {
     createDeployment: vi.fn(),
     deleteFlow: vi.fn().mockResolvedValue({
-      ok: true,
       deleted: true,
     }),
     deleteFlowSecret: vi.fn(),
@@ -74,12 +74,18 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     disableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
       slug: helloFlow.slug,
+      trigger: 'webhook',
       status: 'disabled',
+      routePath: helloFlow.routePath,
+      endpoint: helloFlow.endpoint,
     } satisfies FlowStatusResponse['flow']),
     enableFlow: vi.fn().mockResolvedValue({
       id: helloFlow.id,
       slug: helloFlow.slug,
+      trigger: 'webhook',
       status: 'ready',
+      routePath: helloFlow.routePath,
+      endpoint: helloFlow.endpoint,
     } satisfies FlowStatusResponse['flow']),
     ...overrides,
   };
@@ -110,6 +116,7 @@ describe('flows commands', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Found 1 flow/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\. hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Trigger\s+webhook/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Route\s+\/hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/^\s{5}Status\s+ready/));
     expect(console.log).toHaveBeenCalledWith(
       expect.stringMatching(/^\s{5}Endpoint\s+https:\/\/acme\.trigora\.dev\/hello/),
@@ -153,7 +160,9 @@ describe('flows commands', () => {
     await expect(inspectFlowCommand(helloFlow.slug)).resolves.toEqual(helloFlow);
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Fetching flow/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Flow details/));
@@ -163,12 +172,19 @@ describe('flows commands', () => {
     await expect(disableFlowCommand(helloFlow.slug)).resolves.toEqual({
       id: helloFlow.id,
       slug: helloFlow.slug,
+      trigger: 'webhook',
       status: 'disabled',
+      routePath: helloFlow.routePath,
+      endpoint: helloFlow.endpoint,
     });
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow disabled/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+disabled/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Endpoint\s+https:\/\/acme\.trigora\.dev\/hello/),
+    );
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Disabling flow/));
   });
 
@@ -176,12 +192,19 @@ describe('flows commands', () => {
     await expect(enableFlowCommand(helloFlow.slug)).resolves.toEqual({
       id: helloFlow.id,
       slug: helloFlow.slug,
+      trigger: 'webhook',
       status: 'ready',
+      routePath: helloFlow.routePath,
+      endpoint: helloFlow.endpoint,
     });
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Flow enabled/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/ID\s+hello/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+ready/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Route\s+\/hello/));
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringMatching(/Endpoint\s+https:\/\/acme\.trigora\.dev\/hello/),
+    );
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Enabling flow/));
   });
 

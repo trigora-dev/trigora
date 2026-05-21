@@ -73,11 +73,7 @@ function formatSecretName(secretName: string): string {
 }
 
 export function formatFlowTarget(flow: { id: string; slug?: string }): string {
-  if (flow.slug) {
-    return colors.flow(colors.heading(`"${flow.slug}"`));
-  }
-
-  return colors.label(flow.id);
+  return colors.flow(colors.heading(`"${flow.id}"`));
 }
 
 function toFlowTarget(flow: string | { id: string; slug?: string }): { id: string; slug?: string } {

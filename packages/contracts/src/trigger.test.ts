@@ -12,12 +12,14 @@ describe('Trigger types', () => {
     const trigger: Trigger = {
       type: 'webhook',
       event: 'stripe.payment_succeeded',
+      route: '/hooks/stripe',
     };
 
     expect(trigger.type).toBe('webhook');
 
     if (trigger.type === 'webhook') {
       expect(trigger.event).toBe('stripe.payment_succeeded');
+      expect(trigger.route).toBe('/hooks/stripe');
     }
   });
 
