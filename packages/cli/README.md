@@ -170,7 +170,7 @@ When no flow is passed, `trigora deploy` discovers all `.ts` and `.js` flow file
 
 Current alpha limitation:
 
-- `trigora deploy` currently supports webhook-triggered flows only
+- `trigora deploy` currently supports webhook- and cron-triggered flows
 
 `<flow>` always means the internal flow identifier from `defineFlow({ id: '...' })`.
 Webhook `route` is a separate public hosted path.
