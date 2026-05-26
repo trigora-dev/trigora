@@ -17,6 +17,7 @@ import type {
   FlowTriggerType,
   GetFlowResponse,
   GetInvocationResponse,
+  InvocationExecutionContext,
   ListFlowInvocationsQuery,
   ListInvocationsResponse,
   ListSecretsQuery,
@@ -738,6 +739,90 @@ function normalizeFlowInvocationLogRecord(value: unknown): FlowInvocationLogReco
   };
 }
 
+function normalizeInvocationExecutionTrigger(
+  value: unknown,
+): InvocationExecutionContext['trigger'] | undefined {
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return undefined;
+  }
+
+  if (value.type === 'webhook') {
+    const endpoint = getOptionalString(value.endpoint);
+    const routePath = getOptionalString(value.routePath);
+
+    return endpoint && routePath
+      ? {
+          type: 'webhook',
+          endpoint,
+          routePath,
+        }
+      : undefined;
+  }
+
+  if (value.type === 'cron') {
+    const cron = getNullableString(value.cron);
+    const scheduledAt = getNullableString(value.scheduledAt);
+    const lastRunAt = getNullableString(value.lastRunAt);
+    const nextRunAt = getNullableString(value.nextRunAt);
+    const timezone = getOptionalString(value.timezone);
+
+    return cron !== undefined &&
+      scheduledAt !== undefined &&
+      lastRunAt !== undefined &&
+      nextRunAt !== undefined &&
+      timezone
+      ? {
+          type: 'cron',
+          cron,
+          scheduledAt,
+          lastRunAt,
+          nextRunAt,
+          timezone,
+        }
+      : undefined;
+  }
+
+  return undefined;
+}
+
+function normalizeInvocationExecutionContext(
+  value: unknown,
+): InvocationExecutionContext | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const attempt = getNullableNumber(value.attempt);
+  const deploymentId = getOptionalString(value.deploymentId);
+  const flowSlug = getOptionalString(value.flowSlug);
+  const invocationId = getOptionalString(value.invocationId);
+  const trigger = normalizeInvocationExecutionTrigger(value.trigger);
+  const triggerType = getOptionalString(value.triggerType);
+  const workspaceSlug = getOptionalString(value.workspaceSlug);
+
+  if (
+    attempt === undefined ||
+    !deploymentId ||
+    !flowSlug ||
+    !invocationId ||
+    !trigger ||
+    !triggerType ||
+    !workspaceSlug
+  ) {
+    return undefined;
+  }
+
+  return {
+    attempt,
+    deploymentId,
+    flowSlug,
+    invocationId,
+    trigger,
+    triggerType,
+    workspaceSlug,
+  };
+}
+
 function readFlowInvocationsResponse(payload: unknown): ListInvocationsResponse | undefined {
   if (!isRecord(payload) || !Array.isArray(payload.invocations)) {
     return undefined;
@@ -764,6 +849,7 @@ function readFlowInvocationResponse(payload: unknown): GetInvocationResponse | u
   const invocation = normalizeFlowInvocationRecord(payload.invocation);
   const flowSlug = getOptionalString(payload.invocation.flowSlug);
   const triggerType = getOptionalString(payload.invocation.triggerType);
+  const executionContext = normalizeInvocationExecutionContext(payload.invocation.executionContext);
   const logs = Array.isArray(payload.invocation.logs)
     ? payload.invocation.logs.map((value) => normalizeFlowInvocationLogRecord(value))
     : undefined;
@@ -772,6 +858,7 @@ function readFlowInvocationResponse(payload: unknown): GetInvocationResponse | u
     !invocation ||
     !flowSlug ||
     !triggerType ||
+    !executionContext ||
     !logs ||
     !logs.every((log): log is FlowInvocationLogRecord => Boolean(log))
   ) {
@@ -783,6 +870,7 @@ function readFlowInvocationResponse(payload: unknown): GetInvocationResponse | u
       ...invocation,
       flowSlug,
       triggerType,
+      executionContext,
       logs,
     },
   };

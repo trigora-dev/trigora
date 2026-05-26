@@ -187,6 +187,7 @@ These contracts support hosted flow management responses used by the CLI and oth
 - `FlowInvocationLogLevel`
 - `FlowInvocationRecord`
 - `FlowInvocationLogRecord`
+- `InvocationExecutionContext`
 - `ListInvocationsResponse`
 - `GetInvocationResponse`
 - `ListFlowInvocationsQuery`

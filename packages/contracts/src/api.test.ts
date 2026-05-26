@@ -14,6 +14,7 @@ import type {
   FlowStatusResponse,
   GetInvocationResponse,
   GetFlowResponse,
+  InvocationExecutionContext,
   ListFlowInvocationsQuery,
   ListInvocationsResponse,
   ListSecretsQuery,
@@ -280,6 +281,19 @@ describe('API contract types', () => {
         source: 'stripe',
       },
     };
+    const executionContext: InvocationExecutionContext = {
+      attempt: 1,
+      deploymentId: 'dep_123',
+      flowSlug: 'stripe-checkout',
+      invocationId: invocation.id,
+      trigger: {
+        type: 'webhook',
+        endpoint: 'https://acme.trigora.dev/stripe-checkout',
+        routePath: '/stripe-checkout',
+      },
+      triggerType: 'webhook',
+      workspaceSlug: 'acme',
+    };
 
     const listQuery: ListFlowInvocationsQuery = {
       flow: 'stripe-checkout',
@@ -302,6 +316,7 @@ describe('API contract types', () => {
         ...invocation,
         flowSlug: 'stripe-checkout',
         triggerType: 'webhook',
+        executionContext,
         logs: [log],
       },
     };
@@ -311,6 +326,11 @@ describe('API contract types', () => {
     expect(listResponse.invocations[0]?.status).toBe('failed');
     expect(listResponse.invocations[0]?.flowSlug).toBe('stripe-checkout');
     expect(detailResponse.invocation.triggerType).toBe('webhook');
+    expect(detailResponse.invocation.executionContext.trigger).toEqual({
+      type: 'webhook',
+      endpoint: 'https://acme.trigora.dev/stripe-checkout',
+      routePath: '/stripe-checkout',
+    });
     expect(detailResponse.invocation.logs[0]?.level).toBe('warn');
     expect(detailResponse.invocation.logs[0]?.metadata).toEqual({
       source: 'stripe',

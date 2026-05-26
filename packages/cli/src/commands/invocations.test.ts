@@ -54,6 +54,19 @@ const failedInvocation = {
 const invocationDetail = {
   ...failedInvocation,
   triggerType: 'webhook',
+  executionContext: {
+    attempt: 1,
+    deploymentId: 'dep_123',
+    flowSlug: stripeFlow.slug,
+    invocationId: failedInvocation.id,
+    trigger: {
+      type: 'webhook',
+      endpoint: stripeFlow.endpoint,
+      routePath: stripeFlow.routePath,
+    },
+    triggerType: 'webhook',
+    workspaceSlug: 'acme',
+  },
   logs: [
     {
       sequence: 1,

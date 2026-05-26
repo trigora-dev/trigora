@@ -50,6 +50,19 @@ describe('createDeployApiClient', () => {
     errorCode: 'stripe_signature_invalid',
     errorMessage: 'Invalid Stripe signature.',
   };
+  const failedInvocationExecutionContext = {
+    attempt: 1,
+    deploymentId: 'dep_123',
+    flowSlug: managedFlow.slug,
+    invocationId: failedInvocation.id,
+    trigger: {
+      type: 'webhook' as const,
+      endpoint: managedFlow.endpoint,
+      routePath: managedFlow.routePath,
+    },
+    triggerType: 'webhook',
+    workspaceSlug: 'acme',
+  };
   const identity = {
     actorType: 'deploy_token' as const,
     workspace: {
@@ -995,6 +1008,7 @@ describe('createDeployApiClient', () => {
             ...failedInvocation,
             flowSlug: managedFlow.slug,
             triggerType: 'webhook',
+            executionContext: failedInvocationExecutionContext,
             logs: [
               {
                 sequence: 1,
@@ -1030,6 +1044,7 @@ describe('createDeployApiClient', () => {
       ...failedInvocation,
       flowSlug: managedFlow.slug,
       triggerType: 'webhook',
+      executionContext: failedInvocationExecutionContext,
       logs: [
         {
           sequence: 1,

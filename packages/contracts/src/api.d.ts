@@ -219,6 +219,28 @@ export type FlowInvocationLogRecord = {
   timestamp: string;
   metadata?: Record<string, unknown> | null;
 };
+export type InvocationExecutionContext = {
+  attempt: number | null;
+  deploymentId: string;
+  flowSlug: string;
+  invocationId: string;
+  trigger:
+    | {
+        type: 'cron';
+        cron: string | null;
+        scheduledAt: string | null;
+        lastRunAt: string | null;
+        nextRunAt: string | null;
+        timezone: string;
+      }
+    | {
+        type: 'webhook';
+        endpoint: string;
+        routePath: string;
+      };
+  triggerType: string;
+  workspaceSlug: string;
+};
 export type ListInvocationsResponse = {
   invocations: Array<
     FlowInvocationRecord & {
@@ -230,6 +252,7 @@ export type GetInvocationResponse = {
   invocation: FlowInvocationRecord & {
     flowSlug: string;
     triggerType: string;
+    executionContext: InvocationExecutionContext;
     logs: FlowInvocationLogRecord[];
   };
 };
