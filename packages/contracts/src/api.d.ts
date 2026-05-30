@@ -23,7 +23,8 @@ export type ApiErrorResponse = {
 };
 export type FlowTriggerType = 'webhook' | 'cron' | 'queue';
 export type FlowStatus = 'ready' | 'disabled' | 'failed';
-export type Plan = 'free' | 'pro' | 'scale' | 'internal';
+export type WorkspacePlan = 'free' | 'pro' | 'scale' | 'internal';
+export type WorkspacePlanStatus = 'active' | 'past_due';
 type BaseFlowRecord = {
   createdAt: string;
   id: string;
@@ -54,7 +55,8 @@ export type GetFlowResponse = {
 export type WorkspaceRecord = {
   id: string;
   name: string;
-  plan: Plan;
+  plan: WorkspacePlan;
+  planStatus: WorkspacePlanStatus;
   slug: string;
 };
 export type UserRecord = {
@@ -143,6 +145,58 @@ export type CreateWorkspaceDeployTokenResponse = {
   rawToken: string;
   token: WorkspaceDeployTokenRecord;
   workspace: CurrentWorkspaceRecord;
+};
+export type UsageWarningThreshold = 80 | 90 | 100;
+export type UsageMetric =
+  | 'executions'
+  | 'logsWritten'
+  | 'storedLogRows'
+  | 'logBytes'
+  | 'activeHostedFlows'
+  | 'activeCronSchedules'
+  | 'activeDeployTokens'
+  | 'secrets';
+export type UsageWarning = {
+  metric: UsageMetric;
+  thresholdPercent: UsageWarningThreshold;
+  current: number;
+  limit: number;
+};
+export type GetUsageResponse = {
+  period: {
+    month: string;
+    startsAt: string;
+    endsAt: string;
+  };
+  plan: {
+    name: WorkspacePlan;
+    status: WorkspacePlanStatus;
+    executionLimit: number | null;
+    logRetentionDays: number;
+    enforcement: 'hard' | 'soft' | 'none';
+  };
+  usage: {
+    executions: number;
+    succeededExecutions: number;
+    failedExecutions: number;
+    logsWritten: number;
+    storedLogRows: number;
+    logBytes: number;
+    activeHostedFlows: number;
+    activeCronSchedules: number;
+    activeDeployTokens: number;
+    secrets: number;
+  };
+  warnings: UsageWarning[];
+};
+export type CreateBillingCheckoutRequest = {
+  plan: 'pro';
+};
+export type CreateBillingCheckoutResponse = {
+  url: string;
+};
+export type CreateBillingPortalResponse = {
+  url: string;
 };
 type BaseFlowStatusRecord = {
   id: string;

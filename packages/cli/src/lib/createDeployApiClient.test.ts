@@ -69,6 +69,7 @@ describe('createDeployApiClient', () => {
       id: 'ws_123',
       name: 'Acme',
       plan: 'pro',
+      planStatus: 'active',
       slug: 'acme',
     },
     token: {

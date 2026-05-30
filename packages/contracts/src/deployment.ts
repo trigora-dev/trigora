@@ -1,5 +1,5 @@
 import type { CronTrigger, WebhookTrigger } from './trigger';
-import type { Plan } from './api';
+import type { WorkspacePlan } from './api';
 
 export type DeploymentManifestFlow = {
   entrypoint: string;
@@ -57,7 +57,7 @@ export type DeployedFlowResponse = WebhookDeployedFlowResponse | CronDeployedFlo
 
 export type CreateDeploymentResponse = {
   id: string;
-  plan: Plan;
+  plan: WorkspacePlan;
   status: DeploymentStatus;
   manifestVersion: number;
   manifestJson: DeploymentManifestSnapshot;

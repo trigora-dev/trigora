@@ -26,6 +26,7 @@ import type {
   SetFlowSecretRequest,
   SetFlowSecretResponse,
   WhoAmIResponse,
+  WorkspacePlanStatus,
 } from '@trigora/contracts';
 
 export type DeployApiClient = {
@@ -306,6 +307,10 @@ function isPlan(value: unknown): value is CreateDeploymentResponse['plan'] {
   return value === 'free' || value === 'pro' || value === 'scale' || value === 'internal';
 }
 
+function isWorkspacePlanStatus(value: unknown): value is WorkspacePlanStatus {
+  return value === 'active' || value === 'past_due';
+}
+
 function isFlowInvocationStatus(value: unknown): value is FlowInvocationStatus {
   return value === 'running' || value === 'succeeded' || value === 'failed';
 }
@@ -430,6 +435,7 @@ function readWhoAmIResponse(payload: unknown): WhoAmIResponse | undefined {
     typeof payload.workspace.slug !== 'string' ||
     typeof payload.workspace.name !== 'string' ||
     !isPlan(payload.workspace.plan) ||
+    !isWorkspacePlanStatus(payload.workspace.planStatus) ||
     typeof payload.actorType !== 'string'
   ) {
     return undefined;
@@ -439,6 +445,7 @@ function readWhoAmIResponse(payload: unknown): WhoAmIResponse | undefined {
     id: payload.workspace.id,
     name: payload.workspace.name,
     plan: payload.workspace.plan,
+    planStatus: payload.workspace.planStatus,
     slug: payload.workspace.slug,
   };
 

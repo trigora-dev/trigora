@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ApiErrorResponse,
+  CreateBillingCheckoutRequest,
+  CreateBillingCheckoutResponse,
+  CreateBillingPortalResponse,
   CreateWorkspaceDeployTokenResponse,
   CreateWorkspaceRequest,
   CronFlowRecord,
@@ -12,6 +15,7 @@ import type {
   FlowInvocationRecord,
   FlowSecretRecord,
   FlowStatusResponse,
+  GetUsageResponse,
   GetInvocationResponse,
   GetFlowResponse,
   InvocationExecutionContext,
@@ -138,6 +142,7 @@ describe('API contract types', () => {
         id: 'ws_123',
         name: 'Acme',
         plan: 'pro',
+        planStatus: 'active',
         slug: 'acme',
       },
       token: {
@@ -169,6 +174,7 @@ describe('API contract types', () => {
         id: 'ws_123',
         name: 'Acme',
         plan: 'pro',
+        planStatus: 'active',
         slug: 'acme',
         role: 'owner',
       },
@@ -358,6 +364,7 @@ describe('API contract types', () => {
         id: 'ws_123',
         name: 'Acme',
         plan: 'pro',
+        planStatus: 'active',
         slug: 'acme',
         role: 'owner',
       },
@@ -366,5 +373,61 @@ describe('API contract types', () => {
     expect(tokens.tokens[0]?.lastUsedAt).toBeNull();
     expect(createResponse.workspace.role).toBe('owner');
     expect(createResponse.workspace.plan).toBe('pro');
+  });
+
+  it('accepts usage and billing contracts without public CPU fields', () => {
+    const usage: GetUsageResponse = {
+      period: {
+        month: '2026-05',
+        startsAt: '2026-05-01T00:00:00.000Z',
+        endsAt: '2026-06-01T00:00:00.000Z',
+      },
+      plan: {
+        name: 'pro',
+        status: 'active',
+        executionLimit: 100_000,
+        logRetentionDays: 30,
+        enforcement: 'soft',
+      },
+      usage: {
+        executions: 82_000,
+        succeededExecutions: 80_000,
+        failedExecutions: 2_000,
+        logsWritten: 410_000,
+        storedLogRows: 390_000,
+        logBytes: 24_000_000,
+        activeHostedFlows: 12,
+        activeCronSchedules: 4,
+        activeDeployTokens: 3,
+        secrets: 18,
+      },
+      warnings: [
+        {
+          metric: 'executions',
+          thresholdPercent: 80,
+          current: 82_000,
+          limit: 100_000,
+        },
+      ],
+    };
+
+    const checkoutRequest: CreateBillingCheckoutRequest = {
+      plan: 'pro',
+    };
+
+    const checkoutResponse: CreateBillingCheckoutResponse = {
+      url: 'https://billing.stripe.com/session',
+    };
+
+    const portalResponse: CreateBillingPortalResponse = {
+      url: 'https://billing.stripe.com/portal',
+    };
+
+    expect(usage.plan.executionLimit).toBe(100_000);
+    expect(usage.usage.failedExecutions).toBe(2_000);
+    expect(usage.warnings[0]?.thresholdPercent).toBe(80);
+    expect(checkoutRequest.plan).toBe('pro');
+    expect(checkoutResponse.url).toContain('billing');
+    expect(portalResponse.url).toContain('portal');
   });
 });
