@@ -146,6 +146,40 @@ export type CreateWorkspaceDeployTokenResponse = {
   token: WorkspaceDeployTokenRecord;
   workspace: CurrentWorkspaceRecord;
 };
+export type WorkspaceDomainStatus = 'pending' | 'active' | 'failed';
+export type WorkspaceDomainRecord = {
+  id: string;
+  hostname: string;
+  status: WorkspaceDomainStatus;
+  cnameTarget: string;
+  ownershipVerification: {
+    name: string;
+    type: 'TXT';
+    value: string;
+  } | null;
+  verificationErrors: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+export type ListWorkspaceDomainsResponse = {
+  canUseCustomDomains: boolean;
+  cnameTarget: string;
+  domains: WorkspaceDomainRecord[];
+};
+export type CreateWorkspaceDomainRequest = {
+  hostname: string;
+};
+export type CreateWorkspaceDomainResponse = {
+  domain: WorkspaceDomainRecord;
+};
+export type VerifyWorkspaceDomainResponse = {
+  domain: WorkspaceDomainRecord;
+};
+export type DeleteWorkspaceDomainResponse = {
+  deleted: true;
+  domainId: string;
+  hostname: string;
+};
 export type UsageWarningThreshold = 80 | 90 | 100;
 export type UsageMetric =
   | 'executions'

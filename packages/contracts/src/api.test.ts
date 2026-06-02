@@ -5,10 +5,13 @@ import type {
   CreateBillingCheckoutRequest,
   CreateBillingCheckoutResponse,
   CreateBillingPortalResponse,
+  CreateWorkspaceDomainRequest,
+  CreateWorkspaceDomainResponse,
   CreateWorkspaceDeployTokenResponse,
   CreateWorkspaceRequest,
   CronFlowRecord,
   CurrentWorkspaceResponse,
+  DeleteWorkspaceDomainResponse,
   DeleteFlowSecretResponse,
   DeleteFlowResponse,
   FlowInvocationLogRecord,
@@ -24,13 +27,16 @@ import type {
   ListSecretsQuery,
   ListSecretsResponse,
   ListFlowsResponse,
+  ListWorkspaceDomainsResponse,
   ListWorkspaceDeployTokensResponse,
   ListWorkspacesResponse,
   QueueFlowRecord,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
   UpdateWorkspaceRequest,
+  VerifyWorkspaceDomainResponse,
   WebhookFlowRecord,
+  WorkspaceDomainRecord,
   WhoAmIResponse,
 } from './api';
 
@@ -373,6 +379,60 @@ describe('API contract types', () => {
     expect(tokens.tokens[0]?.lastUsedAt).toBeNull();
     expect(createResponse.workspace.role).toBe('owner');
     expect(createResponse.workspace.plan).toBe('pro');
+  });
+
+  it('accepts workspace custom domain contracts', () => {
+    const domain: WorkspaceDomainRecord = {
+      id: 'dom_123',
+      hostname: 'hooks.acme.com',
+      status: 'pending',
+      cnameTarget: 'acme.trigora.dev',
+      ownershipVerification: {
+        name: '_trigora.hooks.acme.com',
+        type: 'TXT',
+        value: 'trg_verify_123',
+      },
+      verificationErrors: [],
+      createdAt: '2026-06-02T00:00:00.000Z',
+      updatedAt: '2026-06-02T00:00:00.000Z',
+    };
+
+    const listResponse: ListWorkspaceDomainsResponse = {
+      canUseCustomDomains: true,
+      cnameTarget: 'acme.trigora.dev',
+      domains: [domain],
+    };
+
+    const createRequest: CreateWorkspaceDomainRequest = {
+      hostname: 'hooks.acme.com',
+    };
+
+    const createResponse: CreateWorkspaceDomainResponse = {
+      domain,
+    };
+
+    const verifyResponse: VerifyWorkspaceDomainResponse = {
+      domain: {
+        ...domain,
+        status: 'active',
+        ownershipVerification: null,
+        updatedAt: '2026-06-02T00:05:00.000Z',
+      },
+    };
+
+    const deleteResponse: DeleteWorkspaceDomainResponse = {
+      deleted: true,
+      domainId: domain.id,
+      hostname: domain.hostname,
+    };
+
+    expect(listResponse.canUseCustomDomains).toBe(true);
+    expect(listResponse.domains[0]?.ownershipVerification?.type).toBe('TXT');
+    expect(createRequest.hostname).toBe('hooks.acme.com');
+    expect(createResponse.domain.status).toBe('pending');
+    expect(verifyResponse.domain.status).toBe('active');
+    expect(verifyResponse.domain.ownershipVerification).toBeNull();
+    expect(deleteResponse.hostname).toBe('hooks.acme.com');
   });
 
   it('accepts usage and billing contracts without public CPU fields', () => {
