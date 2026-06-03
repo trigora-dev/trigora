@@ -2,12 +2,13 @@
 
 Run code when things happen.
 
-Trigora is a code-first runtime for event-driven backend work.
+Trigora is a code-first runtime and hosted control plane for event-driven backend workflows.
 
-Define flows in TypeScript, run them locally with real events, and deploy the same handler globally.
+Define flows in TypeScript, run them locally with real events, deploy them to hosted webhook and cron endpoints, and inspect invocations, logs, secrets, usage, billing, and custom domains from the dashboard.
 
-Hosted deploy is currently in private alpha.  
-Request access: https://trigora.dev
+Website: https://trigora.dev  
+Dashboard: https://app.trigora.dev  
+Docs: https://trigora.dev/docs
 
 ## Install
 
@@ -25,11 +26,13 @@ import { defineFlow } from '@trigora/sdk';
 export default defineFlow({
   id: 'hello',
   trigger: { type: 'webhook' },
-
   async run(event, ctx) {
     await ctx.log.info('Received event', event.payload);
 
-    return { ok: true };
+    return {
+      ok: true,
+      received: event.payload,
+    };
   },
 });
 ```
@@ -45,16 +48,10 @@ npx trigora init
 Run locally:
 
 ```bash
-npx trigora dev
-```
-
-If your project contains multiple flows, pass the flow name explicitly:
-
-```bash
 npx trigora dev hello
 ```
 
-Send a request:
+Send a local request:
 
 ```bash
 curl -X POST http://localhost:5252 \
@@ -68,15 +65,37 @@ Deploy:
 npx trigora deploy hello
 ```
 
-## Documentation
+A deployed webhook flow receives traffic at:
 
-Full documentation, guides, examples, and API reference:
+```text
+https://<workspace>.trigora.dev/hello
+```
 
-- Docs: https://trigora.dev/docs
-- Getting Started: https://trigora.dev/docs/getting-started
-- Production Workflow: https://trigora.dev/docs/examples/production-workflow
-- CLI Reference: https://trigora.dev/docs/reference/cli
-- API Reference: https://trigora.dev/docs/reference/api
+Webhook flows can also define custom routes:
+
+```ts
+trigger: { type: 'webhook', route: '/hooks/hello' }
+```
+
+Pro and Scale workspaces can connect custom domains:
+
+```text
+https://events.acme.com/hooks/hello
+```
+
+## What Trigora includes
+
+- TypeScript flow definitions with `defineFlow()`
+- Local development with real webhook events
+- Hosted webhook endpoints
+- Cron-triggered flows
+- Custom webhook routes
+- Workspace-scoped hosted URLs
+- Custom domains for Pro and Scale workspaces
+- Secrets management
+- Invocation history and logs
+- Usage and billing dashboard
+- CLI flow management
 
 ## Packages
 
@@ -87,7 +106,8 @@ CLI for:
 - local development
 - hosted deploys
 - flow management
-- logs and secrets
+- invocation inspection
+- secrets
 
 ### `@trigora/sdk`
 
@@ -95,16 +115,28 @@ SDK for defining flows with `defineFlow()`.
 
 ### `@trigora/contracts`
 
-Shared public contracts and types.
+Shared public contracts and API types.
+
+## Documentation
+
+- Docs: https://trigora.dev/docs
+- Getting Started: https://trigora.dev/docs/getting-started
+- Deploy: https://trigora.dev/docs/guides/deploy
+- Webhook Endpoints: https://trigora.dev/docs/guides/webhook-endpoints
+- Custom Domains: https://trigora.dev/docs/guides/custom-domains
+- CLI Reference: https://trigora.dev/docs/reference/cli
+- API Reference: https://trigora.dev/docs/reference/api
 
 ## Repository
 
-This repository contains:
+This repository contains the public Trigora packages:
 
 - CLI
 - SDK
 - Contracts
-- examples
+- Examples
+
+The hosted control plane and runtime are deployed separately.
 
 ## License
 
