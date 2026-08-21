@@ -1,9 +1,9 @@
-import type { CronTrigger, WebhookTrigger } from './trigger';
+import type { CronTrigger, QueueTrigger, WebhookTrigger } from './trigger';
 import type { WorkspacePlan } from './api';
 export type DeploymentManifestFlow = {
   entrypoint: string;
   id: string;
-  trigger: WebhookTrigger | CronTrigger;
+  trigger: WebhookTrigger | CronTrigger | QueueTrigger;
 };
 export type DeploymentManifest = {
   version: 1;
@@ -42,7 +42,15 @@ export type CronDeployedFlowResponse = BaseDeployedFlowResponse & {
   timezone: 'UTC';
   url: null;
 };
-export type DeployedFlowResponse = WebhookDeployedFlowResponse | CronDeployedFlowResponse;
+export type QueueDeployedFlowResponse = BaseDeployedFlowResponse & {
+  trigger: 'queue';
+  queue: string;
+  url: null;
+};
+export type DeployedFlowResponse =
+  | WebhookDeployedFlowResponse
+  | CronDeployedFlowResponse
+  | QueueDeployedFlowResponse;
 export type CreateDeploymentResponse = {
   id: string;
   plan: WorkspacePlan;

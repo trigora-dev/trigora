@@ -1,3 +1,5 @@
+import type { JsonValue } from './flow';
+
 export type ApiErrorCode =
   | 'bad_request'
   | 'conflict'
@@ -5,7 +7,11 @@ export type ApiErrorCode =
   | 'forbidden'
   | 'internal_error'
   | 'invalid_cron_expression'
+  | 'invalid_queue_name'
   | 'not_found'
+  | 'queue_consumer_conflict'
+  | 'queue_has_consumer'
+  | 'queue_not_found'
   | 'rate_limited'
   | 'unauthorized';
 
@@ -52,7 +58,7 @@ export type CronFlowRecord = BaseFlowRecord & {
 };
 
 export type QueueFlowRecord = BaseFlowRecord & {
-  queue?: string;
+  queue: string;
   trigger: 'queue';
 };
 
@@ -230,6 +236,7 @@ export type UsageMetric =
   | 'logBytes'
   | 'activeHostedFlows'
   | 'activeCronSchedules'
+  | 'activeQueues'
   | 'activeDeployTokens'
   | 'secrets';
 
@@ -262,6 +269,7 @@ export type GetUsageResponse = {
     logBytes: number;
     activeHostedFlows: number;
     activeCronSchedules: number;
+    activeQueues: number;
     activeDeployTokens: number;
     secrets: number;
   };
@@ -299,7 +307,7 @@ export type CronFlowStatusRecord = BaseFlowStatusRecord & {
 };
 
 export type QueueFlowStatusRecord = BaseFlowStatusRecord & {
-  queue?: string;
+  queue: string;
   trigger: 'queue';
 };
 
@@ -393,6 +401,11 @@ export type InvocationExecutionContext = {
         type: 'webhook';
         endpoint: string;
         routePath: string;
+      }
+    | {
+        type: 'queue';
+        queue: string;
+        messageId: string;
       };
   triggerType: string;
   workspaceSlug: string;
@@ -420,4 +433,34 @@ export type ListFlowInvocationsQuery = {
   limit?: number;
   range?: string;
   status?: FlowInvocationStatus;
+};
+
+export type WorkspaceQueueRecord = {
+  id: string;
+  name: string;
+  consumerFlowSlug: string | null;
+  concurrency: number;
+  pendingCount: number;
+  processingCount: number;
+  failedCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListQueuesResponse = {
+  queues: WorkspaceQueueRecord[];
+};
+
+export type EnqueueQueueMessageRequest = {
+  payload: JsonValue;
+};
+
+export type EnqueueQueueMessageResponse = {
+  id: string;
+  queue: string;
+  enqueuedAt: string;
+};
+
+export type PurgeFailedQueueMessagesResponse = {
+  purged: number;
 };

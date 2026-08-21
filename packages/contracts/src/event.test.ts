@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CronFlowEvent, FlowEvent, ManualFlowEvent, WebhookFlowEvent } from './event';
+import type {
+  CronFlowEvent,
+  FlowEvent,
+  ManualFlowEvent,
+  QueueFlowEvent,
+  WebhookFlowEvent,
+} from './event';
 
 describe('Event contract types', () => {
   it('accepts the generic base flow event shape', () => {
@@ -55,6 +61,22 @@ describe('Event contract types', () => {
 
     expect(event.payload.cron).toBe('0 2 * * *');
     expect(event.payload.timezone).toBe('UTC');
+    expect('request' in event).toBe(false);
+  });
+
+  it('accepts the hosted queue runtime event shape', () => {
+    const event: QueueFlowEvent<{ orderId: string }> = {
+      id: 'inv_456',
+      type: 'queue',
+      timestamp: '2026-05-10T03:00:00.000Z',
+      payload: { orderId: 'ord_1' },
+      queue: 'orders',
+      messageId: 'msg_123',
+    };
+
+    expect(event.queue).toBe('orders');
+    expect(event.messageId).toBe('msg_123');
+    expect(event.payload.orderId).toBe('ord_1');
     expect('request' in event).toBe(false);
   });
 });

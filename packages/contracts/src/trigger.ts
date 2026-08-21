@@ -29,9 +29,20 @@ export type CronTrigger = {
 };
 
 /**
+ * Run a flow when a message is consumed from a workspace queue.
+ *
+ * Deploy auto-provisions/binds the named queue to this flow.
+ */
+export type QueueTrigger = {
+  type: 'queue';
+  /** Workspace-scoped queue name. Deploy auto-provisions/binds this queue. */
+  queue: string;
+};
+
+/**
  * Trigger types supported by hosted deployments.
  */
-export type HostedTrigger = WebhookTrigger | CronTrigger;
+export type HostedTrigger = WebhookTrigger | CronTrigger | QueueTrigger;
 
 /**
  * All supported flow trigger types.

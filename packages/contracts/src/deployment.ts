@@ -1,10 +1,10 @@
-import type { CronTrigger, WebhookTrigger } from './trigger';
+import type { CronTrigger, QueueTrigger, WebhookTrigger } from './trigger';
 import type { WorkspacePlan } from './api';
 
 export type DeploymentManifestFlow = {
   entrypoint: string;
   id: string;
-  trigger: WebhookTrigger | CronTrigger;
+  trigger: WebhookTrigger | CronTrigger | QueueTrigger;
 };
 
 export type DeploymentManifest = {
@@ -53,7 +53,16 @@ export type CronDeployedFlowResponse = BaseDeployedFlowResponse & {
   url: null;
 };
 
-export type DeployedFlowResponse = WebhookDeployedFlowResponse | CronDeployedFlowResponse;
+export type QueueDeployedFlowResponse = BaseDeployedFlowResponse & {
+  trigger: 'queue';
+  queue: string;
+  url: null;
+};
+
+export type DeployedFlowResponse =
+  | WebhookDeployedFlowResponse
+  | CronDeployedFlowResponse
+  | QueueDeployedFlowResponse;
 
 export type CreateDeploymentResponse = {
   id: string;

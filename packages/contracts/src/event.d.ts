@@ -29,4 +29,10 @@ export type WebhookFlowEvent<TPayload = JsonValue> = BaseFlowEvent & {
 export type CronFlowEvent = BaseFlowEvent<'cron'> & {
   payload: CronEventPayload;
 };
+export type QueueEventPayload = JsonValue;
+export type QueueFlowEvent<TPayload = JsonValue> = BaseFlowEvent<'queue'> & {
+  payload: TPayload;
+  queue: string;
+  messageId: string;
+};
 export {};

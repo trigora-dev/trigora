@@ -14,6 +14,8 @@ import type {
   DeleteWorkspaceDomainResponse,
   DeleteFlowSecretResponse,
   DeleteFlowResponse,
+  EnqueueQueueMessageRequest,
+  EnqueueQueueMessageResponse,
   FlowInvocationLogRecord,
   FlowInvocationRecord,
   FlowSecretRecord,
@@ -24,12 +26,14 @@ import type {
   InvocationExecutionContext,
   ListFlowInvocationsQuery,
   ListInvocationsResponse,
+  ListQueuesResponse,
   ListSecretsQuery,
   ListSecretsResponse,
   ListFlowsResponse,
   ListWorkspaceDomainsResponse,
   ListWorkspaceDeployTokensResponse,
   ListWorkspacesResponse,
+  PurgeFailedQueueMessagesResponse,
   QueueFlowRecord,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
@@ -37,6 +41,7 @@ import type {
   VerifyWorkspaceDomainResponse,
   WebhookFlowRecord,
   WorkspaceDomainRecord,
+  WorkspaceQueueRecord,
   WhoAmIResponse,
 } from './api';
 
@@ -458,6 +463,7 @@ describe('API contract types', () => {
         logBytes: 24_000_000,
         activeHostedFlows: 12,
         activeCronSchedules: 4,
+        activeQueues: 2,
         activeDeployTokens: 3,
         secrets: 18,
       },
@@ -485,9 +491,74 @@ describe('API contract types', () => {
 
     expect(usage.plan.executionLimit).toBe(100_000);
     expect(usage.usage.failedExecutions).toBe(2_000);
+    expect(usage.usage.activeQueues).toBe(2);
     expect(usage.warnings[0]?.thresholdPercent).toBe(80);
     expect(checkoutRequest.plan).toBe('pro');
     expect(checkoutResponse.url).toContain('billing');
     expect(portalResponse.url).toContain('portal');
+  });
+
+  it('accepts queue management and enqueue contracts', () => {
+    const queue: WorkspaceQueueRecord = {
+      id: 'q_123',
+      name: 'orders',
+      consumerFlowSlug: 'orders-processor',
+      concurrency: 5,
+      pendingCount: 12,
+      processingCount: 3,
+      failedCount: 1,
+      createdAt: '2026-05-10T00:00:00.000Z',
+      updatedAt: '2026-05-10T01:00:00.000Z',
+    };
+
+    const listResponse: ListQueuesResponse = {
+      queues: [queue],
+    };
+
+    const enqueueRequest: EnqueueQueueMessageRequest = {
+      payload: { orderId: 'ord_1' },
+    };
+
+    const enqueueResponse: EnqueueQueueMessageResponse = {
+      id: 'msg_123',
+      queue: 'orders',
+      enqueuedAt: '2026-05-10T01:30:00.000Z',
+    };
+
+    const purgeResponse: PurgeFailedQueueMessagesResponse = {
+      purged: 1,
+    };
+
+    const queueError: ApiErrorResponse = {
+      error: {
+        code: 'queue_consumer_conflict',
+        message: 'Queue already has a consumer flow.',
+      },
+    };
+
+    const executionContext: InvocationExecutionContext = {
+      attempt: 1,
+      deploymentId: 'dep_789',
+      flowSlug: 'orders-processor',
+      invocationId: 'inv_789',
+      trigger: {
+        type: 'queue',
+        queue: 'orders',
+        messageId: 'msg_123',
+      },
+      triggerType: 'queue',
+      workspaceSlug: 'acme',
+    };
+
+    expect(listResponse.queues[0]?.name).toBe('orders');
+    expect(enqueueRequest.payload).toEqual({ orderId: 'ord_1' });
+    expect(enqueueResponse.id).toBe('msg_123');
+    expect(purgeResponse.purged).toBe(1);
+    expect(queueError.error.code).toBe('queue_consumer_conflict');
+    expect(executionContext.trigger.type).toBe('queue');
+    if (executionContext.trigger.type !== 'queue') {
+      throw new Error('Expected queue execution context');
+    }
+    expect(executionContext.trigger.messageId).toBe('msg_123');
   });
 });

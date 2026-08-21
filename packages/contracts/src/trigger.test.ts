@@ -35,4 +35,17 @@ describe('Trigger types', () => {
       expect(trigger.cron).toBe('0 9 * * *');
     }
   });
+
+  it('accepts a queue trigger', () => {
+    const trigger: Trigger = {
+      type: 'queue',
+      queue: 'orders',
+    };
+
+    expect(trigger.type).toBe('queue');
+
+    if (trigger.type === 'queue') {
+      expect(trigger.queue).toBe('orders');
+    }
+  });
 });

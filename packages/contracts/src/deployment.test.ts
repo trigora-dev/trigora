@@ -172,4 +172,45 @@ describe('Deployment types', () => {
     expect(response.flow.schedule).toBe('0 2 * * *');
     expect(response.flow.timezone).toBe('UTC');
   });
+
+  it('accepts queue deployment manifests and responses', () => {
+    const manifest: DeploymentManifest = {
+      version: 1,
+      flow: {
+        id: 'orders-processor',
+        entrypoint: 'flows/orders-processor.ts',
+        trigger: { type: 'queue', queue: 'orders' },
+      },
+    };
+
+    const response: CreateDeploymentResponse = {
+      id: 'dep_789',
+      plan: 'pro',
+      status: 'active',
+      manifestVersion: 1,
+      manifestJson: manifest,
+      flow: {
+        id: 'df_789',
+        slug: 'orders-processor',
+        trigger: 'queue',
+        queue: 'orders',
+        status: 'ready',
+        url: null,
+      },
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    };
+
+    expect(manifest.flow.trigger.type).toBe('queue');
+    if (manifest.flow.trigger.type !== 'queue') {
+      throw new Error('Expected queue manifest flow');
+    }
+    expect(manifest.flow.trigger.queue).toBe('orders');
+    expect(response.flow.trigger).toBe('queue');
+    if (response.flow.trigger !== 'queue') {
+      throw new Error('Expected queue deployed flow');
+    }
+    expect(response.flow.queue).toBe('orders');
+    expect(response.flow.url).toBeNull();
+  });
 });

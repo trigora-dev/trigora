@@ -4,9 +4,10 @@ import type {
   CronFlowEvent,
   FlowEvent,
   ManualFlowEvent,
+  QueueFlowEvent,
   WebhookFlowEvent,
 } from './event';
-import type { CronTrigger, ManualTrigger, Trigger, WebhookTrigger } from './trigger';
+import type { CronTrigger, ManualTrigger, QueueTrigger, Trigger, WebhookTrigger } from './trigger';
 export type JsonObject = {
   [key: string]: JsonValue | undefined;
 };
@@ -24,7 +25,9 @@ type FlowEventForTrigger<TPayload, TTrigger extends Trigger> = TTrigger extends 
     ? WebhookFlowEvent<TPayload>
     : TTrigger extends CronTrigger
       ? CronFlowEvent
-      : FlowEvent<TPayload>;
+      : TTrigger extends QueueTrigger
+        ? QueueFlowEvent<TPayload>
+        : FlowEvent<TPayload>;
 /**
  * The function executed when a flow runs.
  *
@@ -84,10 +87,24 @@ export type CronFlowDefinition<TEnv extends Record<string, string> = Record<stri
      */
     run: FlowRunFn<CronEventPayload, TEnv, CronTrigger>;
   };
+export type QueueFlowDefinition<
+  TPayload = JsonValue,
+  TEnv extends Record<string, string> = Record<string, string>,
+> = BaseFlowDefinition & {
+  /**
+   * Trigger configuration that determines how the flow is invoked.
+   */
+  trigger: QueueTrigger;
+  /**
+   * Function called when the flow runs.
+   */
+  run: FlowRunFn<TPayload, TEnv, QueueTrigger>;
+};
 type FlowDefinitionByTrigger<TPayload, TEnv extends Record<string, string>> =
   | ManualFlowDefinition<TPayload, TEnv>
   | WebhookFlowDefinition<TPayload, TEnv>
-  | CronFlowDefinition<TEnv>;
+  | CronFlowDefinition<TEnv>
+  | QueueFlowDefinition<TPayload, TEnv>;
 type TriggerTypeOf<TTrigger extends Trigger> = TTrigger['type'];
 /**
  * A Trigora flow definition.
