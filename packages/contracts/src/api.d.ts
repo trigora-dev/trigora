@@ -387,4 +387,8 @@ export type EnqueueQueueMessageResponse = {
 export type PurgeFailedQueueMessagesResponse = {
   purged: number;
 };
+export type DeleteQueueResponse = {
+  deleted: true;
+  name: string;
+};
 export {};

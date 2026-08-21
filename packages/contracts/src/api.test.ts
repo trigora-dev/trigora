@@ -14,6 +14,7 @@ import type {
   DeleteWorkspaceDomainResponse,
   DeleteFlowSecretResponse,
   DeleteFlowResponse,
+  DeleteQueueResponse,
   EnqueueQueueMessageRequest,
   EnqueueQueueMessageResponse,
   FlowInvocationLogRecord,
@@ -560,5 +561,15 @@ describe('API contract types', () => {
       throw new Error('Expected queue execution context');
     }
     expect(executionContext.trigger.messageId).toBe('msg_123');
+  });
+
+  it('accepts delete queue responses', () => {
+    const response: DeleteQueueResponse = {
+      deleted: true,
+      name: 'orders',
+    };
+
+    expect(response.deleted).toBe(true);
+    expect(response.name).toBe('orders');
   });
 });
