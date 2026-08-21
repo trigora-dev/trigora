@@ -28,17 +28,19 @@ export function formatTrigger(trigger: Trigger): string {
       return trigger.event ? `webhook:${trigger.event}` : 'webhook';
     case 'cron':
       return `cron:${trigger.cron}`;
+    case 'queue':
+      return `queue:${trigger.queue}`;
   }
 }
 
 function isDeployableTrigger(trigger: Trigger): trigger is HostedTrigger {
-  return trigger.type === 'webhook' || trigger.type === 'cron';
+  return trigger.type === 'webhook' || trigger.type === 'cron' || trigger.type === 'queue';
 }
 
 function validateDeployableFlow(flow: LoadedFlow): DeployableFlow {
   if (!isDeployableTrigger(flow.trigger)) {
     throw new Error(
-      `Flow "${flow.id}" in "${flow.entrypoint}" uses unsupported trigger "${flow.trigger.type}". trigora deploy currently supports only webhook- and cron-triggered flows.`,
+      `Flow "${flow.id}" in "${flow.entrypoint}" uses unsupported trigger "${flow.trigger.type}". trigora deploy currently supports webhook-, cron-, and queue-triggered flows.`,
     );
   }
 

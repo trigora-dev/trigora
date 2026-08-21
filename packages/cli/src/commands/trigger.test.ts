@@ -227,4 +227,60 @@ describe('triggerCommand', () => {
     expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/Duration\s+\d+ms/));
     expect(console.error).toHaveBeenCalledWith('something went wrong');
   });
+
+  it('runs queue flows with a synthetic local QueueFlowEvent', async () => {
+    const run = vi.fn(async (_event: unknown, _ctx: unknown) => undefined);
+
+    mockedLoadFlowModule.mockResolvedValue({
+      id: 'orders-processor',
+      trigger: { type: 'queue', queue: 'orders' },
+      run,
+    });
+
+    mockedCreateLocalContext.mockReturnValue({
+      env: {},
+      log: {
+        info: vi.fn(),
+        warn: vi.fn(),
+        error: vi.fn(),
+      },
+    });
+
+    const tempDir = await makeTempDir();
+    const payloadPath = path.join(tempDir, 'payload.json');
+    await fs.writeFile(payloadPath, JSON.stringify({ orderId: 'ord_1' }), 'utf-8');
+
+    await triggerCommand({
+      filePath: './flows/orders-processor.ts',
+      payloadPath,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    const eventArg = run.mock.calls[0]?.[0] as {
+      type: string;
+      payload: { orderId: string };
+      queue: string;
+      messageId: string;
+    };
+    expect(eventArg.type).toBe('queue');
+    expect(eventArg.payload).toEqual({ orderId: 'ord_1' });
+    expect(eventArg.queue).toBe('orders');
+    expect(eventArg.messageId).toMatch(/^local_/);
+  });
+
+  it('rejects webhook flows with a clear error', async () => {
+    mockedLoadFlowModule.mockResolvedValue({
+      id: 'stripe-checkout',
+      trigger: { type: 'webhook' },
+      run: vi.fn(async () => undefined),
+    });
+
+    await expect(
+      triggerCommand({
+        filePath: './flows/stripe-checkout.ts',
+      }),
+    ).rejects.toThrow(
+      'Flow "stripe-checkout" uses trigger "webhook". trigora trigger supports manual- and queue-triggered flows.',
+    );
+  });
 });

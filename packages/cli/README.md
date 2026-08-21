@@ -7,10 +7,11 @@ The Trigora CLI for local flow development, hosted deploys, and alpha flow manag
 - scaffold a project
 - run flows locally with real payloads
 - watch flows during development
-- deploy webhook flows to Trigora Cloud
+- deploy webhook, cron, and queue flows to Trigora Cloud
 - show which workspace and deploy token you're using
 - list and manage hosted flows
 - manage hosted flow secrets
+- manage workspace queues
 - inspect hosted invocations and logs
 
 ## Install
@@ -107,6 +108,8 @@ Behavior:
 
 If no payload file is passed, the payload defaults to `{}`.
 
+`trigger` supports **manual** and **queue** flows. Queue runs use a synthetic `QueueFlowEvent` with `messageId` prefixed by `local_`. Webhook and cron flows are rejected — use `trigora dev` for webhooks.
+
 `trigger` runs the flow once with a local JSON payload file. It does not start an HTTP server.
 
 ### `trigora dev [flow]`
@@ -131,12 +134,13 @@ Webhook dev mode:
 Webhook dev mode does not use `payload.json`; send payloads with HTTP requests instead.
 Hosted webhook `route` settings do not change local dev routing today. The local dev server still accepts `POST /`.
 
-Manual / payload dev mode:
+Manual / queue / payload dev mode:
 
 - runs the flow immediately
 - watches the flow file for changes
 - watches the payload file when provided
 - re-runs automatically on save
+- for queue flows, shows the bound queue name and builds the same synthetic `QueueFlowEvent` as `trigora trigger`
 
 Use `payload.json` here when you want sample local input for payload-driven runs.
 
@@ -170,7 +174,8 @@ When no flow is passed, `trigora deploy` discovers all `.ts` and `.js` flow file
 
 Current alpha limitation:
 
-- `trigora deploy` currently supports webhook- and cron-triggered flows
+- `trigora deploy` currently supports webhook-, cron-, and queue-triggered flows
+- deploying a queue flow auto-provisions/binds the named workspace queue
 
 `<flow>` always means the internal flow identifier from `defineFlow({ id: '...' })`.
 Webhook `route` is a separate public hosted path.
@@ -328,6 +333,51 @@ const secret = ctx.env.STRIPE_WEBHOOK_SECRET;
 
 Use `trigora flows` or `trigora secrets` to look up flow ids first. Secrets are managed separately from deploys. `trigora deploy` uploads code only.
 
+### `trigora queues`
+
+List workspace queues.
+
+```bash
+trigora queues
+```
+
+There is no `queues list` subcommand. The root command is the list action.
+
+List output includes queue name, consumer flow, concurrency, and pending/processing/failed counts.
+
+### `trigora queues enqueue <queue>`
+
+Enqueue a JSON message to a workspace queue.
+
+```bash
+trigora queues enqueue orders
+trigora queues enqueue orders --payload payload.json
+```
+
+If no payload file is passed, the payload defaults to `{}`. Deploy tokens can enqueue.
+
+### `trigora queues purge-failed <queue>`
+
+Purge failed messages from a queue.
+
+```bash
+trigora queues purge-failed orders
+trigora queues purge-failed orders --yes
+```
+
+`--yes` skips the confirmation prompt.
+
+### `trigora queues delete <queue>`
+
+Delete a workspace queue.
+
+```bash
+trigora queues delete orders
+trigora queues delete orders --yes
+```
+
+`--yes` skips confirmation only. It does not bypass safety checks. The API rejects delete when a consumer is still bound or when pending messages remain.
+
 ### `trigora invocations`
 
 List and inspect hosted flow invocations.
@@ -377,6 +427,10 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 - `trigora flows disable <flow>`
 - `trigora flows enable <flow>`
 - `trigora flows delete <flow>`
+- `trigora queues`
+- `trigora queues enqueue <queue>`
+- `trigora queues purge-failed <queue>`
+- `trigora queues delete <queue>`
 - `trigora secrets`
 - `trigora secrets --flow <flow>`
 - `trigora secrets set <name> --flow <flow>`

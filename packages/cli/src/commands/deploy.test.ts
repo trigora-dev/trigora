@@ -59,13 +59,17 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     }),
     deleteFlow: vi.fn(),
     deleteFlowSecret: vi.fn(),
+    deleteQueue: vi.fn(),
     disableFlow: vi.fn(),
     enableFlow: vi.fn(),
+    enqueueQueueMessage: vi.fn(),
     getFlow: vi.fn(),
     getInvocation: vi.fn(),
     listInvocations: vi.fn(),
+    listQueues: vi.fn(),
     listSecrets: vi.fn(),
     listFlows: vi.fn(),
+    purgeFailedQueueMessages: vi.fn(),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
     ...overrides,
@@ -227,7 +231,7 @@ describe('deployCommand', () => {
         filePath: flowPath,
       }),
     ).rejects.toThrow(
-      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports only webhook- and cron-triggered flows.',
+      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports webhook-, cron-, and queue-triggered flows.',
     );
   });
 
@@ -295,6 +299,73 @@ describe('deployCommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Schedule\s+0 2 \* \* \*/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Timezone\s+UTC/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Scheduled and active/));
+    expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
+  });
+
+  it('deploys queue flows and prints queue binding details', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'orders.ts');
+    const createDeployment = vi.fn().mockResolvedValue({
+      plan: 'pro',
+      id: 'dep_queue',
+      status: 'active',
+      manifestVersion: 1,
+      manifestJson: {
+        version: 1,
+        flow: {
+          id: 'orders-processor',
+          entrypoint: 'flows/orders.ts',
+          trigger: { type: 'queue', queue: 'orders' },
+        },
+      },
+      flow: {
+        id: 'df_queue',
+        slug: 'orders-processor',
+        trigger: 'queue',
+        queue: 'orders',
+        status: 'ready',
+        url: null,
+      },
+      createdAt: '2026-04-12T00:00:00.000Z',
+      updatedAt: '2026-04-12T00:00:00.000Z',
+    });
+
+    mockedCreateDeployApiClient.mockReturnValue(createMockApiClient({ createDeployment }));
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'orders-processor',
+          trigger: { type: 'queue', queue: 'orders' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await deployCommand({
+      filePath: flowPath,
+    });
+
+    expect(createDeployment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        manifest: {
+          version: 1,
+          flow: {
+            id: 'orders-processor',
+            entrypoint: 'flows/orders.ts',
+            trigger: { type: 'queue', queue: 'orders' },
+          },
+        },
+      }),
+    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+queue/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Queue\s+orders/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Bound and active/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
   });
 

@@ -18,6 +18,7 @@
     "cli",
     "triggers",
     "cron",
+    "queues",
     "webhooks"
   ],
   "license": "MIT",

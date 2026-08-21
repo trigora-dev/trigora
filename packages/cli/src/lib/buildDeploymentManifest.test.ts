@@ -189,8 +189,41 @@ describe('buildDeploymentManifest', () => {
         filePath: flowPath,
       }),
     ).rejects.toThrow(
-      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports only webhook- and cron-triggered flows.',
+      'Flow "hello" in "flows/hello.ts" uses unsupported trigger "manual". trigora deploy currently supports webhook-, cron-, and queue-triggered flows.',
     );
+  });
+
+  it('builds a manifest for a queue flow', async () => {
+    const tempDir = await makeTempDir();
+    const flowPath = path.join(tempDir, 'flows', 'orders.ts');
+
+    await fs.mkdir(path.dirname(flowPath), { recursive: true });
+    await fs.writeFile(
+      flowPath,
+      `
+        export default {
+          id: 'orders-processor',
+          trigger: { type: 'queue', queue: 'orders' },
+          async run() {}
+        };
+      `,
+      'utf-8',
+    );
+
+    process.chdir(tempDir);
+
+    await expect(
+      buildDeploymentManifest({
+        filePath: flowPath,
+      }),
+    ).resolves.toEqual({
+      version: 1,
+      flow: {
+        id: 'orders-processor',
+        entrypoint: 'flows/orders.ts',
+        trigger: { type: 'queue', queue: 'orders' },
+      },
+    });
   });
 
   it('requires an explicit selection when multiple flow files are present', async () => {

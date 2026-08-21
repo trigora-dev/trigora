@@ -36,6 +36,7 @@ type DevStartupOptions = {
   flowId: string;
   flowPath: string;
   payloadPath?: string;
+  queue?: string;
   readyMessage: string;
 };
 
@@ -212,6 +213,7 @@ function printDevStartup(options: DevStartupOptions): void {
   printRuntimeDetails([
     { label: 'Flow', value: formatFlowName(options.flowId) },
     { label: 'File', value: options.flowPath },
+    { label: 'Queue', value: options.queue },
     { label: 'Payload', value: options.payloadPath },
     {
       label: 'Endpoint',
@@ -356,7 +358,11 @@ async function runWebhookFlow(
   }
 }
 
-async function runStandardDevMode(options: DevOptions, flowId: string): Promise<void> {
+async function runStandardDevMode(
+  options: DevOptions,
+  flowId: string,
+  queue?: string,
+): Promise<void> {
   const relativeFlowPath = path.relative(process.cwd(), options.filePath);
   const relativePayloadPath = options.payloadPath
     ? path.relative(process.cwd(), options.payloadPath)
@@ -409,6 +415,7 @@ async function runStandardDevMode(options: DevOptions, flowId: string): Promise<
     flowId,
     flowPath: relativeFlowPath,
     payloadPath: relativePayloadPath,
+    queue,
     readyMessage: relativePayloadPath
       ? 'Ready. Edit the flow or payload to rerun.'
       : 'Ready. Edit the flow to rerun.',
@@ -593,7 +600,11 @@ export async function devCommand(options: DevOptions): Promise<void> {
   const flow = await loadFlowModule(options.filePath);
 
   if (flow.trigger?.type !== 'webhook') {
-    await runStandardDevMode(options, flow.id);
+    await runStandardDevMode(
+      options,
+      flow.id,
+      flow.trigger?.type === 'queue' ? flow.trigger.queue : undefined,
+    );
     return;
   }
 

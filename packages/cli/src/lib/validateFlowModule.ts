@@ -81,9 +81,22 @@ function validateTrigger(trigger: unknown, filePath: string): Trigger {
       };
     }
 
+    case 'queue': {
+      if (typeof trigger.queue !== 'string' || trigger.queue.trim().length === 0) {
+        throw new Error(
+          `Invalid flow in "${filePath}": queue triggers require a non-empty "trigger.queue" string.`,
+        );
+      }
+
+      return {
+        type: 'queue',
+        queue: trigger.queue.trim(),
+      };
+    }
+
     default:
       throw new Error(
-        `Invalid flow in "${filePath}": unsupported trigger type "${trigger.type}". Expected "manual", "webhook", or "cron".`,
+        `Invalid flow in "${filePath}": unsupported trigger type "${trigger.type}". Expected "manual", "webhook", "cron", or "queue".`,
       );
   }
 }
@@ -121,6 +134,12 @@ export function validateFlowModule(filePath: string, value: unknown): FlowDefini
         run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
       };
     case 'cron':
+      return {
+        id: value.id,
+        trigger,
+        run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
+      };
+    case 'queue':
       return {
         id: value.id,
         trigger,

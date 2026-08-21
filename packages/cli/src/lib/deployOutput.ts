@@ -89,6 +89,19 @@ function getApiFailureDisplayReason(error: DeployApiRequestError): string {
     );
   }
 
+  if (
+    error.code === 'invalid_queue_name' ||
+    error.code === 'queue_consumer_conflict' ||
+    error.code === 'queue_has_consumer' ||
+    error.code === 'queue_not_found'
+  ) {
+    return (
+      getApiDetailsMessage(error.details) ??
+      error.message.trim() ??
+      'Trigora Cloud rejected the queue configuration.'
+    );
+  }
+
   return error.message.trim() || 'Trigora Cloud rejected the deployment request.';
 }
 
@@ -146,6 +159,8 @@ function formatTriggerLabel(flow: DeploymentManifestFlow): string {
   switch (flow.trigger.type) {
     case 'cron':
       return 'cron';
+    case 'queue':
+      return 'queue';
     case 'webhook':
       return flow.trigger.event ? `webhook:${flow.trigger.event}` : 'webhook';
   }
@@ -174,6 +189,8 @@ function getFlowStatus(
   switch (flow.trigger.type) {
     case 'cron':
       return 'Scheduled and active';
+    case 'queue':
+      return 'Bound and active';
     case 'webhook':
       return 'Ready to receive events';
   }
@@ -243,6 +260,15 @@ function formatDeploymentBlock(
           ? deployedFlow?.trigger === 'cron'
             ? deployedFlow.timezone
             : 'UTC'
+          : undefined,
+    },
+    {
+      label: 'Queue',
+      value:
+        flow.trigger.type === 'queue'
+          ? deployedFlow?.trigger === 'queue'
+            ? deployedFlow.queue
+            : flow.trigger.queue
           : undefined,
     },
   ] as const;

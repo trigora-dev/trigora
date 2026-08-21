@@ -1,5 +1,6 @@
-import type { JsonValue, ManualFlowDefinition } from '@trigora/contracts';
+import type { JsonValue, ManualFlowDefinition, QueueFlowDefinition } from '@trigora/contracts';
 import { createLocalContext } from '../lib/createLocalContext';
+import { createLocalQueueEvent } from '../lib/createLocalQueueEvent';
 import { colors } from '../lib/colors';
 import { loadJsonFile } from '../lib/loadJsonFile';
 import { loadFlowModule } from '../lib/loadFlowModule';
@@ -42,35 +43,47 @@ function printTriggerFailure(flowId: string, durationMs: number): void {
 export async function triggerCommand(options: TriggerOptions): Promise<void> {
   const loadedFlow = await loadFlowModule(options.filePath);
 
-  if (loadedFlow.trigger.type !== 'manual') {
+  if (loadedFlow.trigger.type !== 'manual' && loadedFlow.trigger.type !== 'queue') {
     throw new Error(
-      `Flow "${loadedFlow.id}" uses trigger "${loadedFlow.trigger.type}". trigora trigger only supports manual-triggered flows.`,
+      `Flow "${loadedFlow.id}" uses trigger "${loadedFlow.trigger.type}". trigora trigger supports manual- and queue-triggered flows.`,
     );
   }
 
-  const flow = loadedFlow as ManualFlowDefinition;
-  const ctx = createLocalContext(flow.id);
+  const ctx = createLocalContext(loadedFlow.id);
   const payload = await loadPayload(options.payloadPath);
 
-  const event = {
-    id: `evt_local_${Date.now()}`,
-    type: 'manual' as const,
-    timestamp: new Date().toISOString(),
-    payload,
-  };
-
-  printTriggerStart(flow.id);
+  printTriggerStart(loadedFlow.id);
 
   const startedAt = Date.now();
 
   try {
-    await flow.run(event, ctx);
+    if (loadedFlow.trigger.type === 'manual') {
+      const flow = loadedFlow as ManualFlowDefinition;
+      await flow.run(
+        {
+          id: `evt_local_${Date.now()}`,
+          type: 'manual',
+          timestamp: new Date().toISOString(),
+          payload,
+        },
+        ctx,
+      );
+    } else {
+      const flow = loadedFlow as QueueFlowDefinition;
+      await flow.run(
+        createLocalQueueEvent({
+          payload,
+          queue: flow.trigger.queue,
+        }),
+        ctx,
+      );
+    }
 
     const durationMs = Date.now() - startedAt;
-    printTriggerResult('Run complete', flow.id, durationMs);
+    printTriggerResult('Run complete', loadedFlow.id, durationMs);
   } catch (error) {
     const durationMs = Date.now() - startedAt;
-    printTriggerFailure(flow.id, durationMs);
+    printTriggerFailure(loadedFlow.id, durationMs);
 
     if (error instanceof Error) {
       console.error(error.message);

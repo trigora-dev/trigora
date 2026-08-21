@@ -67,6 +67,23 @@ describe('validateFlowModule', () => {
     expect(flow.run).toBe(run);
   });
 
+  it('returns a valid queue flow', () => {
+    const run = vi.fn();
+
+    const flow = validateFlowModule('flows/orders.ts', {
+      id: 'orders-processor',
+      trigger: { type: 'queue', queue: ' orders ' },
+      run,
+    });
+
+    expect(flow.id).toBe('orders-processor');
+    expect(flow.trigger).toEqual({
+      type: 'queue',
+      queue: 'orders',
+    });
+    expect(flow.run).toBe(run);
+  });
+
   it('throws when default export is undefined', () => {
     expect(() => {
       validateFlowModule('flows/hello.ts', undefined);
@@ -134,7 +151,7 @@ describe('validateFlowModule', () => {
         run: vi.fn(),
       });
     }).toThrow(
-      'Invalid flow in "flows/hello.ts": unsupported trigger type "unknown". Expected "manual", "webhook", or "cron".',
+      'Invalid flow in "flows/hello.ts": unsupported trigger type "unknown". Expected "manual", "webhook", "cron", or "queue".',
     );
   });
 
@@ -248,6 +265,18 @@ describe('validateFlowModule', () => {
       });
     }).toThrow(
       'Invalid flow in "flows/daily.ts": cron triggers require a non-empty "trigger.cron" string.',
+    );
+  });
+
+  it('throws when queue name is missing', () => {
+    expect(() => {
+      validateFlowModule('flows/orders.ts', {
+        id: 'orders-processor',
+        trigger: { type: 'queue' },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/orders.ts": queue triggers require a non-empty "trigger.queue" string.',
     );
   });
 });

@@ -6,6 +6,9 @@ import type {
   CreateDeploymentResponse,
   DeleteFlowResponse,
   DeleteFlowSecretResponse,
+  DeleteQueueResponse,
+  EnqueueQueueMessageRequest,
+  EnqueueQueueMessageResponse,
   FlowInvocationLogLevel,
   FlowInvocationLogRecord,
   FlowInvocationRecord,
@@ -20,28 +23,38 @@ import type {
   InvocationExecutionContext,
   ListFlowInvocationsQuery,
   ListInvocationsResponse,
+  ListQueuesResponse,
   ListSecretsQuery,
   ListSecretsResponse,
   ListFlowsResponse,
+  PurgeFailedQueueMessagesResponse,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
   WhoAmIResponse,
   WorkspacePlanStatus,
+  WorkspaceQueueRecord,
 } from '@trigora/contracts';
 
 export type DeployApiClient = {
   createDeployment(request: CreateDeploymentRequest): Promise<CreateDeploymentResponse>;
   deleteFlow(flowSlug: string): Promise<DeleteFlowResponse>;
   deleteFlowSecret(flowSlug: string, name: string): Promise<DeleteFlowSecretResponse>;
+  deleteQueue(queue: string): Promise<DeleteQueueResponse>;
   disableFlow(flowSlug: string): Promise<FlowStatusResponse['flow']>;
   enableFlow(flowSlug: string): Promise<FlowStatusResponse['flow']>;
+  enqueueQueueMessage(
+    queue: string,
+    request: EnqueueQueueMessageRequest,
+  ): Promise<EnqueueQueueMessageResponse>;
   getFlow(flowSlug: string): Promise<GetFlowResponse['flow']>;
   getInvocation(invocationId: string): Promise<GetInvocationResponse['invocation']>;
   listInvocations(
     query?: ListFlowInvocationsQuery,
   ): Promise<ListInvocationsResponse['invocations']>;
+  listQueues(): Promise<ListQueuesResponse['queues']>;
   listSecrets(query?: ListSecretsQuery): Promise<ListSecretsResponse['secrets']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
+  purgeFailedQueueMessages(queue: string): Promise<PurgeFailedQueueMessagesResponse>;
   setFlowSecret(
     flowSlug: string,
     request: Omit<SetFlowSecretRequest, 'flow'>,
@@ -100,7 +113,11 @@ function isApiErrorCode(value: unknown): value is ApiErrorCode {
     value === 'forbidden' ||
     value === 'internal_error' ||
     value === 'invalid_cron_expression' ||
+    value === 'invalid_queue_name' ||
     value === 'not_found' ||
+    value === 'queue_consumer_conflict' ||
+    value === 'queue_has_consumer' ||
+    value === 'queue_not_found' ||
     value === 'rate_limited' ||
     value === 'unauthorized'
   );
@@ -291,6 +308,18 @@ function isCronTrigger(value: unknown): value is { type: 'cron'; cron: string } 
   );
 }
 
+function isQueueTrigger(value: unknown): value is { type: 'queue'; queue: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'type' in value &&
+    value.type === 'queue' &&
+    'queue' in value &&
+    typeof value.queue === 'string' &&
+    value.queue.trim().length > 0
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -391,15 +420,22 @@ function normalizeFlowRecord(value: unknown): FlowRecord | undefined {
         timezone,
       };
     }
-    case 'queue':
+    case 'queue': {
+      const queue = getOptionalString(value.queue) ?? getOptionalString(value.topic);
+
+      if (!queue) {
+        return undefined;
+      }
+
       return {
         id,
         slug,
         trigger,
         status,
         createdAt,
-        queue: getOptionalString(value.queue) ?? getOptionalString(value.topic),
+        queue,
       };
+    }
   }
 }
 
@@ -561,16 +597,26 @@ function readFlowStatusResponse(payload: unknown): FlowStatusResponse | undefine
     };
   }
 
-  return {
-    ok: true,
-    flow: {
-      id: payload.flow.id,
-      slug: payload.flow.slug,
-      status: payload.flow.status,
-      trigger,
-      queue: getOptionalString(payload.flow.queue) ?? getOptionalString(payload.flow.topic),
-    },
-  };
+  if (trigger === 'queue') {
+    const queue = getOptionalString(payload.flow.queue) ?? getOptionalString(payload.flow.topic);
+
+    if (!queue) {
+      return undefined;
+    }
+
+    return {
+      ok: true,
+      flow: {
+        id: payload.flow.id,
+        slug: payload.flow.slug,
+        status: payload.flow.status,
+        trigger,
+        queue,
+      },
+    };
+  }
+
+  return undefined;
 }
 
 function normalizeFlowSecretRecord(
@@ -656,6 +702,105 @@ function readDeleteFlowResponse(payload: unknown): DeleteFlowResponse | undefine
 
   return {
     deleted: true,
+  };
+}
+
+function normalizeWorkspaceQueueRecord(value: unknown): WorkspaceQueueRecord | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  const id = getOptionalString(value.id);
+  const name = getOptionalString(value.name);
+  const consumerFlowSlug = getNullableString(value.consumerFlowSlug);
+  const concurrency = typeof value.concurrency === 'number' ? value.concurrency : undefined;
+  const pendingCount = typeof value.pendingCount === 'number' ? value.pendingCount : undefined;
+  const processingCount =
+    typeof value.processingCount === 'number' ? value.processingCount : undefined;
+  const failedCount = typeof value.failedCount === 'number' ? value.failedCount : undefined;
+  const createdAt = getOptionalString(value.createdAt);
+  const updatedAt = getOptionalString(value.updatedAt);
+
+  if (
+    !id ||
+    !name ||
+    consumerFlowSlug === undefined ||
+    concurrency === undefined ||
+    pendingCount === undefined ||
+    processingCount === undefined ||
+    failedCount === undefined ||
+    !createdAt ||
+    !updatedAt
+  ) {
+    return undefined;
+  }
+
+  return {
+    id,
+    name,
+    consumerFlowSlug,
+    concurrency,
+    pendingCount,
+    processingCount,
+    failedCount,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function readListQueuesResponse(payload: unknown): ListQueuesResponse | undefined {
+  if (!isRecord(payload) || !Array.isArray(payload.queues)) {
+    return undefined;
+  }
+
+  const queues = payload.queues.map((value) => normalizeWorkspaceQueueRecord(value));
+
+  if (!queues.every((queue): queue is WorkspaceQueueRecord => Boolean(queue))) {
+    return undefined;
+  }
+
+  return { queues };
+}
+
+function readEnqueueQueueMessageResponse(
+  payload: unknown,
+): EnqueueQueueMessageResponse | undefined {
+  if (
+    !isRecord(payload) ||
+    typeof payload.id !== 'string' ||
+    typeof payload.queue !== 'string' ||
+    typeof payload.enqueuedAt !== 'string'
+  ) {
+    return undefined;
+  }
+
+  return {
+    id: payload.id,
+    queue: payload.queue,
+    enqueuedAt: payload.enqueuedAt,
+  };
+}
+
+function readPurgeFailedQueueMessagesResponse(
+  payload: unknown,
+): PurgeFailedQueueMessagesResponse | undefined {
+  if (!isRecord(payload) || typeof payload.purged !== 'number') {
+    return undefined;
+  }
+
+  return {
+    purged: payload.purged,
+  };
+}
+
+function readDeleteQueueResponse(payload: unknown): DeleteQueueResponse | undefined {
+  if (!isRecord(payload) || payload.deleted !== true || typeof payload.name !== 'string') {
+    return undefined;
+  }
+
+  return {
+    deleted: true,
+    name: payload.name,
   };
 }
 
@@ -789,6 +934,19 @@ function normalizeInvocationExecutionTrigger(
       : undefined;
   }
 
+  if (value.type === 'queue') {
+    const queue = getOptionalString(value.queue);
+    const messageId = getOptionalString(value.messageId);
+
+    return queue && messageId
+      ? {
+          type: 'queue',
+          queue,
+          messageId,
+        }
+      : undefined;
+  }
+
   return undefined;
 }
 
@@ -898,7 +1056,9 @@ function isDeploymentFlow(
     return false;
   }
 
-  return isWebhookTrigger(value.trigger) || isCronTrigger(value.trigger);
+  return (
+    isWebhookTrigger(value.trigger) || isCronTrigger(value.trigger) || isQueueTrigger(value.trigger)
+  );
 }
 
 function isDeploymentFlowResponse(value: unknown): value is CreateDeploymentResponse['flow'] {
@@ -931,6 +1091,16 @@ function isDeploymentFlowResponse(value: unknown): value is CreateDeploymentResp
       typeof value.schedule === 'string' &&
       'timezone' in value &&
       value.timezone === 'UTC' &&
+      'url' in value &&
+      value.url === null
+    );
+  }
+
+  if (value.trigger === 'queue') {
+    return (
+      'queue' in value &&
+      typeof value.queue === 'string' &&
+      value.queue.trim().length > 0 &&
       'url' in value &&
       value.url === null
     );
@@ -1374,6 +1544,130 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       }
 
       return deleteSecretResponse;
+    },
+    async listQueues() {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/queues`, {
+          method: 'GET',
+          headers: createAuthorizedHeaders(),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const listQueuesResponse = readListQueuesResponse(payload);
+
+      if (!listQueuesResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return listQueuesResponse.queues;
+    },
+    async enqueueQueueMessage(queue, request) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/queues/${encodeURIComponent(queue)}/messages`, {
+          method: 'POST',
+          headers: createAuthorizedHeaders(true),
+          body: JSON.stringify(request),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const enqueueResponse = readEnqueueQueueMessageResponse(payload);
+
+      if (!enqueueResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return enqueueResponse;
+    },
+    async purgeFailedQueueMessages(queue) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/v1/queues/${encodeURIComponent(queue)}/purge-failed`,
+          {
+            method: 'POST',
+            headers: createAuthorizedHeaders(),
+          },
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const purgeResponse = readPurgeFailedQueueMessagesResponse(payload);
+
+      if (!purgeResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return purgeResponse;
+    },
+    async deleteQueue(queue) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(`${baseUrl}/v1/queues/${encodeURIComponent(queue)}`, {
+          method: 'DELETE',
+          headers: createAuthorizedHeaders(),
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const deleteQueueResponse = readDeleteQueueResponse(payload);
+
+      if (!deleteQueueResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return deleteQueueResponse;
     },
   };
 }

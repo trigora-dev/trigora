@@ -12,6 +12,12 @@ import {
   inspectFlowCommand,
   listFlowsCommand,
 } from './commands/flows';
+import {
+  deleteQueueCommand,
+  enqueueQueueCommand,
+  listQueuesCommand,
+  purgeFailedQueueCommand,
+} from './commands/queues';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
 import { resolveDefaultDevFlowPath } from './lib/resolveDefaultDevFlowPath';
@@ -20,7 +26,7 @@ import { resolveFlowPath } from './lib/resolveFlowPath';
 export function createProgram(): Command {
   const program = new Command();
 
-  program.name('trigora').description('Run code when things happen').version('0.1.0');
+  program.name('trigora').description('Run code when things happen').version('0.8.0');
 
   program
     .command('init')
@@ -111,6 +117,45 @@ export function createProgram(): Command {
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (flow, options) => {
       await deleteFlowCommand(flow, { yes: options.yes });
+    });
+
+  const queuesCommand = program.command('queues').description('Manage workspace queues');
+
+  queuesCommand.action(async () => {
+    await listQueuesCommand();
+  });
+
+  queuesCommand
+    .command('enqueue')
+    .argument('<queue>', 'Workspace queue name')
+    .option('-p, --payload <path>', 'Path to JSON payload file')
+    .action(async (queue, options) => {
+      await enqueueQueueCommand({
+        queue,
+        payloadPath: options.payload,
+      });
+    });
+
+  queuesCommand
+    .command('purge-failed')
+    .argument('<queue>', 'Workspace queue name')
+    .option('-y, --yes', 'Skip confirmation prompt')
+    .action(async (queue, options) => {
+      await purgeFailedQueueCommand({
+        queue,
+        yes: options.yes,
+      });
+    });
+
+  queuesCommand
+    .command('delete')
+    .argument('<queue>', 'Workspace queue name')
+    .option('-y, --yes', 'Skip confirmation prompt')
+    .action(async (queue, options) => {
+      await deleteQueueCommand({
+        queue,
+        yes: options.yes,
+      });
     });
 
   const secretsCommand = program
