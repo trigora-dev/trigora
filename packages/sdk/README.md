@@ -119,6 +119,28 @@ export default defineFlow({
 });
 ```
 
+### Queue
+
+Use queue triggers to consume workspace-scoped queue messages. Deploy auto-provisions and binds the named queue to the flow.
+
+```ts
+import { defineFlow } from '@trigora/sdk';
+
+export default defineFlow({
+  id: 'process-image',
+  trigger: { type: 'queue', queue: 'image-processing' },
+  async run(event, ctx) {
+    await ctx.log.info('Processing message', {
+      queue: event.queue,
+      messageId: event.messageId,
+      payload: event.payload,
+    });
+  },
+});
+```
+
+Locally, `trigora trigger` and `trigora dev` invoke queue flows with a synthetic `QueueFlowEvent` (`messageId` starts with `local_`). Hosted runs use the real message id.
+
 ## Return Types
 
 Return values are trigger-aware.
@@ -152,14 +174,15 @@ export default defineFlow({
 });
 ```
 
-### Manual and cron flows
+### Manual, cron, and queue flows
 
-Manual and cron flows do not use return values. Their `run` functions are typed as `void`.
+Manual, cron, and queue flows do not use return values. Their `run` functions are typed as `void`.
 
 This matches how Trigora uses them:
 
 - manual flows are invoked locally for testing and development
 - cron flows are background-style scheduled jobs
+- queue flows consume workspace queue messages
 - webhook flows are request-response flows
 
 ## Event Shape

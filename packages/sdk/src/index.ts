@@ -9,6 +9,7 @@ export type {
   FlowRunFn,
   JsonValue,
   ManualFlowEvent,
+  QueueFlowEvent,
   Trigger,
   WebhookFlowEvent,
   WebhookFlowResult,

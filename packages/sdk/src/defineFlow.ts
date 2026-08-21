@@ -6,6 +6,8 @@ import type {
   JsonValue,
   ManualFlowDefinition,
   ManualTrigger,
+  QueueFlowDefinition,
+  QueueTrigger,
   Trigger,
   WebhookTrigger,
   WebhookFlowDefinition,
@@ -21,7 +23,9 @@ type DefineFlowInput<TPayload, TEnv extends Record<string, string>, TTrigger ext
       ? FlowRunFn<TPayload, TEnv, WebhookTrigger>
       : TTrigger extends CronTrigger
         ? FlowRunFn<CronEventPayload, TEnv, CronTrigger>
-        : never;
+        : TTrigger extends QueueTrigger
+          ? FlowRunFn<TPayload, TEnv, QueueTrigger>
+          : never;
 };
 
 type DefineFlowOutput<
@@ -34,7 +38,9 @@ type DefineFlowOutput<
     ? WebhookFlowDefinition<TPayload, TEnv>
     : TTrigger extends CronTrigger
       ? CronFlowDefinition<TEnv>
-      : FlowDefinition<TPayload, TEnv, TTrigger>;
+      : TTrigger extends QueueTrigger
+        ? QueueFlowDefinition<TPayload, TEnv>
+        : FlowDefinition<TPayload, TEnv, TTrigger>;
 
 /**
  * Define a Trigora flow.
@@ -89,6 +95,11 @@ export function defineFlow<
 export function defineFlow<TEnv extends Record<string, string> = Record<string, string>>(
   flow: CronFlowDefinition<TEnv>,
 ): CronFlowDefinition<TEnv>;
+
+export function defineFlow<
+  TPayload = JsonValue,
+  TEnv extends Record<string, string> = Record<string, string>,
+>(flow: QueueFlowDefinition<TPayload, TEnv>): QueueFlowDefinition<TPayload, TEnv>;
 
 export function defineFlow(flow: unknown): unknown {
   return flow;

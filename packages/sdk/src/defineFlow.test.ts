@@ -2,6 +2,7 @@ import type {
   CronTrigger,
   ManualFlowDefinition,
   ManualTrigger,
+  QueueTrigger,
   WebhookTrigger,
 } from '@trigora/contracts';
 import { describe, expect, it, vi } from 'vitest';
@@ -51,11 +52,19 @@ const invalidCronTrigger: CronTrigger = {
   event: 'orders.created',
 };
 
+const invalidQueueTrigger: QueueTrigger = {
+  type: 'queue',
+  queue: 'orders',
+  // @ts-expect-error queue triggers must not accept webhook-only fields
+  event: 'orders.created',
+};
+
 void invalidWebhookTrigger;
 void invalidWebhookRouteTrigger;
 void invalidManualTrigger;
 void invalidManualReturnFlow;
 void invalidCronTrigger;
+void invalidQueueTrigger;
 
 void defineFlow({
   id: 'valid-webhook-inference-flow',
@@ -92,6 +101,20 @@ void defineFlow({
   },
 });
 
+void defineFlow<{ orderId: string }>({
+  id: 'valid-queue-flow',
+  trigger: { type: 'queue', queue: 'orders' },
+  async run(event, ctx) {
+    const orderId: string = event.payload.orderId;
+    const queue: string = event.queue;
+    const messageId: string = event.messageId;
+    void orderId;
+    void queue;
+    void messageId;
+    await ctx.log.info('Processing queue message');
+  },
+});
+
 void defineFlow({
   id: 'valid-webhook-request-flow',
   trigger: { type: 'webhook' },
@@ -118,6 +141,16 @@ void defineFlow({
   trigger: { type: 'cron', cron: '0 2 * * *' },
   async run(event) {
     // @ts-expect-error cron flows do not receive request metadata
+    const headers = event.request?.headers;
+    void headers;
+  },
+});
+
+void defineFlow({
+  id: 'invalid-queue-request-flow',
+  trigger: { type: 'queue', queue: 'orders' },
+  async run(event) {
+    // @ts-expect-error queue flows do not receive request metadata
     const headers = event.request?.headers;
     void headers;
   },
@@ -243,5 +276,39 @@ describe('defineFlow', () => {
     ).resolves.toBeUndefined();
 
     expect(run).toHaveBeenCalledOnce();
+  });
+
+  it('allows queue flows to run without returning a response body', async () => {
+    const run = vi.fn(async () => undefined);
+
+    const flow = defineFlow({
+      id: 'queue-flow',
+      trigger: { type: 'queue', queue: 'orders' },
+      run,
+    });
+
+    await expect(
+      flow.run(
+        {
+          id: 'evt_4',
+          type: 'queue',
+          timestamp: new Date().toISOString(),
+          payload: { orderId: 'ord_1' },
+          queue: 'orders',
+          messageId: 'msg_123',
+        },
+        {
+          env: {},
+          log: {
+            info: () => undefined,
+            warn: () => undefined,
+            error: () => undefined,
+          },
+        },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(flow.trigger.queue).toBe('orders');
   });
 });
