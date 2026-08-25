@@ -62,13 +62,18 @@ These contracts define the core shape of Trigora flows:
 - `ManualTrigger`
 - `WebhookTrigger`
 - `CronTrigger`
+- `QueueTrigger`
+- `RetryPolicy`
 - `Trigger`
 - `FlowDefinition`
 - `FlowRunFn`
 - `FlowEvent`
+- `QueueFlowEvent`
 - `FlowContext`
 - `JsonValue`
 - `WebhookFlowResult`
+
+Optional `retry` on flow definitions configures queue retries (`attempts` 1–20, `backoff: 'exponential'`). Queue events include `attempt` and `maxAttempts`.
 
 For webhook flows, `FlowEvent` can also include `request` metadata with headers, method, URL, and `rawBody` in addition to the parsed `payload`.
 

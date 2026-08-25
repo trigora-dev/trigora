@@ -43,4 +43,12 @@ export type QueueFlowEvent<TPayload = JsonValue> = BaseFlowEvent<'queue'> & {
   payload: TPayload;
   queue: string;
   messageId: string;
+  /**
+   * 1-based delivery attempt count for this message.
+   */
+  attempt: number;
+  /**
+   * Maximum attempts from the flow retry policy, or `1` when retry is omitted.
+   */
+  maxAttempts: number;
 };

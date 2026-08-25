@@ -72,10 +72,14 @@ describe('Event contract types', () => {
       payload: { orderId: 'ord_1' },
       queue: 'orders',
       messageId: 'msg_123',
+      attempt: 2,
+      maxAttempts: 5,
     };
 
     expect(event.queue).toBe('orders');
     expect(event.messageId).toBe('msg_123');
+    expect(event.attempt).toBe(2);
+    expect(event.maxAttempts).toBe(5);
     expect(event.payload.orderId).toBe('ord_1');
     expect('request' in event).toBe(false);
   });

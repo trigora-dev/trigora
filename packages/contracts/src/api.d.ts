@@ -1,4 +1,5 @@
 import type { JsonValue } from './flow';
+import type { RetryPolicy } from './retry';
 export type ApiErrorCode =
   | 'bad_request'
   | 'conflict'
@@ -7,6 +8,9 @@ export type ApiErrorCode =
   | 'internal_error'
   | 'invalid_cron_expression'
   | 'invalid_queue_name'
+  | 'invocation_not_retryable'
+  | 'message_not_failed'
+  | 'message_not_found'
   | 'not_found'
   | 'queue_consumer_conflict'
   | 'queue_has_consumer'
@@ -49,6 +53,11 @@ export type CronFlowRecord = BaseFlowRecord & {
 export type QueueFlowRecord = BaseFlowRecord & {
   queue: string;
   trigger: 'queue';
+  /**
+   * Present when the API serializes retry policy for queue flows.
+   * Currently optional/nullable; not always returned by GET /v1/flows.
+   */
+  retry?: RetryPolicy | null;
 };
 export type FlowRecord = WebhookFlowRecord | CronFlowRecord | QueueFlowRecord;
 export type ListFlowsResponse = {
@@ -281,6 +290,9 @@ export type ListSecretsResponse = {
     }
   >;
 };
+export type ListSecretsQuery = {
+  flow?: string;
+};
 export type SetFlowSecretRequest = {
   flow: string;
   name: string;
@@ -316,6 +328,7 @@ export type FlowInvocationLogRecord = {
 };
 export type InvocationExecutionContext = {
   attempt: number | null;
+  maxAttempts: number | null;
   deploymentId: string;
   flowSlug: string;
   invocationId: string;
@@ -387,6 +400,16 @@ export type EnqueueQueueMessageResponse = {
 export type PurgeFailedQueueMessagesResponse = {
   purged: number;
 };
+export type RetryQueueMessageResponse = {
+  retried: true;
+  id: string;
+  queue: string;
+  attempt: number;
+};
+export type RetryFailedQueueMessagesResponse = {
+  retried: number;
+};
+export type RetryInvocationResponse = RetryQueueMessageResponse;
 export type DeleteQueueResponse = {
   deleted: true;
   name: string;

@@ -7,6 +7,7 @@ import type {
   QueueFlowEvent,
   WebhookFlowEvent,
 } from './event';
+import type { RetryPolicy } from './retry';
 import type { CronTrigger, ManualTrigger, QueueTrigger, Trigger, WebhookTrigger } from './trigger';
 export type JsonObject = {
   [key: string]: JsonValue | undefined;
@@ -49,6 +50,11 @@ type BaseFlowDefinition = {
    * Source identifier for the flow in your project.
    */
   id: string;
+  /**
+   * Optional retry policy. Omitted means a single attempt.
+   * `attempts > 1` is supported for queue flows only.
+   */
+  retry?: RetryPolicy;
 };
 export type ManualFlowDefinition<
   TPayload = JsonValue,

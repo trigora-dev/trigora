@@ -36,6 +36,9 @@ import type {
   ListWorkspacesResponse,
   PurgeFailedQueueMessagesResponse,
   QueueFlowRecord,
+  RetryFailedQueueMessagesResponse,
+  RetryInvocationResponse,
+  RetryQueueMessageResponse,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
   UpdateWorkspaceRequest,
@@ -103,6 +106,7 @@ describe('API contract types', () => {
       status: 'disabled',
       createdAt: '2026-04-21T12:00:00.000Z',
       queue: 'orders',
+      retry: { attempts: 5, backoff: 'exponential' },
     };
 
     const response: ListFlowsResponse = {
@@ -301,6 +305,7 @@ describe('API contract types', () => {
     };
     const executionContext: InvocationExecutionContext = {
       attempt: 1,
+      maxAttempts: 1,
       deploymentId: 'dep_123',
       flowSlug: 'stripe-checkout',
       invocationId: invocation.id,
@@ -530,6 +535,24 @@ describe('API contract types', () => {
       purged: 1,
     };
 
+    const retryMessageResponse: RetryQueueMessageResponse = {
+      retried: true,
+      id: 'msg_123',
+      queue: 'orders',
+      attempt: 2,
+    };
+
+    const retryFailedResponse: RetryFailedQueueMessagesResponse = {
+      retried: 3,
+    };
+
+    const retryInvocationResponse: RetryInvocationResponse = {
+      retried: true,
+      id: 'msg_123',
+      queue: 'orders',
+      attempt: 2,
+    };
+
     const queueError: ApiErrorResponse = {
       error: {
         code: 'queue_consumer_conflict',
@@ -537,8 +560,30 @@ describe('API contract types', () => {
       },
     };
 
+    const retryErrors: ApiErrorResponse[] = [
+      {
+        error: {
+          code: 'message_not_found',
+          message: 'Queue message not found.',
+        },
+      },
+      {
+        error: {
+          code: 'message_not_failed',
+          message: 'Queue message is not failed.',
+        },
+      },
+      {
+        error: {
+          code: 'invocation_not_retryable',
+          message: 'Invocation cannot be retried.',
+        },
+      },
+    ];
+
     const executionContext: InvocationExecutionContext = {
       attempt: 1,
+      maxAttempts: 5,
       deploymentId: 'dep_789',
       flowSlug: 'orders-processor',
       invocationId: 'inv_789',
@@ -555,7 +600,17 @@ describe('API contract types', () => {
     expect(enqueueRequest.payload).toEqual({ orderId: 'ord_1' });
     expect(enqueueResponse.id).toBe('msg_123');
     expect(purgeResponse.purged).toBe(1);
+    expect(retryMessageResponse.attempt).toBe(2);
+    expect(retryFailedResponse.retried).toBe(3);
+    expect(retryInvocationResponse.retried).toBe(true);
     expect(queueError.error.code).toBe('queue_consumer_conflict');
+    expect(retryErrors.map((entry) => entry.error.code)).toEqual([
+      'message_not_found',
+      'message_not_failed',
+      'invocation_not_retryable',
+    ]);
+    expect(executionContext.attempt).toBe(1);
+    expect(executionContext.maxAttempts).toBe(5);
     expect(executionContext.trigger.type).toBe('queue');
     if (executionContext.trigger.type !== 'queue') {
       throw new Error('Expected queue execution context');

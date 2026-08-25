@@ -180,6 +180,7 @@ describe('Deployment types', () => {
         id: 'orders-processor',
         entrypoint: 'flows/orders-processor.ts',
         trigger: { type: 'queue', queue: 'orders' },
+        retry: { attempts: 5, backoff: 'exponential' },
       },
     };
 
@@ -206,6 +207,8 @@ describe('Deployment types', () => {
       throw new Error('Expected queue manifest flow');
     }
     expect(manifest.flow.trigger.queue).toBe('orders');
+    expect(manifest.flow.retry?.attempts).toBe(5);
+    expect(manifest.flow.retry?.backoff).toBe('exponential');
     expect(response.flow.trigger).toBe('queue');
     if (response.flow.trigger !== 'queue') {
       throw new Error('Expected queue deployed flow');

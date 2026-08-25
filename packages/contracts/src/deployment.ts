@@ -1,10 +1,12 @@
 import type { CronTrigger, QueueTrigger, WebhookTrigger } from './trigger';
 import type { WorkspacePlan } from './api';
+import type { RetryPolicy } from './retry';
 
 export type DeploymentManifestFlow = {
   entrypoint: string;
   id: string;
   trigger: WebhookTrigger | CronTrigger | QueueTrigger;
+  retry?: RetryPolicy;
 };
 
 export type DeploymentManifest = {
