@@ -38,8 +38,8 @@ importers:
   packages/cli:
     dependencies:
       '@trigora/contracts':
-        specifier: 0.8.1
-        version: 0.8.1
+        specifier: ^0.9.0
+        version: 0.9.0
       commander:
         specifier: ^14.0.3
         version: 14.0.3
@@ -69,8 +69,8 @@ importers:
   packages/sdk:
     dependencies:
       '@trigora/contracts':
-        specifier: 0.8.1
-        version: 0.8.1
+        specifier: ^0.9.0
+        version: 0.9.0
     devDependencies:
       tsup:
         specifier: ^8.5.1
@@ -852,10 +852,10 @@ packages:
         integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==,
       }
 
-  '@trigora/contracts@0.8.1':
+  '@trigora/contracts@0.9.0':
     resolution:
       {
-        integrity: sha512-4DrJg5O2Gh5VPvuixoqxsSdkD7t+xhnM6P1YopLgAfu7vK1Keoj2AUP4tYX1jUhyPdMs7StBP/uYeQQ6HwIn/A==,
+        integrity: sha512-RzDKmek1yRo3BaVeQXp5JkkMEr//7kggByfQho/3bO2yaoUkuXc6c6aSXG7utxbVMeSgX55D43OZhAvpwIP51g==,
       }
 
   '@turbo/darwin-64@2.9.5':
@@ -1824,10 +1824,10 @@ packages:
       }
     engines: { node: '>=12' }
 
-  picomatch@4.0.5:
+  picomatch@4.0.7:
     resolution:
       {
-        integrity: sha512-RvwwcruNjI1ncT5xRakeyS9Lf8lcItv34KD+aif+VH9kduAyfYBipGh12274xtenIPZ119/R9BdTBa8gAwSh0A==,
+        integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==,
       }
     engines: { node: '>=12' }
 
@@ -2572,7 +2572,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@trigora/contracts@0.8.1': {}
+  '@trigora/contracts@0.9.0': {}
 
   '@turbo/darwin-64@2.9.5':
     optional: true
@@ -2941,9 +2941,9 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.4
 
-  fdir@6.5.0(picomatch@4.0.5):
+  fdir@6.5.0(picomatch@4.0.7):
     optionalDependencies:
-      picomatch: 4.0.5
+      picomatch: 4.0.7
 
   file-entry-cache@8.0.0:
     dependencies:
@@ -3155,7 +3155,7 @@ snapshots:
 
   picomatch@4.0.4: {}
 
-  picomatch@4.0.5: {}
+  picomatch@4.0.7: {}
 
   pirates@4.0.7: {}
 
@@ -3295,8 +3295,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.5)
-      picomatch: 4.0.5
+      fdir: 6.5.0(picomatch@4.0.7)
+      picomatch: 4.0.7
 
   tinyrainbow@3.1.0: {}
 
@@ -3372,7 +3372,7 @@ snapshots:
   vite@8.0.7(@types/node@25.5.2)(esbuild@0.27.7)(tsx@4.21.0):
     dependencies:
       lightningcss: 1.33.0
-      picomatch: 4.0.5
+      picomatch: 4.0.7
       postcss: 8.5.26
       rolldown: 1.0.0-rc.13
       tinyglobby: 0.2.17
