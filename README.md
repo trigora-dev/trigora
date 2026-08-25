@@ -106,10 +106,13 @@ import { defineFlow } from '@trigora/sdk';
 export default defineFlow({
   id: 'process-image',
   trigger: { type: 'queue', queue: 'image-processing' },
+  retry: { attempts: 5, backoff: 'exponential' },
   async run(event, ctx) {
     await ctx.log.info('Processing message', {
       queue: event.queue,
       messageId: event.messageId,
+      attempt: event.attempt,
+      maxAttempts: event.maxAttempts,
       payload: event.payload,
     });
   },
