@@ -73,6 +73,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listSecrets: vi.fn(),
     enqueueQueueMessage: vi.fn(),
     purgeFailedQueueMessages: vi.fn(),
+    retryFailedQueueMessages: vi.fn(),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
     disableFlow: vi.fn().mockResolvedValue({

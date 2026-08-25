@@ -8,6 +8,7 @@ import {
   enqueueQueueCommand,
   listQueuesCommand,
   purgeFailedQueueCommand,
+  retryFailedQueueCommand,
 } from './queues';
 
 vi.mock('../lib/createDeployApiClient', async () => {
@@ -70,6 +71,9 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     purgeFailedQueueMessages: vi.fn().mockResolvedValue({
       purged: 3,
     }),
+    retryFailedQueueMessages: vi.fn().mockResolvedValue({
+      retried: 3,
+    }),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
     ...overrides,
@@ -129,6 +133,19 @@ describe('queues commands', () => {
     expect(mockedConfirmAction).not.toHaveBeenCalled();
     expect(apiClient.purgeFailedQueueMessages).toHaveBeenCalledWith('orders');
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Purged 3 failed messages/));
+  });
+
+  it('retries failed messages without prompting when --yes is used', async () => {
+    const apiClient = createMockApiClient();
+    mockedCreateDeployApiClient.mockReturnValue(apiClient);
+
+    await expect(retryFailedQueueCommand({ queue: 'orders', yes: true })).resolves.toEqual({
+      retried: 3,
+    });
+
+    expect(mockedConfirmAction).not.toHaveBeenCalled();
+    expect(apiClient.retryFailedQueueMessages).toHaveBeenCalledWith('orders');
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Retried 3 failed messages/));
   });
 
   it('deletes a queue without prompting when --yes is used', async () => {

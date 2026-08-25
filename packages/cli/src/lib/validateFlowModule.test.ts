@@ -82,6 +82,72 @@ describe('validateFlowModule', () => {
       queue: 'orders',
     });
     expect(flow.run).toBe(run);
+    expect(flow.retry).toBeUndefined();
+  });
+
+  it('returns a queue flow with a retry policy', () => {
+    const run = vi.fn();
+
+    const flow = validateFlowModule('flows/orders.ts', {
+      id: 'orders-processor',
+      trigger: { type: 'queue', queue: 'orders' },
+      retry: { attempts: 5, backoff: 'exponential' },
+      run,
+    });
+
+    expect(flow.retry).toEqual({ attempts: 5, backoff: 'exponential' });
+  });
+
+  it('allows attempts: 1 retry on webhook flows', () => {
+    const run = vi.fn();
+
+    const flow = validateFlowModule('flows/payment.ts', {
+      id: 'payment',
+      trigger: { type: 'webhook' },
+      retry: { attempts: 1, backoff: 'exponential' },
+      run,
+    });
+
+    expect(flow.retry).toEqual({ attempts: 1, backoff: 'exponential' });
+  });
+
+  it('throws when retry attempts is out of range', () => {
+    expect(() => {
+      validateFlowModule('flows/orders.ts', {
+        id: 'orders-processor',
+        trigger: { type: 'queue', queue: 'orders' },
+        retry: { attempts: 21, backoff: 'exponential' },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/orders.ts": "retry.attempts" must be an integer between 1 and 20.',
+    );
+  });
+
+  it('throws when retry backoff is not exponential', () => {
+    expect(() => {
+      validateFlowModule('flows/orders.ts', {
+        id: 'orders-processor',
+        trigger: { type: 'queue', queue: 'orders' },
+        retry: { attempts: 3, backoff: 'linear' },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/orders.ts": "retry.backoff" must be "exponential" when provided.',
+    );
+  });
+
+  it('throws when attempts greater than 1 is used on non-queue flows', () => {
+    expect(() => {
+      validateFlowModule('flows/payment.ts', {
+        id: 'payment',
+        trigger: { type: 'webhook' },
+        retry: { attempts: 3, backoff: 'exponential' },
+        run: vi.fn(),
+      });
+    }).toThrow(
+      'Invalid flow in "flows/payment.ts": "retry.attempts" greater than 1 is only supported for queue flows.',
+    );
   });
 
   it('throws when default export is undefined', () => {

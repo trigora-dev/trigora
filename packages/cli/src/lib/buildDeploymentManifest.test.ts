@@ -204,6 +204,7 @@ describe('buildDeploymentManifest', () => {
         export default {
           id: 'orders-processor',
           trigger: { type: 'queue', queue: 'orders' },
+          retry: { attempts: 5, backoff: 'exponential' },
           async run() {}
         };
       `,
@@ -222,6 +223,7 @@ describe('buildDeploymentManifest', () => {
         id: 'orders-processor',
         entrypoint: 'flows/orders.ts',
         trigger: { type: 'queue', queue: 'orders' },
+        retry: { attempts: 5, backoff: 'exponential' },
       },
     });
   });

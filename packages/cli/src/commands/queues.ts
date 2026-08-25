@@ -3,6 +3,7 @@ import type {
   EnqueueQueueMessageResponse,
   JsonValue,
   PurgeFailedQueueMessagesResponse,
+  RetryFailedQueueMessagesResponse,
   WorkspaceQueueRecord,
 } from '@trigora/contracts';
 import { createDeployApiClient } from '../lib/createDeployApiClient';
@@ -13,6 +14,7 @@ import {
   printDeletingQueue,
   printEnqueuingMessage,
   printFailedMessagesPurged,
+  printFailedMessagesRetried,
   printMessageEnqueued,
   printNoQueuesFound,
   printPurgingFailedMessages,
@@ -20,6 +22,8 @@ import {
   printQueueDeleted,
   printQueueDeletionCanceled,
   printQueuesList,
+  printRetryCanceled,
+  printRetryingFailedMessages,
   queueSteps,
   toQueuesApiFailure,
   toQueuesTokenFailure,
@@ -31,6 +35,11 @@ type EnqueueQueueOptions = {
 };
 
 type PurgeFailedQueueOptions = {
+  queue: string;
+  yes?: boolean;
+};
+
+type RetryFailedQueueOptions = {
   queue: string;
   yes?: boolean;
 };
@@ -121,6 +130,31 @@ export async function purgeFailedQueueCommand(
   });
 
   printFailedMessagesPurged(options.queue, response.purged);
+
+  return response;
+}
+
+export async function retryFailedQueueCommand(
+  options: RetryFailedQueueOptions,
+): Promise<RetryFailedQueueMessagesResponse | null> {
+  const apiClient = createQueuesApiClient();
+
+  if (!options.yes) {
+    const confirmed = await confirmAction(`Retry failed messages in queue "${options.queue}"?`);
+
+    if (!confirmed) {
+      printRetryCanceled(options.queue);
+      return null;
+    }
+  }
+
+  printRetryingFailedMessages(options.queue);
+
+  const response = await apiClient.retryFailedQueueMessages(options.queue).catch((error) => {
+    throw toQueuesApiFailure(error, queueSteps.retryingFailedMessages);
+  });
+
+  printFailedMessagesRetried(options.queue, response.retried);
 
   return response;
 }

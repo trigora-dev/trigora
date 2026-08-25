@@ -1,4 +1,4 @@
-import type { FlowDefinition, Trigger } from '@trigora/contracts';
+import type { FlowDefinition, RetryPolicy, Trigger } from '@trigora/contracts';
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -30,6 +30,48 @@ function normalizeWebhookRoute(route: string, filePath: string): `/${string}` {
   }
 
   return normalizedRoute as `/${string}`;
+}
+
+function validateRetry(
+  retry: unknown,
+  trigger: Trigger,
+  filePath: string,
+): RetryPolicy | undefined {
+  if (retry === undefined) {
+    return undefined;
+  }
+
+  if (!isObject(retry)) {
+    throw new Error(`Invalid flow in "${filePath}": "retry" must be an object when provided.`);
+  }
+
+  if (
+    typeof retry.attempts !== 'number' ||
+    !Number.isInteger(retry.attempts) ||
+    retry.attempts < 1 ||
+    retry.attempts > 20
+  ) {
+    throw new Error(
+      `Invalid flow in "${filePath}": "retry.attempts" must be an integer between 1 and 20.`,
+    );
+  }
+
+  if (retry.backoff !== 'exponential') {
+    throw new Error(
+      `Invalid flow in "${filePath}": "retry.backoff" must be "exponential" when provided.`,
+    );
+  }
+
+  if (retry.attempts > 1 && trigger.type !== 'queue') {
+    throw new Error(
+      `Invalid flow in "${filePath}": "retry.attempts" greater than 1 is only supported for queue flows.`,
+    );
+  }
+
+  return {
+    attempts: retry.attempts,
+    backoff: 'exponential',
+  };
 }
 
 function validateTrigger(trigger: unknown, filePath: string): Trigger {
@@ -119,30 +161,35 @@ export function validateFlowModule(filePath: string, value: unknown): FlowDefini
   }
 
   const trigger = validateTrigger(value.trigger, filePath);
+  const retry = validateRetry(value.retry, trigger, filePath);
 
   switch (trigger.type) {
     case 'manual':
       return {
         id: value.id,
         trigger,
+        ...(retry ? { retry } : {}),
         run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
       };
     case 'webhook':
       return {
         id: value.id,
         trigger,
+        ...(retry ? { retry } : {}),
         run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
       };
     case 'cron':
       return {
         id: value.id,
         trigger,
+        ...(retry ? { retry } : {}),
         run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
       };
     case 'queue':
       return {
         id: value.id,
         trigger,
+        ...(retry ? { retry } : {}),
         run: value.run as FlowDefinition<unknown, Record<string, string>, typeof trigger>['run'],
       };
   }

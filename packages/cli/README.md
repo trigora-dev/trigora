@@ -108,7 +108,7 @@ Behavior:
 
 If no payload file is passed, the payload defaults to `{}`.
 
-`trigger` supports **manual** and **queue** flows. Queue runs use a synthetic `QueueFlowEvent` with `messageId` prefixed by `local_`. Webhook and cron flows are rejected — use `trigora dev` for webhooks.
+`trigger` supports **manual** and **queue** flows. Queue runs use a synthetic `QueueFlowEvent` with `messageId` prefixed by `local_`, `attempt: 1`, and `maxAttempts` from the flow `retry` policy (or `1` when omitted). Local runs do not actually retry. Webhook and cron flows are rejected — use `trigora dev` for webhooks.
 
 `trigger` runs the flow once with a local JSON payload file. It does not start an HTTP server.
 
@@ -176,6 +176,7 @@ Current alpha limitation:
 
 - `trigora deploy` currently supports webhook-, cron-, and queue-triggered flows
 - deploying a queue flow auto-provisions/binds the named workspace queue
+- optional flow `retry` is sent on the deployment manifest (`attempts` 1–20, `backoff: 'exponential'`; `attempts > 1` is queue-only)
 
 `<flow>` always means the internal flow identifier from `defineFlow({ id: '...' })`.
 Webhook `route` is a separate public hosted path.
@@ -367,6 +368,17 @@ trigora queues purge-failed orders --yes
 
 `--yes` skips the confirmation prompt.
 
+### `trigora queues retry-failed <queue>`
+
+Retry failed messages in a queue.
+
+```bash
+trigora queues retry-failed orders
+trigora queues retry-failed orders --yes
+```
+
+`--yes` skips the confirmation prompt. Same session/deploy-token posture as `purge-failed`.
+
 ### `trigora queues delete <queue>`
 
 Delete a workspace queue.
@@ -390,7 +402,7 @@ trigora invocations --range 7d
 trigora invocations inspect inv_123
 ```
 
-`trigora invocations` lists recent invocations, newest first. Use `inspect` to open one invocation with its metadata and status details.
+`trigora invocations` lists recent invocations, newest first. Use `inspect` to open one invocation with its metadata and status details. When present, inspect shows attempt counts as `attempt / maxAttempts` (for example `3 / 5`).
 
 `--status` accepts `running`, `succeeded`, or `failed`. `--range` accepts values like `7d` or `24h`.
 
@@ -430,6 +442,7 @@ Commands that require `TRIGORA_DEPLOY_TOKEN`:
 - `trigora queues`
 - `trigora queues enqueue <queue>`
 - `trigora queues purge-failed <queue>`
+- `trigora queues retry-failed <queue>`
 - `trigora queues delete <queue>`
 - `trigora secrets`
 - `trigora secrets --flow <flow>`

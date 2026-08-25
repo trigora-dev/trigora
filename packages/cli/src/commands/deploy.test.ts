@@ -70,6 +70,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listSecrets: vi.fn(),
     listFlows: vi.fn(),
     purgeFailedQueueMessages: vi.fn(),
+    retryFailedQueueMessages: vi.fn(),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
     ...overrides,

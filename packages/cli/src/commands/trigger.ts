@@ -74,6 +74,7 @@ export async function triggerCommand(options: TriggerOptions): Promise<void> {
         createLocalQueueEvent({
           payload,
           queue: flow.trigger.queue,
+          maxAttempts: flow.retry?.attempts ?? 1,
         }),
         ctx,
       );

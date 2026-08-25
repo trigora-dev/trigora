@@ -17,6 +17,7 @@ import {
   enqueueQueueCommand,
   listQueuesCommand,
   purgeFailedQueueCommand,
+  retryFailedQueueCommand,
 } from './commands/queues';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
@@ -26,7 +27,7 @@ import { resolveFlowPath } from './lib/resolveFlowPath';
 export function createProgram(): Command {
   const program = new Command();
 
-  program.name('trigora').description('Run code when things happen').version('0.8.0');
+  program.name('trigora').description('Run code when things happen').version('0.9.0');
 
   program
     .command('init')
@@ -142,6 +143,17 @@ export function createProgram(): Command {
     .option('-y, --yes', 'Skip confirmation prompt')
     .action(async (queue, options) => {
       await purgeFailedQueueCommand({
+        queue,
+        yes: options.yes,
+      });
+    });
+
+  queuesCommand
+    .command('retry-failed')
+    .argument('<queue>', 'Workspace queue name')
+    .option('-y, --yes', 'Skip confirmation prompt')
+    .action(async (queue, options) => {
+      await retryFailedQueueCommand({
         queue,
         yes: options.yes,
       });

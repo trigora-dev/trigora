@@ -28,6 +28,8 @@ import type {
   ListSecretsResponse,
   ListFlowsResponse,
   PurgeFailedQueueMessagesResponse,
+  RetryFailedQueueMessagesResponse,
+  RetryPolicy,
   SetFlowSecretRequest,
   SetFlowSecretResponse,
   WhoAmIResponse,
@@ -55,6 +57,7 @@ export type DeployApiClient = {
   listSecrets(query?: ListSecretsQuery): Promise<ListSecretsResponse['secrets']>;
   listFlows(): Promise<ListFlowsResponse['flows']>;
   purgeFailedQueueMessages(queue: string): Promise<PurgeFailedQueueMessagesResponse>;
+  retryFailedQueueMessages(queue: string): Promise<RetryFailedQueueMessagesResponse>;
   setFlowSecret(
     flowSlug: string,
     request: Omit<SetFlowSecretRequest, 'flow'>,
@@ -793,6 +796,18 @@ function readPurgeFailedQueueMessagesResponse(
   };
 }
 
+function readRetryFailedQueueMessagesResponse(
+  payload: unknown,
+): RetryFailedQueueMessagesResponse | undefined {
+  if (!isRecord(payload) || typeof payload.retried !== 'number') {
+    return undefined;
+  }
+
+  return {
+    retried: payload.retried,
+  };
+}
+
 function readDeleteQueueResponse(payload: unknown): DeleteQueueResponse | undefined {
   if (!isRecord(payload) || payload.deleted !== true || typeof payload.name !== 'string') {
     return undefined;
@@ -958,6 +973,7 @@ function normalizeInvocationExecutionContext(
   }
 
   const attempt = getNullableNumber(value.attempt);
+  const maxAttempts = getNullableNumber(value.maxAttempts);
   const deploymentId = getOptionalString(value.deploymentId);
   const flowSlug = getOptionalString(value.flowSlug);
   const invocationId = getOptionalString(value.invocationId);
@@ -967,6 +983,7 @@ function normalizeInvocationExecutionContext(
 
   if (
     attempt === undefined ||
+    maxAttempts === undefined ||
     !deploymentId ||
     !flowSlug ||
     !invocationId ||
@@ -979,6 +996,7 @@ function normalizeInvocationExecutionContext(
 
   return {
     attempt,
+    maxAttempts,
     deploymentId,
     flowSlug,
     invocationId,
@@ -1041,6 +1059,17 @@ function readFlowInvocationResponse(payload: unknown): GetInvocationResponse | u
   };
 }
 
+function isRetryPolicy(value: unknown): value is RetryPolicy {
+  return (
+    isRecord(value) &&
+    typeof value.attempts === 'number' &&
+    Number.isInteger(value.attempts) &&
+    value.attempts >= 1 &&
+    value.attempts <= 20 &&
+    value.backoff === 'exponential'
+  );
+}
+
 function isDeploymentFlow(
   value: unknown,
 ): value is CreateDeploymentResponse['manifestJson']['flow'] {
@@ -1053,6 +1082,10 @@ function isDeploymentFlow(
     typeof value.entrypoint !== 'string' ||
     !('trigger' in value)
   ) {
+    return false;
+  }
+
+  if ('retry' in value && value.retry !== undefined && !isRetryPolicy(value.retry)) {
     return false;
   }
 
@@ -1638,6 +1671,39 @@ export function createDeployApiClient(config: DeployApiClientConfig): DeployApiC
       }
 
       return purgeResponse;
+    },
+    async retryFailedQueueMessages(queue) {
+      let response: FetchResponse;
+
+      try {
+        response = await fetchImpl(
+          `${baseUrl}/v1/queues/${encodeURIComponent(queue)}/messages/retry-failed`,
+          {
+            method: 'POST',
+            headers: createAuthorizedHeaders(),
+          },
+        );
+      } catch (error) {
+        if (error instanceof Error) {
+          throw new DeployApiNetworkError(getNetworkErrorMessage(error));
+        }
+
+        throw new DeployApiNetworkError('Could not reach the Trigora deploy API.');
+      }
+
+      if (!response.ok) {
+        const apiError = await readErrorResponse(response);
+        throw new DeployApiRequestError(apiError, response.status);
+      }
+
+      const payload = await response.json();
+      const retryResponse = readRetryFailedQueueMessagesResponse(payload);
+
+      if (!retryResponse) {
+        throw new DeployApiResponseError();
+      }
+
+      return retryResponse;
     },
     async deleteQueue(queue) {
       let response: FetchResponse;

@@ -56,6 +56,7 @@ const invocationDetail = {
   triggerType: 'webhook',
   executionContext: {
     attempt: 1,
+    maxAttempts: 1,
     deploymentId: 'dep_123',
     flowSlug: stripeFlow.slug,
     invocationId: failedInvocation.id,
@@ -116,6 +117,7 @@ function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployAp
     listSecrets: vi.fn(),
     listFlows: vi.fn(),
     purgeFailedQueueMessages: vi.fn(),
+    retryFailedQueueMessages: vi.fn(),
     setFlowSecret: vi.fn(),
     whoAmI: vi.fn(),
     ...overrides,
@@ -211,6 +213,7 @@ describe('invocation commands', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+.*stripe-checkout/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+failed/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Attempt\s+1 \/ 1/));
     expect(console.log).not.toHaveBeenCalledWith(expect.stringMatching(/^Logs$/));
   });
 

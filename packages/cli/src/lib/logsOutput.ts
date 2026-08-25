@@ -146,9 +146,17 @@ function formatInvocationSummaryDetailLines(
 }
 
 function formatInvocationDetailLines(invocation: InvocationWithLogs): string[] {
+  const attempt = invocation.executionContext.attempt;
+  const maxAttempts = invocation.executionContext.maxAttempts;
+  const attemptLabel =
+    attempt !== null || maxAttempts !== null
+      ? `${attempt ?? '—'} / ${maxAttempts ?? '—'}`
+      : undefined;
+
   const details = [
     { label: 'Trigger', value: invocation.triggerType },
     { label: 'Status', value: formatInvocationStatus(invocation.status) },
+    ...(attemptLabel ? [{ label: 'Attempt', value: attemptLabel }] : []),
     { label: 'Started', value: colors.label(invocation.startedAt) },
     { label: 'Completed', value: colors.label(formatValue(invocation.completedAt)) },
     { label: 'Duration', value: formatDuration(invocation.durationMs) },

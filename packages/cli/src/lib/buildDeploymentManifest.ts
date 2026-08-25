@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { DeploymentManifest, HostedTrigger, Trigger } from '@trigora/contracts';
+import type { DeploymentManifest, HostedTrigger, RetryPolicy, Trigger } from '@trigora/contracts';
 import { loadFlowModule } from './loadFlowModule';
 
 type DeployOptions = {
@@ -12,12 +12,14 @@ type LoadedFlow = {
   entrypoint: string;
   id: string;
   trigger: Trigger;
+  retry?: RetryPolicy;
 };
 
 type DeployableFlow = {
   entrypoint: string;
   id: string;
   trigger: HostedTrigger;
+  retry?: RetryPolicy;
 };
 
 export function formatTrigger(trigger: Trigger): string {
@@ -48,6 +50,7 @@ function validateDeployableFlow(flow: LoadedFlow): DeployableFlow {
     entrypoint: flow.entrypoint,
     id: flow.id,
     trigger: flow.trigger,
+    ...(flow.retry ? { retry: flow.retry } : {}),
   };
 }
 
@@ -58,6 +61,7 @@ function createDeploymentManifest(flow: DeployableFlow): DeploymentManifest {
       entrypoint: flow.entrypoint,
       id: flow.id,
       trigger: flow.trigger,
+      ...(flow.retry ? { retry: flow.retry } : {}),
     },
   };
 }
@@ -149,6 +153,7 @@ async function loadDeployableFlow(cwd: string, filePath: string): Promise<Loaded
     entrypoint,
     id: flow.id,
     trigger: flow.trigger,
+    ...(flow.retry ? { retry: flow.retry } : {}),
   };
 }
 

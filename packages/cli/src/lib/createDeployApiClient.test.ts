@@ -52,6 +52,7 @@ describe('createDeployApiClient', () => {
   };
   const failedInvocationExecutionContext = {
     attempt: 1,
+    maxAttempts: 1,
     deploymentId: 'dep_123',
     flowSlug: managedFlow.slug,
     invocationId: failedInvocation.id,

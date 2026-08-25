@@ -234,6 +234,7 @@ describe('triggerCommand', () => {
     mockedLoadFlowModule.mockResolvedValue({
       id: 'orders-processor',
       trigger: { type: 'queue', queue: 'orders' },
+      retry: { attempts: 5, backoff: 'exponential' },
       run,
     });
 
@@ -261,11 +262,15 @@ describe('triggerCommand', () => {
       payload: { orderId: string };
       queue: string;
       messageId: string;
+      attempt: number;
+      maxAttempts: number;
     };
     expect(eventArg.type).toBe('queue');
     expect(eventArg.payload).toEqual({ orderId: 'ord_1' });
     expect(eventArg.queue).toBe('orders');
     expect(eventArg.messageId).toMatch(/^local_/);
+    expect(eventArg.attempt).toBe(1);
+    expect(eventArg.maxAttempts).toBe(5);
   });
 
   it('rejects webhook flows with a clear error', async () => {

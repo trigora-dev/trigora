@@ -12,6 +12,7 @@ export const queueSteps = {
   enqueuingMessage: 'Enqueuing message',
   fetchingQueues: 'Fetching queues',
   purgingFailedMessages: 'Purging failed messages',
+  retryingFailedMessages: 'Retrying failed messages',
 } as const;
 
 function formatQueueName(name: string): string {
@@ -104,12 +105,27 @@ export function printFailedMessagesPurged(queue: string, purged: number): void {
   );
 }
 
+export function printRetryingFailedMessages(queue: string): void {
+  console.log(colors.label(`Retrying failed messages in ${formatQueueName(queue)}...`));
+}
+
+export function printFailedMessagesRetried(queue: string, retried: number): void {
+  console.log('');
+  console.log(
+    `${colors.success('✔')} Retried ${retried} failed ${pluralize(retried, 'message')} in ${formatQueueName(queue)}`,
+  );
+}
+
 export function printQueueDeletionCanceled(queue: string): void {
   console.log(colors.label(`Skipped deleting queue "${queue}".`));
 }
 
 export function printPurgeCanceled(queue: string): void {
   console.log(colors.label(`Skipped purging failed messages from queue "${queue}".`));
+}
+
+export function printRetryCanceled(queue: string): void {
+  console.log(colors.label(`Skipped retrying failed messages in queue "${queue}".`));
 }
 
 export function printDeletingQueue(queue: string): void {
