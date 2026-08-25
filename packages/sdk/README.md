@@ -123,23 +123,28 @@ export default defineFlow({
 
 Use queue triggers to consume workspace-scoped queue messages. Deploy auto-provisions and binds the named queue to the flow.
 
+Optional `retry` configures how many times a failed message may be redelivered. Omitted `retry` means a single attempt. `attempts > 1` is supported for queue flows only.
+
 ```ts
 import { defineFlow } from '@trigora/sdk';
 
 export default defineFlow({
   id: 'process-image',
   trigger: { type: 'queue', queue: 'image-processing' },
+  retry: { attempts: 5, backoff: 'exponential' },
   async run(event, ctx) {
     await ctx.log.info('Processing message', {
       queue: event.queue,
       messageId: event.messageId,
+      attempt: event.attempt,
+      maxAttempts: event.maxAttempts,
       payload: event.payload,
     });
   },
 });
 ```
 
-Locally, `trigora trigger` and `trigora dev` invoke queue flows with a synthetic `QueueFlowEvent` (`messageId` starts with `local_`). Hosted runs use the real message id.
+Locally, `trigora trigger` and `trigora dev` invoke queue flows with a synthetic `QueueFlowEvent` (`messageId` starts with `local_`, `attempt` is `1`, and `maxAttempts` comes from `retry.attempts` or `1`). Local runs do not actually retry. Hosted runs use the real message id and attempt count.
 
 ## Return Types
 
@@ -202,6 +207,15 @@ type FlowEvent<TPayload = JsonValue> = {
     rawBody: string;
   };
 };
+```
+
+Queue events also include:
+
+```ts
+queue: string;
+messageId: string;
+attempt: number;      // 1-based delivery count
+maxAttempts: number;  // from retry.attempts, or 1 when omitted
 ```
 
 In local manual runs, the payload comes from your JSON payload file when one is provided. In local webhook dev and deployed webhook flows, the payload is the parsed JSON request body.
@@ -283,6 +297,7 @@ The exact exported type is `FlowContext<TEnv>`.
 - `FlowEvent`
 - `FlowRunFn`
 - `JsonValue`
+- `RetryPolicy`
 - `Trigger`
 - `WebhookFlowResult`
 

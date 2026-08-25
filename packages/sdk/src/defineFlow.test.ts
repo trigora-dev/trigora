@@ -108,10 +108,39 @@ void defineFlow<{ orderId: string }>({
     const orderId: string = event.payload.orderId;
     const queue: string = event.queue;
     const messageId: string = event.messageId;
+    const attempt: number = event.attempt;
+    const maxAttempts: number = event.maxAttempts;
     void orderId;
     void queue;
     void messageId;
+    void attempt;
+    void maxAttempts;
     await ctx.log.info('Processing queue message');
+  },
+});
+
+void defineFlow({
+  id: 'valid-queue-retry-flow',
+  trigger: { type: 'queue', queue: 'image-processing' },
+  retry: { attempts: 5, backoff: 'exponential' },
+  async run(event, ctx) {
+    await ctx.log.info('Processing with retry', {
+      attempt: event.attempt,
+      maxAttempts: event.maxAttempts,
+    });
+  },
+});
+
+void defineFlow({
+  id: 'invalid-retry-backoff-flow',
+  trigger: { type: 'queue', queue: 'orders' },
+  retry: {
+    attempts: 3,
+    // @ts-expect-error only exponential backoff is supported
+    backoff: 'linear',
+  },
+  async run() {
+    return;
   },
 });
 
@@ -284,6 +313,7 @@ describe('defineFlow', () => {
     const flow = defineFlow({
       id: 'queue-flow',
       trigger: { type: 'queue', queue: 'orders' },
+      retry: { attempts: 5, backoff: 'exponential' },
       run,
     });
 
@@ -296,6 +326,8 @@ describe('defineFlow', () => {
           payload: { orderId: 'ord_1' },
           queue: 'orders',
           messageId: 'msg_123',
+          attempt: 1,
+          maxAttempts: 5,
         },
         {
           env: {},
@@ -310,5 +342,6 @@ describe('defineFlow', () => {
 
     expect(run).toHaveBeenCalledOnce();
     expect(flow.trigger.queue).toBe('orders');
+    expect(flow.retry).toEqual({ attempts: 5, backoff: 'exponential' });
   });
 });

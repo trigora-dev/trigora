@@ -10,6 +10,8 @@ export type {
   JsonValue,
   ManualFlowEvent,
   QueueFlowEvent,
+  RetryBackoff,
+  RetryPolicy,
   Trigger,
   WebhookFlowEvent,
   WebhookFlowResult,

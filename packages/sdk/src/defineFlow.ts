@@ -8,6 +8,7 @@ import type {
   ManualTrigger,
   QueueFlowDefinition,
   QueueTrigger,
+  RetryPolicy,
   Trigger,
   WebhookTrigger,
   WebhookFlowDefinition,
@@ -17,6 +18,11 @@ import type {
 type DefineFlowInput<TPayload, TEnv extends Record<string, string>, TTrigger extends Trigger> = {
   id: string;
   trigger: TTrigger;
+  /**
+   * Optional retry policy. Omitted means a single attempt.
+   * `attempts > 1` is supported for queue flows only (enforced at deploy time).
+   */
+  retry?: RetryPolicy;
   run: TTrigger extends ManualTrigger
     ? FlowRunFn<TPayload, TEnv, ManualTrigger>
     : TTrigger extends WebhookTrigger
@@ -49,6 +55,7 @@ type DefineFlowOutput<
  * - `id`: the internal identifier for the flow in your project
  * - `trigger`: how the flow is invoked
  * - `run`: the function that executes when the flow is triggered
+ * - `retry`: optional retry policy (queue flows may use `attempts > 1`)
  *
  * `run` receives the incoming `event` and a `ctx` object with logging and environment access.
  *
