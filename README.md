@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  A hosted runtime for event-driven TypeScript workflows.
+  A durable execution platform for dynamic TypeScript applications and agents.
 </p>
 
 <p align="center">
@@ -33,93 +33,31 @@
 
 ---
 
-## Write a flow. Deploy it. Done.
+## Write a program. Run it. It stays alive.
 
 ```ts
-import { defineFlow } from '@trigora/sdk';
+import { effect, event, invoke, waitForEvent } from '@trigora/sdk';
 
-export default defineFlow({
-  id: 'hello',
-  trigger: { type: 'webhook' },
-  async run(event, ctx) {
-    await ctx.log.info('Received event', event.payload);
-    return { ok: true, received: event.payload };
-  },
-});
+const approved = event<{ reviewer: string }>('approved');
+
+export async function researchAgent(input: { query: string }) {
+  const sources = await effect('search', () => searchWeb(input.query));
+  const reports = await Promise.all(
+    sources.map((source) => invoke(analyzeSource, { source })),
+  );
+  const approval = await waitForEvent(approved);
+  return effect('publish', () => publish({ reports, reviewer: approval.reviewer }));
+}
 ```
 
 ```bash
 npx trigora init
-npx trigora dev hello
-npx trigora deploy hello
+npx trigora dev
 ```
 
-Your flow is live at:
+Ordinary TypeScript control flow. Explicit durable primitives. No `defineFlow()`, no mandatory `ctx`.
 
-```text
-https://<workspace>.trigora.dev/hello
-```
-
-Event happens → flow executes.  
-Schedule fires → flow executes.  
-Job enters queue → flow executes.
-
----
-
-## Build your first flow
-
-One model for webhooks, schedules, and background work.
-
-**Webhook** — receive HTTP events
-
-```ts
-import { defineFlow } from '@trigora/sdk';
-
-export default defineFlow({
-  id: 'stripe-webhook',
-  trigger: { type: 'webhook', route: '/hooks/stripe' },
-  async run(event, ctx) {
-    await ctx.log.info('Stripe event', event.payload);
-  },
-});
-```
-
-**Cron** — run on a schedule
-
-```ts
-import { defineFlow } from '@trigora/sdk';
-
-export default defineFlow({
-  id: 'nightly-sync',
-  trigger: { type: 'cron', cron: '0 2 * * *' },
-  async run(event, ctx) {
-    await ctx.log.info('Nightly sync started');
-  },
-});
-```
-
-**Queue** — process background jobs
-
-```ts
-import { defineFlow } from '@trigora/sdk';
-
-export default defineFlow({
-  id: 'process-image',
-  trigger: { type: 'queue', queue: 'image-processing' },
-  retry: { attempts: 5, backoff: 'exponential' },
-  async run(event, ctx) {
-    await ctx.log.info('Processing message', {
-      queue: event.queue,
-      messageId: event.messageId,
-      attempt: event.attempt,
-      maxAttempts: event.maxAttempts,
-      payload: event.payload,
-    });
-  },
-});
-```
-
-See a production-style example: [Stripe checkout](./examples/stripe-checkout).
+See the local preview example: [Research agent](./examples/research-agent).
 
 ---
 
@@ -161,14 +99,10 @@ If installed locally, run commands with `npx trigora`.
 
 ```bash
 npx trigora init
-npx trigora dev hello
-
-curl -X POST http://localhost:5252 \
-  -H "Content-Type: application/json" \
-  -d '{"message":"Hello from Trigora"}'
-
-npx trigora deploy hello
+npx trigora dev
 ```
+
+In another terminal, start the program with `@trigora/client`, send any events it waits on, and read `run.result()`.
 
 ---
 
@@ -176,9 +110,10 @@ npx trigora deploy hello
 
 | Package | Description |
 | --- | --- |
-| [`trigora`](./packages/cli) | CLI for local development, deploy, flows, queues, secrets, and invocations |
-| [`@trigora/sdk`](./packages/sdk) | Flow authoring with `defineFlow()` |
-| [`@trigora/contracts`](./packages/contracts) | Shared public contracts and API types |
+| [`trigora`](./packages/cli) | CLI for local runtime, plus hosted workspace management |
+| [`@trigora/sdk`](./packages/sdk) | Durable primitives: `effect`, `sleep`, `waitForEvent`, `invoke`, `event`, `execution` |
+| [`@trigora/client`](./packages/client) | `start` / `send` / `result` / `cancel` against the local runtime |
+| [`@trigora/contracts`](./packages/contracts) | Shared public contracts, including the compiler/runtime pipeline |
 
 This repository contains the public Trigora packages and examples. The hosted control plane and runtime are deployed separately.
 
