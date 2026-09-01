@@ -1,140 +1,76 @@
 <p align="center">
-  <img src="https://trigora.dev/banner.png" alt="Trigora — run code when things happen" width="100%" />
+  <a href="https://trigora.dev">
+    <img src="https://trigora.dev/banner.png" alt="Trigora — durable execution, without replay." width="100%" />
+  </a>
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/trigora"><img src="https://img.shields.io/npm/v/trigora.svg?label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/trigora"><img src="https://img.shields.io/npm/v/trigora.svg" alt="npm version" /></a>
   <a href="https://www.npmjs.com/package/trigora"><img src="https://img.shields.io/npm/dm/trigora.svg" alt="npm downloads" /></a>
-  <a href="https://github.com/trigora-dev/trigora/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
-  <a href="https://github.com/trigora-dev/trigora/stargazers"><img src="https://img.shields.io/github/stars/trigora-dev/trigora?style=social" alt="GitHub stars" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://github.com/trigora-dev/trigora/stargazers"><img src="https://img.shields.io/github/stars/trigora-dev/trigora" alt="GitHub stars" /></a>
 </p>
 
-<p align="center">
-  <a href="https://trigora.dev/docs">Docs</a> ·
-  <a href="https://trigora.dev/docs/getting-started">Getting Started</a> ·
-  <a href="https://github.com/trigora-dev/trigora/tree/main/examples">Examples</a> ·
-  <a href="https://github.com/trigora-dev/trigora/releases">Changelog</a> ·
-  <a href="https://discord.gg/EJnjjSf4WR">Discord</a>
-</p>
+# Trigora
 
-<p align="center">
-  <strong>Run code when things happen.</strong>
-</p>
+**Durable execution, without replay.**
 
-<p align="center">
-  A durable execution platform for dynamic TypeScript applications and agents.
-</p>
+Trigora is a durable execution substrate for long-running agents and dynamic software.
 
-<p align="center">
-  <a href="https://trigora.dev/docs/getting-started"><strong>Get Started</strong></a> ·
-  <a href="https://trigora.dev/docs"><strong>Docs</strong></a> ·
-  <a href="https://app.trigora.dev"><strong>Dashboard</strong></a>
-</p>
-
----
-
-## Write a program. Run it. It stays alive.
+Its underlying execution architecture—**Transparent Continuation Checkpointing (TCC)**—preserves resumable program state at durable boundaries. Recovery from a committed continuation checkpoint does not require replaying the accumulated execution-history prefix.
 
 ```ts
-import { effect, event, invoke, waitForEvent } from '@trigora/sdk';
+import {
+  effect,
+  invoke,
+  waitForEvent,
+} from "@trigora/sdk";
 
-const approved = event<{ reviewer: string }>('approved');
-
-export async function researchAgent(input: { query: string }) {
-  const sources = await effect('search', () => searchWeb(input.query));
-  const reports = await Promise.all(
-    sources.map((source) => invoke(analyzeSource, { source })),
+export async function researchAgent(input: ResearchInput) {
+  const sources = await effect(() =>
+    searchWeb(input.query)
   );
-  const approval = await waitForEvent(approved);
-  return effect('publish', () => publish({ reports, reviewer: approval.reviewer }));
+
+  const analysis = await invoke(analyzeSources, {
+    sources,
+  });
+
+  await waitForEvent("human.approved");
+
+  return effect(() => publishReport(analysis));
 }
 ```
 
-```bash
-npx trigora init
-npx trigora dev
-```
+Trigora is designed for programs that:
 
-Ordinary TypeScript control flow. Explicit durable primitives. No `defineFlow()`, no mandatory `ctx`.
+- call tools and external systems;
+- wait for humans or events;
+- invoke durable child executions;
+- branch dynamically;
+- survive for hours or days;
+- recover after worker failure.
 
-See the local preview example: [Research agent](./examples/research-agent).
+Cron, webhooks, queues, and API calls act as **triggers** that start durable executions rather than separate programming models.
 
----
+## Status
 
-## Why Trigora?
+Trigora is under active development.
 
-Writing a webhook handler, scheduled job, or queue consumer is usually the easy part. Running it in production means dealing with deployments, secrets, logs, infrastructure, scheduling, workers, and observability.
+The TCC research engine and evaluation prototype exist today. The public SDK, CLI, and managed Trigora Cloud platform are being built. Some code in this repository still reflects Trigora’s earlier event-execution product and should not be considered the final durable-execution API.
 
-Trigora handles the operational layer so you can focus on the code that runs when something happens.
+## Research
 
----
+In a controlled evaluation at fixed live state:
 
-## Everything around your workflow, included
+- TCC recovery remained approximately **0.6–0.9 ms** across history depths from 10 to 1,000.
+- No semantic failures were observed across **50,000 generated cases** within the tested TypeScript subset.
 
-**Webhooks** — Receive HTTP events through hosted endpoints.
+These are research-prototype measurements, not production performance guarantees.
 
-**Cron** — Run workflows on a schedule.
+[Read the research](https://trigora.dev/research) · [Technical report](https://trigora.dev/research/whitepaper) · [Limitations](https://trigora.dev/research/limitations)
 
-**Queues** — Run asynchronous background work without managing workers.
+## Learn more
 
-**Deployments** — Ship flows directly from the CLI.
+[Website](https://trigora.dev) · [Technology](https://trigora.dev/technology) · [Documentation](https://trigora.dev/docs) · [Design partners](https://trigora.dev/early-access)
 
-**Secrets** — Manage environment secrets from the control plane.
-
-**Observability** — Inspect invocations and structured logs.
-
-**Custom domains** — Expose webhook flows through your own domain.
-
----
-
-## Quick start
-
-```bash
-npm install trigora @trigora/sdk
-```
-
-If installed locally, run commands with `npx trigora`.
-
-### Local loop
-
-```bash
-npx trigora init
-npx trigora dev
-```
-
-In another terminal, start the program with `@trigora/client`, send any events it waits on, and read `run.result()`.
-
----
-
-## Packages
-
-| Package | Description |
-| --- | --- |
-| [`trigora`](./packages/cli) | CLI for local runtime, plus hosted workspace management |
-| [`@trigora/sdk`](./packages/sdk) | Durable primitives: `effect`, `sleep`, `waitForEvent`, `invoke`, `event`, `execution` |
-| [`@trigora/client`](./packages/client) | `start` / `send` / `result` / `cancel` against the local runtime |
-| [`@trigora/contracts`](./packages/contracts) | Shared public contracts, including the compiler/runtime pipeline |
-
-This repository contains the public Trigora packages and examples. The hosted control plane and runtime are deployed separately.
-
----
-
-## Documentation
-
-- [Docs](https://trigora.dev/docs)
-- [Getting Started](https://trigora.dev/docs/getting-started)
-- [Deploy](https://trigora.dev/docs/guides/deploy)
-- [Webhook Endpoints](https://trigora.dev/docs/guides/webhook-endpoints)
-- [Cron](https://trigora.dev/docs/guides/cron)
-- [Queues](https://trigora.dev/docs/guides/queues)
-- [Custom Domains](https://trigora.dev/docs/guides/custom-domains)
-- [CLI Reference](https://trigora.dev/docs/reference/cli)
-- [API Reference](https://trigora.dev/docs/reference/api)
-
-Website: [trigora.dev](https://trigora.dev) · Dashboard: [app.trigora.dev](https://app.trigora.dev)
-
----
-
-## License
-
-[MIT](./LICENSE)
+Building a workload that needs durable execution? Contact [omar@trigora.dev](mailto:omar@trigora.dev).
