@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://trigora.dev">
-    <img src="https://trigora.dev/banner.png" alt="Trigora — durable execution, without replay." width="100%" />
+    <img src="https://trigora.dev/banner.png?v=2" alt="Trigora — durable execution, without replay." width="100%" />
   </a>
 </p>
 
