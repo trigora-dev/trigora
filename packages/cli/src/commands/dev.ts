@@ -1,612 +1,229 @@
-import http from 'node:http';
 import fs from 'node:fs';
-import net from 'node:net';
 import path from 'node:path';
 
-import type { JsonValue, WebhookFlowDefinition } from '@trigora/contracts';
+import type { ArtifactIdentity, ProgramIdentity, ResolvedTrigoraConfig } from '@trigora/contracts';
 import { colors } from '../lib/colors';
-import { createLocalContext } from '../lib/createLocalContext';
-import { loadFlowModule } from '../lib/loadFlowModule';
-import { triggerCommand } from './trigger';
+import { printSuccessSummary } from '../lib/cliOutput';
+import { compilePrograms, readCompileFiles } from '../lib/localRuntime/compiler';
+import {
+  discoverPrograms,
+  toProgramIdentity,
+  type DiscoveredProgram,
+} from '../lib/localRuntime/discoverPrograms';
+import { LocalExecutionEngine } from '../lib/localRuntime/engine';
+import { loadProjectConfig } from '../lib/localRuntime/loadConfig';
+import { startLocalRuntimeServer } from '../lib/localRuntime/server';
 
-type DevOptions = {
-  filePath: string;
-  payloadPath?: string;
+export type DevCommandOptions = {
+  host?: string;
+  port?: number;
 };
 
-const DEFAULT_WEBHOOK_PORT = 5252;
 const FILE_CHANGE_DEBOUNCE_MS = 100;
 
-type QueueRun<T> = {
-  execute: () => Promise<T>;
-  reason?: string;
-  resolve: (value: T) => void;
-  reject: (error: unknown) => void;
-};
+function formatProgramList(programs: ProgramIdentity[]): string {
+  return programs.map((program) => program.id).join(', ');
+}
 
-type WatchManager = {
-  isShuttingDown: () => boolean;
-  startSignalHandling: () => void;
-  shutdown: () => void;
-  watchFile: (filePath: string, label: string) => void;
-};
+function printEngineEvent(event: {
+  type: string;
+  execution: {
+    id: string;
+    programId: string;
+    status: string;
+    wait?: { type: string; eventName?: string };
+  };
+  name?: string;
+}): void {
+  const executionId = colors.flow(event.execution.id);
+  const program = colors.heading(event.execution.programId);
 
-type DevStartupOptions = {
-  endpointUrl?: string;
-  flowId: string;
-  flowPath: string;
-  payloadPath?: string;
-  queue?: string;
-  readyMessage: string;
-};
+  if (event.type === 'started') {
+    console.log(`${colors.info('▶')} Started ${program} ${executionId}`);
+    return;
+  }
 
-class FlowRunError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'FlowRunError';
+  if (event.type === 'waiting') {
+    const wait =
+      event.execution.wait?.type === 'event'
+        ? `event ${colors.heading(event.execution.wait.eventName ?? '')}`
+        : event.execution.wait?.type === 'timer'
+          ? 'timer'
+          : event.execution.wait?.type === 'child'
+            ? 'child execution'
+            : 'durable boundary';
+    console.log(`${colors.warn('⏸')} ${program} ${executionId} waiting on ${wait}`);
+    return;
+  }
+
+  if (event.type === 'resumed') {
+    console.log(`${colors.info('▶')} ${program} ${executionId} resumed`);
+    return;
+  }
+
+  if (event.type === 'completed') {
+    console.log(`${colors.success('✔')} ${program} ${executionId} completed`);
+    return;
+  }
+
+  if (event.type === 'failed') {
+    console.log(`${colors.error('✖')} ${program} ${executionId} failed`);
+    return;
+  }
+
+  if (event.type === 'cancelled') {
+    console.log(`${colors.warn('■')} ${program} ${executionId} cancelled`);
+    return;
+  }
+
+  if (event.type === 'effect' && event.name) {
+    console.log(
+      `${colors.dev('·')} ${program} ${executionId} effect ${colors.heading(event.name)}`,
+    );
   }
 }
 
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error;
-}
-
-function formatFlowName(flowId: string): string {
-  return colors.flow(colors.heading(`"${flowId}"`));
-}
-
-function printRuntimeDetails(items: Array<{ label: string; value: string | undefined }>): void {
-  const visibleItems = items.filter((item): item is { label: string; value: string } =>
-    Boolean(item.value),
+async function loadWorkspace(config: ResolvedTrigoraConfig): Promise<{
+  artifact: ArtifactIdentity;
+  programs: DiscoveredProgram[];
+}> {
+  const programs = await discoverPrograms({
+    rootDir: config.rootDir,
+    globs: config.programGlobs,
+  });
+  const files = await readCompileFiles(config.rootDir, programs.map(toProgramIdentity));
+  const compiled = await compilePrograms(
+    {
+      sourceRoot: config.rootDir,
+      programs: programs.map(toProgramIdentity),
+      files,
+    },
+    config.compiler.endpoint,
   );
 
-  if (visibleItems.length === 0) {
-    return;
-  }
-
-  const labelWidth = visibleItems.reduce((width, item) => Math.max(width, item.label.length), 0);
-
-  for (const item of visibleItems) {
-    console.log(`${colors.label(item.label.padEnd(labelWidth))}  ${item.value}`);
-  }
+  return {
+    artifact: compiled.artifact,
+    programs,
+  };
 }
 
-function getWebhookEventName(body: unknown): string {
-  if (typeof body !== 'object' || body === null) {
-    return 'webhook';
-  }
-
-  if (typeof (body as { type?: unknown }).type === 'string') {
-    return (body as { type: string }).type;
-  }
-
-  return 'webhook';
-}
-
-async function findAvailablePort(startPort: number): Promise<number> {
-  let port = startPort;
-
-  while (true) {
-    const isAvailable = await new Promise<boolean>((resolve, reject) => {
-      const probe = net.createServer();
-
-      probe.once('error', (error) => {
-        probe.close();
-
-        if (isNodeError(error) && error.code === 'EADDRINUSE') {
-          resolve(false);
-          return;
-        }
-
-        reject(error);
-      });
-
-      probe.once('listening', () => {
-        probe.close(() => resolve(true));
-      });
-
-      probe.listen(port, '127.0.0.1');
-    });
-
-    if (isAvailable) {
-      return port;
-    }
-
-    port += 1;
-  }
-}
-
-async function readJsonRequest(
-  req: http.IncomingMessage,
-): Promise<{ parsedBody: JsonValue; rawBody: string }> {
-  const chunks: Buffer[] = [];
-
-  return new Promise((resolve, reject) => {
-    req.on('data', (chunk) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    });
-
-    req.on('end', () => {
-      const rawBody = Buffer.concat(chunks).toString('utf-8').trim();
-
-      if (rawBody.length === 0) {
-        resolve({ parsedBody: {}, rawBody: '' });
-        return;
-      }
-
-      try {
-        resolve({ parsedBody: JSON.parse(rawBody), rawBody });
-      } catch {
-        reject(new Error('Invalid JSON body.'));
-      }
-    });
-
-    req.on('error', reject);
+export async function devCommand(options: DevCommandOptions = {}): Promise<void> {
+  const config = await loadProjectConfig();
+  const host = options.host?.trim() || config.runtime.host;
+  const requestedPort = options.port ?? config.runtime.port;
+  let workspace = await loadWorkspace(config);
+  const engine = new LocalExecutionEngine((event) => {
+    printEngineEvent(event);
   });
-}
+  engine.replacePrograms(workspace.programs);
 
-async function writeWebhookResponse(
-  res: http.ServerResponse<http.IncomingMessage>,
-  result: unknown,
-): Promise<void> {
-  if (result instanceof Response) {
-    res.statusCode = result.status;
+  const server = await startLocalRuntimeServer({
+    artifact: workspace.artifact,
+    engine,
+    host,
+    port: requestedPort,
+  });
 
-    result.headers.forEach((value, key) => {
-      res.setHeader(key, value);
-    });
-
-    res.end(await result.text());
-    return;
+  if (server.port !== requestedPort) {
+    console.log(colors.warn(`Port ${requestedPort} was in use, using ${server.port} instead.`));
   }
 
-  if (result === undefined) {
-    res.statusCode = 200;
-    res.end();
-    return;
-  }
-
-  if (typeof result === 'string') {
-    res.statusCode = 200;
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.end(result);
-    return;
-  }
-
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.end(JSON.stringify(result));
-}
-
-function logRerunFailure(error: unknown): void {
-  console.error('');
-  console.error(`${colors.error('✖')} Re-run failed`);
-
-  if (error instanceof Error) {
-    console.error(error.message);
-    return;
-  }
-
-  console.error(error);
-}
-
-function printDevRerunMessage(reason: string): void {
-  console.log('');
-  console.log(colors.label(reason));
-}
-
-function logReloadFailure(error: unknown): void {
-  console.error('');
-  console.error(`${colors.error('✖')} Reload failed`);
-
-  if (error instanceof Error) {
-    console.error(error.message);
-    return;
-  }
-
-  console.error(error);
-}
-
-function printDevStartup(options: DevStartupOptions): void {
-  console.log(colors.label(`Watching flow ${formatFlowName(options.flowId)}...`));
-  console.log('');
-  printRuntimeDetails([
-    { label: 'Flow', value: formatFlowName(options.flowId) },
-    { label: 'File', value: options.flowPath },
-    { label: 'Queue', value: options.queue },
-    { label: 'Payload', value: options.payloadPath },
-    {
-      label: 'Endpoint',
-      value: options.endpointUrl ? colors.link(options.endpointUrl) : undefined,
-    },
-  ]);
-
-  console.log('');
-  console.log(colors.success(options.readyMessage));
-}
-
-function createWatchManager(options: {
-  onFileChange: (label: string) => Promise<void>;
-  onShutdown?: () => void;
-}): WatchManager {
-  let shuttingDown = false;
+  printSuccessSummary(
+    'Local runtime ready',
+    [
+      { label: 'Programs', value: formatProgramList(workspace.programs) },
+      { label: 'Runtime', value: colors.link(server.url) },
+      { label: 'Artifact', value: workspace.artifact.artifactHash.slice(0, 12) },
+      { label: 'Compiler', value: workspace.artifact.compilerVersion },
+    ],
+    [],
+    'Start executions with `@trigora/client` while this process is running.',
+  );
 
   const watchers: fs.FSWatcher[] = [];
   const debounceTimers = new Map<string, NodeJS.Timeout>();
-  const lastHandledVersion = new Map<string, number>();
+  let shuttingDown = false;
 
-  function getFileVersion(filePath: string): number | undefined {
+  function watchedPaths(): string[] {
+    return [
+      config.configPath,
+      ...workspace.programs.map((program) => path.join(config.rootDir, program.file)),
+    ];
+  }
+
+  async function reload(label: string): Promise<void> {
+    if (shuttingDown) {
+      return;
+    }
+
     try {
-      return fs.statSync(filePath).mtimeMs;
-    } catch {
-      return undefined;
+      workspace = await loadWorkspace(config);
+      engine.replacePrograms(workspace.programs);
+      console.log('');
+      console.log(
+        colors.label(`${label} changed. Reloaded ${formatProgramList(workspace.programs)}.`),
+      );
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      console.error('');
+      console.error(`${colors.error('✖')} Reload failed`);
+      console.error(reason);
     }
   }
 
-  function shutdown() {
-    if (shuttingDown) return;
+  function watch(filePath: string, label: string): void {
+    try {
+      const watcher = fs.watch(filePath, (eventType) => {
+        if (eventType !== 'change' || shuttingDown) {
+          return;
+        }
+
+        const existing = debounceTimers.get(filePath);
+        if (existing) {
+          clearTimeout(existing);
+        }
+
+        debounceTimers.set(
+          filePath,
+          setTimeout(() => {
+            debounceTimers.delete(filePath);
+            void reload(label);
+          }, FILE_CHANGE_DEBOUNCE_MS),
+        );
+      });
+      watchers.push(watcher);
+    } catch {
+      // File may disappear during reload; ignore.
+    }
+  }
+
+  function shutdown(): void {
+    if (shuttingDown) {
+      return;
+    }
+
     shuttingDown = true;
-
-    options.onShutdown?.();
-
     for (const watcher of watchers) {
       watcher.close();
     }
-
     for (const timer of debounceTimers.values()) {
       clearTimeout(timer);
     }
-
-    process.off('SIGINT', handleSignals);
-    process.off('SIGTERM', handleSignals);
-
-    console.log('');
-    console.log(colors.label('Stopped'));
-    process.exit(0);
-  }
-
-  const handleSignals = () => shutdown();
-
-  function startSignalHandling() {
-    process.on('SIGINT', handleSignals);
-    process.on('SIGTERM', handleSignals);
-  }
-
-  function watchFile(filePath: string, label: string) {
-    const watcher = fs.watch(filePath, (eventType) => {
-      if (eventType !== 'change' || shuttingDown) return;
-
-      const existingTimer = debounceTimers.get(filePath);
-      if (existingTimer) {
-        clearTimeout(existingTimer);
-      }
-
-      const timer = setTimeout(() => {
-        debounceTimers.delete(filePath);
-        const fileVersion = getFileVersion(filePath);
-        const previousVersion = lastHandledVersion.get(filePath);
-
-        if (fileVersion !== undefined) {
-          if (previousVersion === fileVersion) {
-            return;
-          }
-
-          lastHandledVersion.set(filePath, fileVersion);
-        }
-
-        void options.onFileChange(label);
-      }, FILE_CHANGE_DEBOUNCE_MS);
-
-      debounceTimers.set(filePath, timer);
-    });
-
-    watchers.push(watcher);
-  }
-
-  return {
-    isShuttingDown: () => shuttingDown,
-    startSignalHandling,
-    shutdown,
-    watchFile,
-  };
-}
-
-async function loadWebhookFlow(filePath: string): Promise<WebhookFlowDefinition> {
-  const flow = await loadFlowModule(filePath);
-
-  if (flow.trigger?.type !== 'webhook') {
-    throw new Error(`Flow "${flow.id}" is no longer a webhook flow. Restart trigora dev.`);
-  }
-
-  return flow as WebhookFlowDefinition;
-}
-
-async function runWebhookFlow(
-  flow: WebhookFlowDefinition,
-  event: {
-    body: JsonValue;
-    method: string;
-    rawBody: string;
-    timestamp: string;
-    url: string;
-    headers: Record<string, string>;
-  },
-): Promise<unknown> {
-  const ctx = createLocalContext(flow.id);
-  const flowEvent = {
-    id: `evt_local_${Date.now()}`,
-    type: event.method,
-    timestamp: event.timestamp,
-    payload: event.body,
-    request: {
-      headers: event.headers,
-      method: event.method,
-      rawBody: event.rawBody,
-      url: event.url,
-    },
-  };
-
-  try {
-    return await flow.run(flowEvent, ctx);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(
-      `${colors.error('Flow failed')}: ${formatFlowName(flow.id)} ${colors.label(`(${message})`)}`,
-    );
-
-    throw new FlowRunError(message);
-  }
-}
-
-async function runStandardDevMode(
-  options: DevOptions,
-  flowId: string,
-  queue?: string,
-): Promise<void> {
-  const relativeFlowPath = path.relative(process.cwd(), options.filePath);
-  const relativePayloadPath = options.payloadPath
-    ? path.relative(process.cwd(), options.payloadPath)
-    : undefined;
-
-  let isRunning = false;
-  let rerunRequested = false;
-  let watchManager!: WatchManager;
-
-  async function run(reason?: string) {
-    if (watchManager.isShuttingDown()) return;
-
-    if (isRunning) {
-      rerunRequested = true;
-      return;
-    }
-
-    isRunning = true;
-
-    try {
-      if (reason) {
-        printDevRerunMessage(reason);
-      }
-
+    process.off('SIGINT', shutdown);
+    process.off('SIGTERM', shutdown);
+    void server.close().finally(() => {
       console.log('');
-      await triggerCommand(options);
-    } finally {
-      isRunning = false;
-
-      if (rerunRequested && !watchManager.isShuttingDown()) {
-        rerunRequested = false;
-        await run('Changes queued. Rerunning...');
-      }
-    }
-  }
-
-  watchManager = createWatchManager({
-    onFileChange: async (label) => {
-      try {
-        await run(`${colors.heading(label)} changed. Rerunning...`);
-      } catch (error) {
-        logRerunFailure(error);
-      }
-    },
-  });
-
-  watchManager.startSignalHandling();
-
-  printDevStartup({
-    flowId,
-    flowPath: relativeFlowPath,
-    payloadPath: relativePayloadPath,
-    queue,
-    readyMessage: relativePayloadPath
-      ? 'Ready. Edit the flow or payload to rerun.'
-      : 'Ready. Edit the flow to rerun.',
-  });
-
-  await run();
-
-  watchManager.watchFile(options.filePath, 'flow');
-
-  if (options.payloadPath) {
-    watchManager.watchFile(options.payloadPath, 'payload');
-  }
-
-  await new Promise<void>(() => {});
-}
-
-async function runWebhookDevMode(options: DevOptions, flow: WebhookFlowDefinition): Promise<void> {
-  const relativeFlowPath = path.relative(process.cwd(), options.filePath);
-  let isRunning = false;
-  let rerunRequested = false;
-  let server: http.Server | undefined;
-  let watchManager!: WatchManager;
-  let currentFlow = flow;
-
-  const queuedRuns: Array<QueueRun<unknown>> = [];
-
-  async function enqueueRun<T>(execute: () => Promise<T>, reason?: string): Promise<T> {
-    return new Promise<T>((resolve, reject) => {
-      queuedRuns.push({
-        execute: execute as () => Promise<unknown>,
-        reason,
-        resolve: resolve as (value: unknown) => void,
-        reject,
-      });
-      rerunRequested = true;
-      void processQueue();
+      console.log(colors.label('Stopped'));
+      process.exit(0);
     });
   }
 
-  async function processQueue(): Promise<void> {
-    if (watchManager.isShuttingDown() || isRunning) {
-      return;
-    }
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
-    const nextRun = queuedRuns.shift();
-
-    if (!nextRun) {
-      rerunRequested = false;
-      return;
-    }
-
-    isRunning = true;
-
-    try {
-      if (nextRun.reason) {
-        printDevRerunMessage(nextRun.reason);
-      }
-
-      const result = await nextRun.execute();
-      nextRun.resolve(result);
-    } catch (error) {
-      nextRun.reject(error);
-    } finally {
-      isRunning = false;
-      rerunRequested = queuedRuns.length > 0;
-
-      if (rerunRequested && !watchManager.isShuttingDown()) {
-        await processQueue();
-      }
-    }
+  for (const filePath of watchedPaths()) {
+    watch(filePath, path.basename(filePath));
   }
-
-  watchManager = createWatchManager({
-    onShutdown: () => {
-      server?.close();
-    },
-    onFileChange: async (label) => {
-      try {
-        currentFlow = await loadWebhookFlow(options.filePath);
-        printDevRerunMessage(`${colors.heading(label)} changed. Reloaded.`);
-      } catch (error) {
-        logReloadFailure(error);
-      }
-    },
-  });
-
-  watchManager.startSignalHandling();
-
-  const selectedPort = await findAvailablePort(DEFAULT_WEBHOOK_PORT);
-
-  if (selectedPort !== DEFAULT_WEBHOOK_PORT) {
-    console.log(
-      colors.warn(`Port ${DEFAULT_WEBHOOK_PORT} was in use, using ${selectedPort} instead.`),
-    );
-  }
-
-  server = http.createServer(async (req, res) => {
-    const requestPath = new URL(req.url ?? '/', 'http://localhost').pathname;
-
-    if (req.method !== 'POST') {
-      res.statusCode = 405;
-      res.end('Method Not Allowed');
-      return;
-    }
-
-    if (requestPath !== '/') {
-      res.statusCode = 404;
-      res.end('Not Found');
-      return;
-    }
-
-    let requestBody: { parsedBody: JsonValue; rawBody: string };
-
-    try {
-      requestBody = await readJsonRequest(req);
-    } catch {
-      res.statusCode = 400;
-      res.end('Invalid JSON body.');
-      return;
-    }
-
-    console.log('');
-    printRuntimeDetails([
-      { label: 'Request', value: `${colors.info(req.method)} ${requestPath}` },
-      { label: 'Event', value: colors.flow(getWebhookEventName(requestBody.parsedBody)) },
-    ]);
-
-    try {
-      const flow = currentFlow;
-      const timestamp = new Date().toISOString();
-      const requestHeaders = req.headers ?? {};
-      const host =
-        typeof requestHeaders.host === 'string' ? requestHeaders.host : `localhost:${selectedPort}`;
-      const url = `http://${host}${req.url ?? '/'}`;
-      const headers = Object.fromEntries(
-        Object.entries(requestHeaders).flatMap(([key, value]) =>
-          typeof value === 'string'
-            ? [[key, value]]
-            : Array.isArray(value)
-              ? [[key, value.join(', ')]]
-              : [],
-        ),
-      );
-      const result = await enqueueRun(() =>
-        runWebhookFlow(flow, {
-          body: requestBody.parsedBody,
-          method: req.method ?? 'POST',
-          rawBody: requestBody.rawBody,
-          timestamp,
-          url,
-          headers,
-        }),
-      );
-      await writeWebhookResponse(res, result);
-    } catch (error) {
-      res.statusCode = 500;
-      res.end(error instanceof Error ? error.message : String(error));
-    }
-  });
-
-  await new Promise<void>((resolve, reject) => {
-    server?.once('error', reject);
-    server?.listen(selectedPort, '127.0.0.1', () => {
-      server?.off('error', reject);
-      resolve();
-    });
-  });
-
-  printDevStartup({
-    endpointUrl: `http://localhost:${selectedPort}`,
-    flowId: flow.id,
-    flowPath: relativeFlowPath,
-    readyMessage: 'Ready to receive events.',
-  });
-
-  watchManager.watchFile(options.filePath, 'flow');
 
   await new Promise<void>(() => {});
-}
-
-export async function devCommand(options: DevOptions): Promise<void> {
-  const flow = await loadFlowModule(options.filePath);
-
-  if (flow.trigger?.type !== 'webhook') {
-    await runStandardDevMode(
-      options,
-      flow.id,
-      flow.trigger?.type === 'queue' ? flow.trigger.queue : undefined,
-    );
-    return;
-  }
-
-  await runWebhookDevMode(options, flow as WebhookFlowDefinition);
 }

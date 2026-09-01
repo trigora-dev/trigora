@@ -229,7 +229,10 @@ describe('triggerCommand', () => {
   });
 
   it('runs queue flows with a synthetic local QueueFlowEvent', async () => {
-    const run = vi.fn(async (_event: unknown, _ctx: unknown) => undefined);
+    const run = vi.fn(async (event: unknown, ctx: unknown) => {
+      void event;
+      void ctx;
+    });
 
     mockedLoadFlowModule.mockResolvedValue({
       id: 'orders-processor',

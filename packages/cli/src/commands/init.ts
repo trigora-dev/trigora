@@ -7,29 +7,30 @@ type InitOptions = {
   force?: boolean;
 };
 
-const HELLO_FLOW_TEMPLATE = `import { defineFlow } from '@trigora/sdk';
+const CONFIG_TEMPLATE = `import { defineConfig } from '@trigora/sdk';
 
-export default defineFlow({
-  id: 'hello',
-  trigger: { type: 'webhook' },
-  async run(event, ctx) {
-    await ctx.log.info('Received event', event.payload);
-
-    return {
-      ok: true,
-      received: event.payload,
-    };
-  },
+export default defineConfig({
+  programs: './src/programs/**/*.ts',
 });
 `;
 
-const PAYLOAD_TEMPLATE = `{
-  "message": "Hello, world!"
+const HELLO_PROGRAM_TEMPLATE = `import { effect, event, waitForEvent } from '@trigora/sdk';
+
+export const greeted = event<{ name: string }>('greeted');
+
+export async function hello(input: { query: string }) {
+  const greeting = await effect('greet', () => \`hello \${input.query}\`);
+  const who = await waitForEvent(greeted);
+
+  return {
+    greeting,
+    from: who.name,
+  };
 }
 `;
 
-const ENV_EXAMPLE_TEMPLATE = `# Trigora Cloud
-TRIGORA_DEPLOY_TOKEN=your-deploy-token
+const ENV_EXAMPLE_TEMPLATE = `# Local runtime used by @trigora/client while \`trigora dev\` is running.
+TRIGORA_RUNTIME_URL=http://127.0.0.1:3477
 `;
 
 type FileWriteResult = {
@@ -92,8 +93,8 @@ function printFileGroup(title: string, colorize: (value: string) => string, path
 export async function initCommand(options: InitOptions): Promise<void> {
   const cwd = process.cwd();
   const results = await Promise.all([
-    writeFile(path.join(cwd, 'flows', 'hello.ts'), HELLO_FLOW_TEMPLATE, options),
-    writeFile(path.join(cwd, 'payload.json'), PAYLOAD_TEMPLATE, options),
+    writeFile(path.join(cwd, 'trigora.config.ts'), CONFIG_TEMPLATE, options),
+    writeFile(path.join(cwd, 'src', 'programs', 'hello.ts'), HELLO_PROGRAM_TEMPLATE, options),
     writeFile(path.join(cwd, '.env.example'), ENV_EXAMPLE_TEMPLATE, options),
   ]);
   const created = results
@@ -115,7 +116,8 @@ export async function initCommand(options: InitOptions): Promise<void> {
   printFileGroup('Skipped', colors.warn, skipped);
 
   console.log(colors.heading('Next steps'));
-  console.log(`  ${colors.label('1.')} trigora dev hello`);
-  console.log(`  ${colors.label('2.')} trigora trigger hello --payload payload.json`);
-  console.log(`  ${colors.label('3.')} trigora deploy hello`);
+  console.log(`  ${colors.label('1.')} trigora dev`);
+  console.log(
+    `  ${colors.label('2.')} start hello with @trigora/client, then send the greeted event`,
+  );
 }

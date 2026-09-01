@@ -21,7 +21,6 @@ import {
 } from './commands/queues';
 import { initCommand } from './commands/init';
 import { triggerCommand } from './commands/trigger';
-import { resolveDefaultDevFlowPath } from './lib/resolveDefaultDevFlowPath';
 import { resolveFlowPath } from './lib/resolveFlowPath';
 
 export function createProgram(): Command {
@@ -54,16 +53,19 @@ export function createProgram(): Command {
 
   program
     .command('dev')
-    .argument('[flow]', "The flow identifier defined in defineFlow({ id: '...' }) or a file path")
-    .option('-p, --payload <path>', 'Path to JSON payload file')
-    .action(async (flowNameOrPath, options) => {
-      const filePath = flowNameOrPath
-        ? resolveFlowPath(flowNameOrPath)
-        : await resolveDefaultDevFlowPath();
+    .description('Start the local durable execution runtime')
+    .option('--host <host>', 'Local runtime host')
+    .option('--port <port>', 'Local runtime port')
+    .action(async (options) => {
+      const port = options.port === undefined ? undefined : Number(options.port);
+
+      if (port !== undefined && (!Number.isInteger(port) || port <= 0)) {
+        throw new Error('`--port` must be a positive integer.');
+      }
 
       await devCommand({
-        filePath,
-        payloadPath: options.payload,
+        host: options.host,
+        port,
       });
     });
 

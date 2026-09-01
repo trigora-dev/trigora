@@ -75,6 +75,7 @@ coverage/
 # =========================
 .tmp/
 temp/
+.trigora/
 
 # =========================
 # Local init scaffolding

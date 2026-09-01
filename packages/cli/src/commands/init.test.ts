@@ -39,23 +39,19 @@ describe('initCommand', () => {
 
     await initCommand({ force: false });
 
-    const helloFlow = await fs.readFile(path.join(tempDir, 'flows', 'hello.ts'), 'utf-8');
-    const payload = await fs.readFile(path.join(tempDir, 'payload.json'), 'utf-8');
+    const config = await fs.readFile(path.join(tempDir, 'trigora.config.ts'), 'utf-8');
+    const hello = await fs.readFile(path.join(tempDir, 'src', 'programs', 'hello.ts'), 'utf-8');
     const envExample = await fs.readFile(path.join(tempDir, '.env.example'), 'utf-8');
 
-    expect(helloFlow).toContain("id: 'hello'");
-    expect(helloFlow).toContain("trigger: { type: 'webhook' }");
-    expect(helloFlow).toContain("await ctx.log.info('Received event', event.payload)");
-    expect(helloFlow).toContain('ok: true');
-    expect(helloFlow).toContain('received: event.payload');
-    expect(payload).toContain('"message": "Hello, world!"');
-    expect(envExample).toContain('# Trigora Cloud');
-    expect(envExample).toContain('TRIGORA_DEPLOY_TOKEN=your-deploy-token');
+    expect(config).toContain("programs: './src/programs/**/*.ts'");
+    expect(hello).toContain('export async function hello');
+    expect(hello).toContain('waitForEvent(greeted)');
+    expect(envExample).toContain('TRIGORA_RUNTIME_URL=http://127.0.0.1:3477');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Project initialized/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Created/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flows\/hello\.ts/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload\.json/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora\.config\.ts/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/src\/programs\/hello\.ts/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\.env\.example/));
   });
 
@@ -63,50 +59,56 @@ describe('initCommand', () => {
     const tempDir = await makeTempDir();
     process.chdir(tempDir);
 
-    await fs.mkdir(path.join(tempDir, 'flows'), { recursive: true });
-    await fs.writeFile(path.join(tempDir, 'flows', 'hello.ts'), 'custom flow', 'utf-8');
-    await fs.writeFile(path.join(tempDir, 'payload.json'), 'custom payload', 'utf-8');
+    await fs.mkdir(path.join(tempDir, 'src', 'programs'), { recursive: true });
+    await fs.writeFile(path.join(tempDir, 'trigora.config.ts'), 'custom config', 'utf-8');
+    await fs.writeFile(
+      path.join(tempDir, 'src', 'programs', 'hello.ts'),
+      'custom program',
+      'utf-8',
+    );
     await fs.writeFile(path.join(tempDir, '.env.example'), 'custom env', 'utf-8');
 
     await initCommand({ force: false });
 
-    const helloFlow = await fs.readFile(path.join(tempDir, 'flows', 'hello.ts'), 'utf-8');
-    const payload = await fs.readFile(path.join(tempDir, 'payload.json'), 'utf-8');
+    const config = await fs.readFile(path.join(tempDir, 'trigora.config.ts'), 'utf-8');
+    const hello = await fs.readFile(path.join(tempDir, 'src', 'programs', 'hello.ts'), 'utf-8');
     const envExample = await fs.readFile(path.join(tempDir, '.env.example'), 'utf-8');
 
-    expect(helloFlow).toBe('custom flow');
-    expect(payload).toBe('custom payload');
+    expect(config).toBe('custom config');
+    expect(hello).toBe('custom program');
     expect(envExample).toBe('custom env');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Skipped/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flows\/hello\.ts/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload\.json/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\.env\.example/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora\.config\.ts/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/src\/programs\/hello\.ts/));
   });
 
   it('overwrites existing files when force is true', async () => {
     const tempDir = await makeTempDir();
     process.chdir(tempDir);
 
-    await fs.mkdir(path.join(tempDir, 'flows'), { recursive: true });
-    await fs.writeFile(path.join(tempDir, 'flows', 'hello.ts'), 'custom flow', 'utf-8');
-    await fs.writeFile(path.join(tempDir, 'payload.json'), 'custom payload', 'utf-8');
+    await fs.mkdir(path.join(tempDir, 'src', 'programs'), { recursive: true });
+    await fs.writeFile(path.join(tempDir, 'trigora.config.ts'), 'custom config', 'utf-8');
+    await fs.writeFile(
+      path.join(tempDir, 'src', 'programs', 'hello.ts'),
+      'custom program',
+      'utf-8',
+    );
     await fs.writeFile(path.join(tempDir, '.env.example'), 'custom env', 'utf-8');
 
     await initCommand({ force: true });
 
-    const helloFlow = await fs.readFile(path.join(tempDir, 'flows', 'hello.ts'), 'utf-8');
-    const payload = await fs.readFile(path.join(tempDir, 'payload.json'), 'utf-8');
+    const config = await fs.readFile(path.join(tempDir, 'trigora.config.ts'), 'utf-8');
+    const hello = await fs.readFile(path.join(tempDir, 'src', 'programs', 'hello.ts'), 'utf-8');
     const envExample = await fs.readFile(path.join(tempDir, '.env.example'), 'utf-8');
 
-    expect(helloFlow).toContain("id: 'hello'");
-    expect(payload).toContain('"message": "Hello, world!"');
-    expect(envExample).toContain('# Trigora Cloud');
+    expect(config).toContain('defineConfig');
+    expect(hello).toContain('export async function hello');
+    expect(envExample).toContain('TRIGORA_RUNTIME_URL');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/flows\/hello\.ts/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/payload\.json/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/\.env\.example/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/trigora\.config\.ts/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/src\/programs\/hello\.ts/));
   });
 
   it('prints next steps at the end', async () => {
@@ -116,10 +118,7 @@ describe('initCommand', () => {
     await initCommand({ force: false });
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Next steps/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\..*trigora dev hello/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/2\..*trigora trigger hello --payload payload\.json/),
-    );
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/3\..*trigora deploy hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/1\..*trigora dev/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/2\..*@trigora\/client/));
   });
 });
