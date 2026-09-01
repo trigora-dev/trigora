@@ -5,3 +5,7 @@ export type * from './context';
 export type * from './flow';
 export type * from './deployment';
 export type * from './api';
+export * from './program';
+export type * from './execution';
+export type * from './compiler';
+export type * from './runtime';

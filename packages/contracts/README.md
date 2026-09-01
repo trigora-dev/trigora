@@ -6,8 +6,16 @@ Shared public contracts for Trigora.
 
 Most users should start with:
 
-- `trigora` for CLI usage
-- `@trigora/sdk` for defining flows
+- `trigora` for the local runtime and CLI
+- `@trigora/sdk` for durable program authoring
+- `@trigora/client` to start and resume executions
+
+This package is mainly intended for:
+
+- the compiler/runtime pipeline between this repo and the engine repo
+- typed API clients
+- advanced integrations
+- tooling that consumes Trigora responses
 
 This package is mainly intended for:
 
@@ -27,8 +35,11 @@ npm install @trigora/contracts
 
 This package exports public contracts for:
 
+- durable programs, executions, waits, and events
+- the TCC compiler request/result/diagnostic pipeline
+- the local runtime HTTP API
 - triggers
-- flow definitions
+- flow definitions (hosted API)
 - flow events and runtime context
 - deployment request and response payloads
 - structured API errors
@@ -237,7 +248,9 @@ Most application authors should use `@trigora/sdk` for defining flows and `trigo
 ## Related Packages
 
 - `trigora` - CLI for local development, hosted deploys, and flow management
-- `@trigora/sdk` - flow authoring SDK built on top of these contracts
+- `@trigora/sdk` - durable program authoring
+- `@trigora/client` - start and control executions
+- `trigora` - local runtime and hosted workspace CLI
 
 ## License
 
