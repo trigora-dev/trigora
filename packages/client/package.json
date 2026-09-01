@@ -1,0 +1,52 @@
+{
+  "name": "@trigora/client",
+  "version": "0.9.0",
+  "description": "Client for starting and controlling Trigora durable executions.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trigora-dev/trigora"
+  },
+  "homepage": "https://trigora.dev/",
+  "bugs": {
+    "url": "https://github.com/trigora-dev/trigora/issues"
+  },
+  "keywords": [
+    "durable-execution",
+    "typescript",
+    "workflows",
+    "agents",
+    "developer-tools"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "pnpm run build:js && pnpm run build:types",
+    "build:js": "tsup",
+    "build:types": "tsc -p tsconfig.build.json --emitDeclarationOnly",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@trigora/contracts": "workspace:^",
+    "@trigora/sdk": "workspace:^"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1"
+  }
+}

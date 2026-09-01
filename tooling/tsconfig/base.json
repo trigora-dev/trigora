@@ -4,6 +4,7 @@
       "@trigora/sdk": ["../../packages/sdk/src/index.ts"],
       "@trigora/sdk/stripe": ["../../packages/sdk/src/stripe.ts"],
       "@trigora/sdk/runtime": ["../../packages/sdk/src/runtime.ts"],
+      "@trigora/client": ["../../packages/client/src/index.ts"],
       "@trigora/contracts": ["../../packages/contracts/src/index.ts"]
     },
     "target": "ES2022",
