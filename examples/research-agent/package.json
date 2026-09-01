@@ -1,0 +1,17 @@
+{
+  "name": "@trigora/example-research-agent",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "trigora dev",
+    "start": "tsx scripts/run.ts"
+  },
+  "dependencies": {
+    "@trigora/client": "workspace:*",
+    "@trigora/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "trigora": "workspace:*",
+    "tsx": "^4.21.0"
+  }
+}
