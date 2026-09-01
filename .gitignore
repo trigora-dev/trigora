@@ -83,5 +83,6 @@ temp/
 packages/cli/flows/
 packages/cli/payload.json
 
-# context
+# md
 context.md
+roadmap.md
