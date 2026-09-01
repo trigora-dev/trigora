@@ -10,18 +10,18 @@
       "outputs": ["dist/**"]
     },
     "typecheck": {
-      "dependsOn": ["^typecheck"]
+      "dependsOn": ["^build", "^typecheck"]
     },
     "lint": {
       "dependsOn": ["^lint"]
     },
     "test": {
-      "dependsOn": ["^test"],
+      "dependsOn": ["^build"],
       "inputs": ["vitest.config.ts", "packages/**/src/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
       "outputs": []
     },
     "test:coverage": {
-      "dependsOn": ["^test:coverage"],
+      "dependsOn": ["^build", "^test:coverage"],
       "inputs": ["vitest.config.ts", "packages/**/src/**/*.ts", "**/*.test.ts", "**/*.spec.ts"],
       "outputs": ["coverage/**"]
     },

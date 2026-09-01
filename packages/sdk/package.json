@@ -10,16 +10,11 @@
     "url": "https://github.com/trigora-dev/trigora/issues"
   },
   "keywords": [
-    "automation",
-    "workflow",
-    "event-driven",
-    "developer-tools",
+    "durable-execution",
     "typescript",
-    "cli",
-    "triggers",
-    "cron",
-    "queues",
-    "webhooks"
+    "workflows",
+    "agents",
+    "developer-tools"
   ],
   "license": "MIT",
   "type": "module",
@@ -37,6 +32,10 @@
     "./stripe": {
       "types": "./dist/stripe.d.ts",
       "default": "./dist/stripe.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "default": "./dist/runtime.js"
     }
   },
   "files": [
@@ -55,7 +54,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@trigora/contracts": "^0.9.0"
+    "@trigora/contracts": "workspace:^"
   },
   "devDependencies": {
     "tsup": "^8.5.1"
