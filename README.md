@@ -56,7 +56,7 @@ Cron, webhooks, queues, and API calls act as **triggers** that start durable exe
 
 Trigora is under active development.
 
-The TCC research engine and evaluation prototype exist today. The public SDK, CLI, and managed Trigora Cloud platform are being built. Some code in this repository still reflects Trigora’s earlier event-execution product and should not be considered the final durable-execution API.
+The TCC research engine and evaluation prototype exist today, including a public [demo](https://demo.trigora.dev). The public SDK, CLI, and managed Trigora Cloud platform are being built. Some code in this repository still reflects Trigora’s earlier event-execution product and should not be considered the final durable-execution API.
 
 ## Research
 
@@ -67,10 +67,12 @@ In a controlled evaluation at fixed live state:
 
 These are research-prototype measurements, not production performance guarantees.
 
-[Read the research](https://trigora.dev/research) · [Technical report](https://trigora.dev/research/whitepaper) · [Limitations](https://trigora.dev/research/limitations)
+Crash an executor and restore from a committed continuation in the [TCC demo](https://demo.trigora.dev). The demo is a research demonstration, not the hosted product.
+
+[Read the research](https://trigora.dev/research) · [Technical report](https://trigora.dev/research/whitepaper) · [Limitations](https://trigora.dev/research/limitations) · [Demo](https://demo.trigora.dev)
 
 ## Learn more
 
-[Website](https://trigora.dev) · [Technology](https://trigora.dev/technology) · [Documentation](https://trigora.dev/docs) · [Design partners](https://trigora.dev/early-access)
+[Website](https://trigora.dev) · [Technology](https://trigora.dev/technology) · [Documentation](https://trigora.dev/docs) · [Demo](https://demo.trigora.dev) · [Design partners](https://trigora.dev/early-access)
 
 Building a workload that needs durable execution? Contact [omar@trigora.dev](mailto:omar@trigora.dev).
