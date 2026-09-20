@@ -1,122 +1,201 @@
-import { createHash } from 'node:crypto';
-import fs from 'node:fs/promises';
+import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-import type {
-  CompileRequest,
-  CompileResult,
-  CompilerDiagnostic,
-  ProgramIdentity,
-} from '@trigora/contracts';
+import {
+  compile as compileTypeScript,
+  CompileError,
+  PACKAGE_VERSION,
+} from '@tcc-engine/frontend-typescript';
 import { CliDisplayError } from '../cliOutput';
+import {
+  extractTypeScriptEffects,
+  PYTHON_EFFECT_SCRIPT,
+  PYTHON_EFFECT_SOURCE_SCRIPT,
+} from './extractEffects';
 
-export const PASSTHROUGH_COMPILER_VERSION = 'passthrough-local@0.9.0';
+export type ProgramLanguage = 'typescript' | 'python';
 
-function hashSources(files: CompileRequest['files']): string {
-  const hash = createHash('sha256');
+export type CompiledProgramArtifact = {
+  language: ProgramLanguage;
+  artifactJson: string;
+  artifactHash: string;
+  compilerVersion: string;
+  effects: Record<string, () => unknown>;
+};
 
-  for (const file of [...files].sort((left, right) => left.path.localeCompare(right.path))) {
-    hash.update(file.path);
-    hash.update('\0');
-    hash.update(file.contents);
-    hash.update('\0');
-  }
+const PYTHON_COMPILE_SCRIPT = `
+import json, sys
+from tcc_engine import CompileError, artifact_json, compile
 
-  return hash.digest('hex');
-}
+filename = sys.argv[1]
+source = sys.stdin.read()
+try:
+    artifact = compile(source, filename=filename)
+    sys.stdout.write(artifact_json(artifact))
+except CompileError as err:
+    payload = {"ok": False, "message": str(err), "file": getattr(err, "filename", filename)}
+    span = getattr(err, "span", None)
+    if span:
+        payload["span"] = span
+    json.dump(payload, sys.stderr)
+    sys.exit(2)
+`;
 
-export function passthroughCompile(request: CompileRequest): CompileResult {
-  return {
-    ok: true,
-    artifact: {
-      artifactHash: hashSources(request.files),
-      compilerVersion: PASSTHROUGH_COMPILER_VERSION,
-    },
-    diagnostics: [],
-  };
-}
-
-export function formatCompilerDiagnostics(diagnostics: CompilerDiagnostic[]): string[] {
-  return diagnostics.map((diagnostic) => {
-    const location = diagnostic.file
-      ? `${diagnostic.file}${diagnostic.start ? `:${diagnostic.start.line}:${diagnostic.start.column}` : ''}`
-      : undefined;
-    const lines = [
-      `${diagnostic.severity === 'error' ? 'error' : 'warning'} ${diagnostic.code}: ${diagnostic.message}`,
-    ];
-
-    if (location) {
-      lines.push(`  ${location}`);
-    }
-
-    if (diagnostic.hint) {
-      lines.push(`  ${diagnostic.hint}`);
-    }
-
-    return lines.join('\n');
+function runPython(script: string, filename: string, source: string, extraArgs: string[] = []): Promise<{
+  stdout: string;
+  stderr: string;
+  status: number | null;
+}> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('python3', ['-c', script, filename, ...extraArgs], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on('error', reject);
+    child.on('close', (status) => {
+      resolve({ stdout, stderr, status });
+    });
+    child.stdin.end(source);
   });
 }
 
-export async function compilePrograms(
-  request: CompileRequest,
-  endpoint?: string,
-): Promise<CompileResult> {
-  if (!endpoint) {
-    return passthroughCompile(request);
-  }
+function isCompileError(error: unknown): error is CompileError {
+  return error instanceof Error && error.name === 'CompileError';
+}
 
-  let response: Response;
+function throwCompileFailure(title: string, file: string, message: string, span?: {
+  start_line?: number;
+  start_column?: number;
+}): never {
+  const location =
+    span?.start_line === undefined
+      ? file
+      : `${file}:${span.start_line}:${span.start_column ?? 1}`;
+  throw new CliDisplayError({
+    title,
+    message,
+    details: [
+      { label: 'File', value: location },
+      { label: 'Reason', value: message },
+    ],
+  });
+}
 
+export function compileTypeScriptProgram(source: string, filename: string): CompiledProgramArtifact {
   try {
-    response = await fetch(new URL('/v1/compile', endpoint), {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(request),
-    });
+    const artifact = compileTypeScript(source, { filename });
+    return {
+      language: 'typescript',
+      artifactJson: JSON.stringify(artifact),
+      artifactHash: artifact.envelope.artifact_hash,
+      compilerVersion: PACKAGE_VERSION,
+      effects: extractTypeScriptEffects(source, filename),
+    };
+  } catch (error) {
+    if (isCompileError(error)) {
+      throwCompileFailure('Compilation failed', error.file || filename, error.message, error.span ?? undefined);
+    }
+    throw error;
+  }
+}
+
+export async function compilePythonProgram(source: string, filename: string): Promise<CompiledProgramArtifact> {
+  let compiled;
+  try {
+    compiled = await runPython(PYTHON_COMPILE_SCRIPT, filename, source);
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     throw new CliDisplayError({
-      title: 'Compiler unreachable',
+      title: 'Python compiler unavailable',
       details: [
-        { label: 'Endpoint', value: endpoint },
+        { label: 'File', value: filename },
         { label: 'Reason', value: reason },
       ],
+      hint: 'Install the local tcc_engine wheel from dist-packages/, then retry.',
     });
   }
 
-  const result = (await response.json()) as CompileResult;
+  if (compiled.status !== 0) {
+    let payload: { message?: string; file?: string; span?: { start_line?: number; start_column?: number } } = {};
+    try {
+      payload = JSON.parse(compiled.stderr || compiled.stdout) as typeof payload;
+    } catch {
+      payload = { message: compiled.stderr.trim() || compiled.stdout.trim() || 'Python compilation failed.' };
+    }
 
-  if (!response.ok || !result.ok) {
-    throw new CliDisplayError({
-      title: 'Compilation failed',
-      details: [
-        { label: 'Endpoint', value: endpoint },
-        {
-          label: 'Diagnostics',
-          value:
-            formatCompilerDiagnostics(result.diagnostics ?? []).join('\n') ||
-            'Unknown compiler error.',
-        },
-      ],
-    });
+    if (/No module named ['"]tcc_engine['"]/.test(payload.message ?? compiled.stderr)) {
+      throw new CliDisplayError({
+        title: 'Python compiler unavailable',
+        details: [
+          { label: 'File', value: filename },
+          { label: 'Reason', value: 'The tcc_engine package is not installed.' },
+        ],
+        hint: 'pip install ./dist-packages/tcc_engine-0.1.0rc1-cp39-cp39-macosx_11_0_arm64.whl',
+      });
+    }
+
+    throwCompileFailure(
+      'Compilation failed',
+      payload.file || filename,
+      payload.message || 'Python compilation failed.',
+      payload.span,
+    );
   }
 
-  return result;
+  const artifact = JSON.parse(compiled.stdout) as { envelope: { artifact_hash: string; frontend_version: string } };
+  const extracted = await runPython(PYTHON_EFFECT_SCRIPT, filename, source);
+  if (extracted.status !== 0) {
+    throwCompileFailure(
+      'Failed to load effect handlers',
+      filename,
+      extracted.stderr.trim() || extracted.stdout.trim() || 'Could not evaluate effect callbacks.',
+    );
+  }
+
+  const values = JSON.parse(extracted.stdout || '{}') as Record<string, unknown>;
+  const effects: Record<string, () => unknown> = {};
+  for (const [key, value] of Object.entries(values)) {
+    effects[key] = () => value;
+  }
+
+  return {
+    language: 'python',
+    artifactJson: compiled.stdout,
+    artifactHash: artifact.envelope.artifact_hash,
+    compilerVersion: artifact.envelope.frontend_version,
+    effects,
+  };
 }
 
-export async function readCompileFiles(
-  rootDir: string,
-  programs: ProgramIdentity[],
-): Promise<CompileRequest['files']> {
-  const uniqueFiles = [...new Set(programs.map((program) => program.file))];
+export async function extractPythonEffectSources(
+  source: string,
+  filename: string,
+): Promise<Record<string, string>> {
+  const extracted = await runPython(PYTHON_EFFECT_SOURCE_SCRIPT, filename, source);
+  if (extracted.status !== 0) {
+    throwCompileFailure(
+      'Failed to load effect handlers',
+      filename,
+      extracted.stderr.trim() || extracted.stdout.trim() || 'Could not read effect callbacks.',
+    );
+  }
+  return JSON.parse(extracted.stdout || '{}') as Record<string, string>;
+}
 
-  return Promise.all(
-    uniqueFiles.map(async (relativePath) => ({
-      path: relativePath,
-      contents: await fs.readFile(path.join(rootDir, relativePath), 'utf-8'),
-    })),
-  );
+export function languageFromFile(filePath: string): ProgramLanguage | undefined {
+  const extension = path.extname(filePath).toLowerCase();
+  if (extension === '.ts' || extension === '.mts' || extension === '.js' || extension === '.mjs') {
+    return 'typescript';
+  }
+  if (extension === '.py') {
+    return 'python';
+  }
+  return undefined;
 }

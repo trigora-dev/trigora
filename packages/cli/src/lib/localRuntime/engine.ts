@@ -1,150 +1,91 @@
 import { randomUUID } from 'node:crypto';
 
-import type {
-  ExecutionRecord,
-  JsonValue,
-  RuntimeErrorCode,
-  SerializedError,
-  WaitForEventOptions,
-} from '@trigora/contracts';
-import { runWithDurableRuntime, type DurableRuntimeHost } from '@trigora/sdk';
+import { resumeExecution, startExecution, Store, type RunResult } from '@tcc-engine/host-node';
+import type { ApiErrorCode, Execution, ExecutionStatus, JsonValue } from '@trigora/contracts';
+import { DEFAULT_PROJECT_SLUG, ENGINE_FORMAT_VERSION } from '@trigora/contracts';
 
 import type { DiscoveredProgram } from './discoverPrograms';
-import { parseDuration } from './parseDuration';
+import { decodeTagged, toJsonValue } from './tagged';
 
 export class LocalRuntimeError extends Error {
-  readonly code: RuntimeErrorCode;
+  readonly code: ApiErrorCode;
 
-  constructor(code: RuntimeErrorCode, message: string) {
+  constructor(code: ApiErrorCode, message: string) {
     super(message);
     this.name = 'LocalRuntimeError';
     this.code = code;
   }
 }
 
-export class ExecutionCancelledError extends Error {
-  constructor(executionId: string) {
-    super(`Execution "${executionId}" was cancelled.`);
-    this.name = 'ExecutionCancelledError';
-  }
-}
-
 export type EngineListener = (event: {
   type: 'started' | 'waiting' | 'resumed' | 'completed' | 'failed' | 'cancelled' | 'effect';
-  execution: ExecutionRecord;
+  execution: Execution;
   name?: string;
 }) => void;
 
-type Deferred = {
-  promise: Promise<void>;
-  resolve: () => void;
-};
+const OWNER_TOKEN = 'trigora-dev';
+const LEASE_MS = 60 * 60 * 1000;
+const LOCAL_PROJECT_ID = DEFAULT_PROJECT_SLUG;
 
-function createDeferred(): Deferred {
-  let settled = false;
-  let resolve = () => undefined;
-  const promise = new Promise<void>((next) => {
-    resolve = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      next();
-    };
-  });
-  return { promise, resolve };
+function localExecutionFields(programId: string, artifactHash = ''): Pick<
+  Execution,
+  'projectId' | 'programName' | 'programVersionId' | 'artifactHash' | 'engineFormatVersion'
+> {
+  return {
+    projectId: LOCAL_PROJECT_ID,
+    programName: programId,
+    programVersionId: artifactHash || programId,
+    artifactHash,
+    engineFormatVersion: ENGINE_FORMAT_VERSION,
+  };
 }
 
-type EventWaiter = {
-  name: string;
-  match?: Record<string, JsonValue>;
-  resolve: (payload: JsonValue) => void;
-  reject: (error: unknown) => void;
+type ExecutionRow = {
+  id: string;
+  artifact_hash: string;
+  revision: number;
+  status: string;
+  owner_token: string | null;
+  lease_until: number | null;
 };
 
-type LiveExecution = {
-  record: ExecutionRecord;
-  controller: AbortController;
-  waiter?: EventWaiter;
-  parked: Deferred;
-  runPromise: Promise<void>;
+type MetaRow = {
+  id: string;
+  program_id: string;
+  input_json: string;
+  created_at: string;
+  updated_at: string;
 };
 
 function now(): string {
   return new Date().toISOString();
 }
 
-function toJsonValue(value: unknown): JsonValue {
-  if (value === undefined) {
-    return null;
+function mapStatus(status: string): ExecutionStatus {
+  if (status === 'suspended') {
+    return 'waiting';
   }
-
-  return JSON.parse(JSON.stringify(value)) as JsonValue;
-}
-
-function serializeError(error: unknown): SerializedError {
-  if (error instanceof Error) {
-    return {
-      name: error.name,
-      message: error.message,
-      stack: error.stack,
-    };
+  if (status === 'runnable') {
+    return 'running';
   }
-
-  return {
-    name: 'Error',
-    message: String(error),
-  };
-}
-
-function snapshot(record: ExecutionRecord): ExecutionRecord {
-  return {
-    ...record,
-    wait: record.wait ? { ...record.wait } : undefined,
-    error: record.error ? { ...record.error } : undefined,
-  };
-}
-
-function payloadMatches(payload: JsonValue, match?: Record<string, JsonValue>): boolean {
-  if (!match) {
-    return true;
+  if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    return status;
   }
-
-  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
-    return false;
-  }
-
-  return Object.entries(match).every(([key, expected]) => payload[key] === expected);
-}
-
-function abortableDelay(ms: number, signal: AbortSignal, executionId: string): Promise<void> {
-  if (signal.aborted) {
-    return Promise.reject(new ExecutionCancelledError(executionId));
-  }
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(finish, ms);
-
-    function finish() {
-      signal.removeEventListener('abort', onAbort);
-      resolve();
-    }
-
-    function onAbort() {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', onAbort);
-      reject(new DOMException('This operation was aborted.', 'AbortError'));
-    }
-
-    signal.addEventListener('abort', onAbort, { once: true });
-  });
+  return 'running';
 }
 
 export class LocalExecutionEngine {
   private readonly programs = new Map<string, DiscoveredProgram>();
-  private readonly executions = new Map<string, LiveExecution>();
+  private readonly artifacts = new Map<string, DiscoveredProgram>();
 
-  constructor(private readonly onEvent?: EngineListener) {}
+  constructor(
+    private readonly dbPath: string,
+    private readonly onEvent?: EngineListener,
+  ) {
+    this.withStore((store) => {
+      this.ensureMeta(store);
+    });
+  }
 
   listPrograms(): DiscoveredProgram[] {
     return [...this.programs.values()];
@@ -158,288 +99,307 @@ export class LocalExecutionEngine {
     this.programs.clear();
     for (const program of programs) {
       this.programs.set(program.id, program);
+      this.artifacts.set(program.artifactHash, program);
     }
   }
 
-  getExecution(executionId: string): ExecutionRecord {
-    return snapshot(this.requireLive(executionId).record);
+  restoredWaiting(): Execution[] {
+    return this.withStore((store) => {
+      const rows = store.db
+        .prepare("SELECT * FROM executions WHERE status = 'suspended'")
+        .all() as ExecutionRow[];
+      return rows.map((row) => this.toRecord(store, row));
+    });
   }
 
-  async start(
-    programId: string,
-    input: unknown,
-    parentExecutionId?: string,
-  ): Promise<ExecutionRecord> {
-    const program = this.programs.get(programId);
+  getExecution(executionId: string): Execution {
+    return this.withStore((store) =>
+      this.toRecord(store, this.requireExecution(store, executionId)),
+    );
+  }
 
+  listExecutions(): Execution[] {
+    return this.withStore((store) => {
+      this.ensureMeta(store);
+      const rows = store.db.prepare('SELECT * FROM executions').all() as ExecutionRow[];
+      return rows
+        .map((row) => this.toRecord(store, row))
+        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+    });
+  }
+
+  async start(programId: string, input: unknown): Promise<Execution> {
+    const program = this.programs.get(programId);
     if (!program) {
       throw new LocalRuntimeError('program_not_found', `Program "${programId}" was not found.`);
     }
 
     const id = `exec_local_${randomUUID()}`;
     const createdAt = now();
-    const live: LiveExecution = {
-      record: {
-        id,
-        programId,
-        status: 'running',
-        input: toJsonValue(input),
-        parentExecutionId,
-        attempt: 1,
-        createdAt,
-        updatedAt: createdAt,
-      },
-      controller: new AbortController(),
-      parked: createDeferred(),
-      runPromise: Promise.resolve(),
+    this.withStore((store) => {
+      this.ensureMeta(store);
+      store.db
+        .prepare(
+          'INSERT INTO trigora_records(id, program_id, input_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)',
+        )
+        .run(id, programId, JSON.stringify(toJsonValue(input)), createdAt, createdAt);
+    });
+
+    const started: Execution = {
+      id,
+      ...localExecutionFields(programId, program.artifactHash),
+      programId,
+      status: 'running',
+      input: toJsonValue(input),
+      attempt: 1,
+      createdAt,
+      updatedAt: createdAt,
     };
+    this.onEvent?.({ type: 'started', execution: started });
 
-    this.executions.set(id, live);
-    this.emit('started', live);
+    const result = await startExecution({
+      dbPath: this.dbPath,
+      artifactJson: program.artifactJson,
+      executionId: id,
+      ownerToken: OWNER_TOKEN,
+      leaseMs: LEASE_MS,
+      autoDeliverEvent: false,
+      runEffect: this.createEffectRunner(program, id),
+    });
 
-    live.runPromise = runWithDurableRuntime(this.createHost(live), async () =>
-      program.fn(input as never),
-    )
-      .then((result) => {
-        this.complete(live, result);
-      })
-      .catch((error: unknown) => {
-        this.fail(live, error);
-      });
-
-    await live.parked.promise;
-    return snapshot(live.record);
+    const record = this.recordFromResult(id, result);
+    this.emitTerminal(record, { waiting: true });
+    return record;
   }
 
-  async send(executionId: string, name: string, payload: unknown): Promise<ExecutionRecord> {
-    const live = this.requireLive(executionId);
-
-    if (live.record.status !== 'waiting' || live.record.wait?.type !== 'event' || !live.waiter) {
+  async send(executionId: string, name: string, payload: unknown): Promise<Execution> {
+    const current = this.getExecution(executionId);
+    if (current.status !== 'waiting' || current.wait?.type !== 'event') {
       throw new LocalRuntimeError(
         'execution_not_waiting',
         `Execution "${executionId}" is not waiting for an event.`,
       );
     }
 
-    const jsonPayload = toJsonValue(payload);
-
-    if (live.waiter.name !== name || !payloadMatches(jsonPayload, live.waiter.match)) {
+    if (current.wait.event !== name) {
       throw new LocalRuntimeError(
         'event_mismatch',
-        `Execution "${executionId}" is waiting for event "${live.waiter.name}".`,
+        `Execution "${executionId}" is waiting for event "${current.wait.event}".`,
       );
     }
 
-    live.parked = createDeferred();
-    live.waiter.resolve(jsonPayload);
-    await live.parked.promise;
-    return snapshot(live.record);
+    this.onEvent?.({
+      type: 'resumed',
+      execution: { ...current, status: 'running', wait: undefined },
+    });
+
+    const program = this.programForExecution(executionId);
+    const result = await resumeExecution({
+      dbPath: this.dbPath,
+      executionId,
+      ownerToken: OWNER_TOKEN,
+      leaseMs: LEASE_MS,
+      autoDeliverEvent: true,
+      eventPayload: payload,
+      runEffect: this.createEffectRunner(program, executionId),
+    });
+
+    const record = this.recordFromResult(executionId, result);
+    this.emitTerminal(record);
+    return record;
   }
 
-  async cancel(executionId: string): Promise<ExecutionRecord> {
-    const live = this.requireLive(executionId);
-
-    if (live.record.status === 'completed' || live.record.status === 'failed') {
+  async cancel(executionId: string): Promise<Execution> {
+    const current = this.getExecution(executionId);
+    if (current.status === 'completed' || current.status === 'failed') {
       throw new LocalRuntimeError(
         'execution_not_cancellable',
-        `Execution "${executionId}" is already ${live.record.status}.`,
+        `Execution "${executionId}" is already ${current.status}.`,
       );
     }
 
-    if (live.record.status !== 'cancelled') {
-      live.controller.abort();
-      live.waiter?.reject(new ExecutionCancelledError(executionId));
-      this.mark(live, 'cancelled');
-      this.emit('cancelled', live);
-      live.parked.resolve();
+    if (current.status === 'cancelled') {
+      return current;
     }
 
-    return snapshot(live.record);
+    const program = this.programForExecution(executionId);
+    const result = await resumeExecution({
+      dbPath: this.dbPath,
+      executionId,
+      ownerToken: OWNER_TOKEN,
+      leaseMs: LEASE_MS,
+      cancel: true,
+      autoDeliverEvent: false,
+      runEffect: this.createEffectRunner(program, executionId),
+    });
+
+    const record = this.recordFromResult(executionId, result);
+    if (record.status !== 'cancelled') {
+      this.withStore((store) => {
+        store.db
+          .prepare("UPDATE executions SET status = 'cancelled' WHERE id = ?")
+          .run(executionId);
+        store.db
+          .prepare('UPDATE trigora_records SET updated_at = ? WHERE id = ?')
+          .run(now(), executionId);
+      });
+      const cancelled = {
+        ...record,
+        status: 'cancelled' as const,
+        wait: undefined,
+        updatedAt: now(),
+      };
+      this.onEvent?.({ type: 'cancelled', execution: cancelled });
+      return cancelled;
+    }
+
+    this.onEvent?.({ type: 'cancelled', execution: record });
+    return record;
   }
 
-  private requireLive(executionId: string): LiveExecution {
-    const live = this.executions.get(executionId);
+  private programForExecution(executionId: string): DiscoveredProgram {
+    const hash = this.withStore((store) => this.requireExecution(store, executionId).artifact_hash);
+    const pinned = this.artifacts.get(hash);
+    if (pinned) {
+      return pinned;
+    }
 
-    if (!live) {
+    const programId = this.withStore((store) => {
+      const meta = store.db
+        .prepare('SELECT program_id FROM trigora_records WHERE id = ?')
+        .get(executionId) as { program_id: string } | undefined;
+      return meta?.program_id;
+    });
+    const current = programId ? this.programs.get(programId) : undefined;
+    if (!current) {
       throw new LocalRuntimeError(
         'execution_not_found',
         `Execution "${executionId}" was not found.`,
       );
     }
-
-    return live;
+    return current;
   }
 
-  private createHost(live: LiveExecution): DurableRuntimeHost {
-    return {
-      effect: async (name, run) => {
-        this.emit('effect', live, name);
-        this.throwIfAborted(live);
-        return run();
-      },
-      sleep: async (duration) => {
-        const ms = parseDuration(duration, 'sleep duration');
-        this.enterWait(live, {
-          type: 'timer',
-          resumeAt: new Date(Date.now() + ms).toISOString(),
-        });
-        try {
-          await abortableDelay(ms, live.controller.signal, live.record.id);
-          this.throwIfAborted(live);
-        } finally {
-          this.leaveWait(live);
-        }
-      },
-      waitForEvent: async (name, options?: WaitForEventOptions) => {
-        const timeoutMs =
-          options?.timeout === undefined
-            ? undefined
-            : parseDuration(options.timeout, 'event timeout');
-        this.enterWait(live, {
-          type: 'event',
-          eventName: name,
-          timeoutAt:
-            timeoutMs === undefined ? undefined : new Date(Date.now() + timeoutMs).toISOString(),
-        });
-
-        try {
-          const payload = await new Promise<JsonValue>((resolve, reject) => {
-            live.waiter = {
-              name,
-              match: options?.match,
-              resolve,
-              reject,
-            };
-            live.parked.resolve();
-
-            if (timeoutMs !== undefined) {
-              const timer = setTimeout(() => {
-                reject(new Error(`Timed out waiting for event "${name}".`));
-              }, timeoutMs);
-              const originalResolve = resolve;
-              const originalReject = reject;
-              live.waiter.resolve = (value: JsonValue) => {
-                clearTimeout(timer);
-                originalResolve(value);
-              };
-              live.waiter.reject = (error: unknown) => {
-                clearTimeout(timer);
-                originalReject(error);
-              };
-            }
-          });
-
-          this.throwIfAborted(live);
-          return payload as never;
-        } finally {
-          this.leaveWait(live);
-        }
-      },
-      invoke: async (programId, input) => {
-        this.throwIfAborted(live);
-        const child = await this.start(programId, input, live.record.id);
-        this.enterWait(live, { type: 'child', childExecutionId: child.id });
-        const childLive = this.requireLive(child.id);
-        await childLive.runPromise;
-        this.leaveWait(live);
-
-        if (childLive.record.status === 'failed') {
-          throw new Error(
-            childLive.record.error?.message ?? `Child program "${programId}" failed.`,
-          );
-        }
-
-        if (childLive.record.status === 'cancelled') {
-          throw new ExecutionCancelledError(childLive.record.id);
-        }
-
-        return childLive.record.result as never;
-      },
-      getExecution: () => ({
-        id: live.record.id,
-        attempt: live.record.attempt,
-        programId: live.record.programId,
-        signal: live.controller.signal,
-      }),
+  private createEffectRunner(program: DiscoveredProgram, executionId: string) {
+    return (key: string) => {
+      const handler = program.effects[key];
+      if (!handler) {
+        throw new Error(`No effect handler for \`${key}\`.`);
+      }
+      this.onEvent?.({
+        type: 'effect',
+        name: key,
+        execution: {
+          id: executionId,
+          ...localExecutionFields(program.id, program.artifactHash),
+          programId: program.id,
+          status: 'running',
+          input: null,
+          attempt: 1,
+          createdAt: now(),
+          updatedAt: now(),
+        },
+      });
+      return handler();
     };
   }
 
-  private enterWait(live: LiveExecution, wait: NonNullable<ExecutionRecord['wait']>): void {
-    this.throwIfAborted(live);
-    live.record.status = 'waiting';
-    live.record.wait = wait;
-    live.record.updatedAt = now();
-    this.emit('waiting', live);
-    if (wait.type === 'timer') {
-      live.parked.resolve();
-    }
+  private recordFromResult(executionId: string, _result: RunResult): Execution {
+    this.withStore((store) => {
+      store.db
+        .prepare('UPDATE trigora_records SET updated_at = ? WHERE id = ?')
+        .run(now(), executionId);
+    });
+    return this.getExecution(executionId);
   }
 
-  private leaveWait(live: LiveExecution): void {
-    live.waiter = undefined;
-    if (live.record.status === 'waiting') {
-      live.record.status = 'running';
-      live.record.wait = undefined;
-      live.record.updatedAt = now();
-      this.emit('resumed', live);
-    }
-  }
-
-  private complete(live: LiveExecution, result: unknown): void {
-    if (live.record.status === 'cancelled') {
+  private emitTerminal(record: Execution, options?: { waiting?: boolean }): void {
+    if (record.status === 'waiting' && options?.waiting) {
+      this.onEvent?.({ type: 'waiting', execution: record });
       return;
     }
-
-    live.record.status = 'completed';
-    live.record.result = toJsonValue(result);
-    live.record.wait = undefined;
-    live.record.updatedAt = now();
-    this.emit('completed', live);
-    live.parked.resolve();
-  }
-
-  private fail(live: LiveExecution, error: unknown): void {
-    if (live.record.status === 'cancelled') {
-      return;
+    if (record.status === 'completed') {
+      this.onEvent?.({ type: 'completed', execution: record });
     }
-
-    if (
-      error instanceof ExecutionCancelledError ||
-      (error instanceof Error && error.name === 'AbortError')
-    ) {
-      live.record.status = 'cancelled';
-      live.record.wait = undefined;
-      live.record.updatedAt = now();
-      this.emit('cancelled', live);
-      live.parked.resolve();
-      return;
+    if (record.status === 'failed') {
+      this.onEvent?.({ type: 'failed', execution: record });
     }
-
-    live.record.status = 'failed';
-    live.record.error = serializeError(error);
-    live.record.wait = undefined;
-    live.record.updatedAt = now();
-    this.emit('failed', live);
-    live.parked.resolve();
-  }
-
-  private mark(live: LiveExecution, status: ExecutionRecord['status']): void {
-    live.record.status = status;
-    live.record.wait = undefined;
-    live.record.updatedAt = now();
-  }
-
-  private throwIfAborted(live: LiveExecution): void {
-    if (live.controller.signal.aborted || live.record.status === 'cancelled') {
-      throw new ExecutionCancelledError(live.record.id);
+    if (record.status === 'cancelled') {
+      this.onEvent?.({ type: 'cancelled', execution: record });
     }
   }
 
-  private emit(
-    type: Parameters<EngineListener>[0]['type'],
-    live: LiveExecution,
-    name?: string,
-  ): void {
-    this.onEvent?.({ type, execution: snapshot(live.record), name });
+  private toRecord(store: Store, row: ExecutionRow): Execution {
+    const meta = store.db.prepare('SELECT * FROM trigora_records WHERE id = ?').get(row.id) as
+      | MetaRow
+      | undefined;
+    const saved = store.getContinuation(row.id);
+    const parsed = saved
+      ? (JSON.parse(saved.json) as { result?: unknown; status?: string })
+      : undefined;
+    const wait = store.pendingWait(row.id);
+    const timer = store.pendingTimer(row.id);
+    const status = mapStatus(row.status);
+    const result =
+      parsed?.result !== undefined ? toJsonValue(decodeTagged(parsed.result)) : undefined;
+    const failedMessage =
+      status === 'failed' && typeof parsed?.result === 'string' ? parsed.result : undefined;
+
+    const programId = meta?.program_id ?? 'unknown';
+    return {
+      id: row.id,
+      ...localExecutionFields(programId, row.artifact_hash),
+      programId,
+      status,
+      input: (meta ? (JSON.parse(meta.input_json) as JsonValue) : null) ?? null,
+      result: status === 'completed' ? result : undefined,
+      error:
+        status === 'failed'
+          ? { name: 'Error', message: failedMessage ?? 'Execution failed.' }
+          : undefined,
+      wait:
+        status === 'waiting'
+          ? wait
+            ? { type: 'event', event: wait.event_name }
+            : timer
+              ? { type: 'timer', wakeAt: new Date(timer.resume_at_ms).toISOString() }
+              : undefined
+          : undefined,
+      attempt: 1,
+      createdAt: meta?.created_at ?? now(),
+      updatedAt: meta?.updated_at ?? now(),
+    };
+  }
+
+  private requireExecution(store: Store, executionId: string): ExecutionRow {
+    const row = store.getExecution(executionId) as ExecutionRow | undefined;
+    if (!row) {
+      throw new LocalRuntimeError(
+        'execution_not_found',
+        `Execution "${executionId}" was not found.`,
+      );
+    }
+    return row;
+  }
+
+  private ensureMeta(store: Store): void {
+    store.db.exec(`
+      CREATE TABLE IF NOT EXISTS trigora_records (
+        id TEXT PRIMARY KEY,
+        program_id TEXT NOT NULL,
+        input_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  }
+
+  private withStore<T>(fn: (store: Store) => T): T {
+    const store = new Store(this.dbPath);
+    try {
+      return fn(store);
+    } finally {
+      store.close();
+    }
   }
 }

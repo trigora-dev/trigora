@@ -41,25 +41,23 @@ describe('cliOutput', () => {
     printSuccessSummary(
       'Deployment complete',
       [
-        { label: 'Flow', value: 'hello' },
-        { label: 'Trigger', value: 'webhook' },
+        { label: 'Program', value: 'hello' },
+        { label: 'Version', value: 'v1' },
       ],
       [
         {
-          title: 'Endpoint',
-          lines: ['https://acme.trigora.dev/example'],
+          title: 'Program ID',
+          lines: ['prg_example'],
         },
       ],
       'Ready to receive events',
     );
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Flow\s+hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Trigger\s+webhook/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Endpoint/));
-    expect(console.log).toHaveBeenCalledWith(
-      expect.stringMatching(/https:\/\/acme\.trigora\.dev\/example/),
-    );
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Program\s+hello/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Version\s+v1/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Program ID/));
+    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/prg_example/));
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
   });
 });

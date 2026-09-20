@@ -34,48 +34,48 @@ describe('loadProjectEnv', () => {
     await fs.writeFile(
       path.join(tempDir, '.env'),
       `
-        TRIGORA_DEPLOY_TOKEN=token-from-env
+        TRIGORA_TOKEN=token-from-env
       `,
       'utf-8',
     );
 
     process.chdir(tempDir);
-    delete process.env.TRIGORA_DEPLOY_TOKEN;
+    delete process.env.TRIGORA_TOKEN;
 
     loadProjectEnv();
 
-    expect(process.env.TRIGORA_DEPLOY_TOKEN).toBe('token-from-env');
+    expect(process.env.TRIGORA_TOKEN).toBe('token-from-env');
   });
 
   it('allows .env.local to override .env values', async () => {
     const tempDir = await makeTempDir();
 
-    await fs.writeFile(path.join(tempDir, '.env'), `TRIGORA_DEPLOY_TOKEN=base-token`, 'utf-8');
+    await fs.writeFile(path.join(tempDir, '.env'), `TRIGORA_TOKEN=base-token`, 'utf-8');
     await fs.writeFile(
       path.join(tempDir, '.env.local'),
-      `TRIGORA_DEPLOY_TOKEN=local-token`,
+      `TRIGORA_TOKEN=local-token`,
       'utf-8',
     );
 
     process.chdir(tempDir);
-    delete process.env.TRIGORA_DEPLOY_TOKEN;
+    delete process.env.TRIGORA_TOKEN;
 
     loadProjectEnv();
 
-    expect(process.env.TRIGORA_DEPLOY_TOKEN).toBe('local-token');
+    expect(process.env.TRIGORA_TOKEN).toBe('local-token');
   });
 
   it('preserves existing shell environment variables', async () => {
     const tempDir = await makeTempDir();
 
-    await fs.writeFile(path.join(tempDir, '.env'), `TRIGORA_DEPLOY_TOKEN=file-token`, 'utf-8');
+    await fs.writeFile(path.join(tempDir, '.env'), `TRIGORA_TOKEN=file-token`, 'utf-8');
 
     process.chdir(tempDir);
-    process.env.TRIGORA_DEPLOY_TOKEN = 'shell-token';
+    process.env.TRIGORA_TOKEN = 'shell-token';
 
     loadProjectEnv();
 
-    expect(process.env.TRIGORA_DEPLOY_TOKEN).toBe('shell-token');
+    expect(process.env.TRIGORA_TOKEN).toBe('shell-token');
   });
 
   it('parses quoted values and ignores comments', async () => {
@@ -85,28 +85,28 @@ describe('loadProjectEnv', () => {
       path.join(tempDir, '.env'),
       `
         # comment
-        TRIGORA_DEPLOY_TOKEN="quoted-token"
+        TRIGORA_TOKEN="quoted-token"
         INVALID LINE
       `,
       'utf-8',
     );
 
     process.chdir(tempDir);
-    delete process.env.TRIGORA_DEPLOY_TOKEN;
+    delete process.env.TRIGORA_TOKEN;
 
     loadProjectEnv();
 
-    expect(process.env.TRIGORA_DEPLOY_TOKEN).toBe('quoted-token');
+    expect(process.env.TRIGORA_TOKEN).toBe('quoted-token');
   });
 
   it('does nothing when env files are missing', async () => {
     const tempDir = await makeTempDir();
 
     process.chdir(tempDir);
-    delete process.env.TRIGORA_DEPLOY_TOKEN;
+    delete process.env.TRIGORA_TOKEN;
 
     loadProjectEnv();
 
-    expect(process.env.TRIGORA_DEPLOY_TOKEN).toBeUndefined();
+    expect(process.env.TRIGORA_TOKEN).toBeUndefined();
   });
 });

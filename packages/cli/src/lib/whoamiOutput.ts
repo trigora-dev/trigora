@@ -1,9 +1,6 @@
+import { TrigoraRuntimeError } from '@trigora/client';
 import type { WhoAmIResponse } from '@trigora/contracts';
-import {
-  DeployApiNetworkError,
-  DeployApiRequestError,
-  DeployApiResponseError,
-} from './createDeployApiClient';
+
 import { CliDisplayError } from './cliOutput';
 import { colors } from './colors';
 
@@ -42,11 +39,11 @@ function formatTokenStatus(status: string): string {
 
 export function printWhoAmI(identity: WhoAmIResponse): void {
   const details =
-    identity.actorType === 'deploy_token'
+    identity.actorType === 'api_token'
       ? [
           {
             label: 'Workspace',
-            value: colors.flow(colors.heading(identity.workspace.slug)),
+            value: colors.id(colors.heading(identity.workspace.slug)),
           },
           {
             label: 'Token',
@@ -60,7 +57,7 @@ export function printWhoAmI(identity: WhoAmIResponse): void {
       : [
           {
             label: 'Workspace',
-            value: colors.flow(colors.heading(identity.workspace.slug)),
+            value: colors.id(colors.heading(identity.workspace.slug)),
           },
           {
             label: 'User',
@@ -82,34 +79,34 @@ export function printWhoAmI(identity: WhoAmIResponse): void {
 
 export function toWhoAmITokenFailure(): CliDisplayError {
   return createRequestFailure(
-    'TRIGORA_DEPLOY_TOKEN is not set.',
+    'TRIGORA_TOKEN is not set.',
     undefined,
-    'Set your deploy token and try again.',
+    'Set your API token and try again.',
   );
 }
 
 export function toWhoAmIApiFailure(error: unknown, step: string): CliDisplayError {
-  if (error instanceof DeployApiRequestError) {
+  if (error instanceof CliDisplayError) {
+    return error;
+  }
+
+  if (error instanceof TrigoraRuntimeError) {
     if (error.code === 'unauthorized' || error.code === 'forbidden') {
       return createRequestFailure(
-        'Deploy token is invalid or no longer active.',
+        'API token is invalid or no longer active.',
         step,
-        'Check your deploy token and try again.',
+        'Check your API token and try again.',
       );
+    }
+
+    if (error.status === 0) {
+      return createRequestFailure('Network request failed.', step);
     }
 
     return createRequestFailure(
       error.message.trim() || 'Trigora Cloud rejected the request.',
       step,
     );
-  }
-
-  if (error instanceof DeployApiNetworkError) {
-    return createRequestFailure('Network request failed.', step);
-  }
-
-  if (error instanceof DeployApiResponseError) {
-    return createRequestFailure('Trigora Cloud returned an unexpected response.', step);
   }
 
   if (!(error instanceof Error)) {

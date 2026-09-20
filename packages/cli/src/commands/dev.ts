@@ -4,10 +4,10 @@ import path from 'node:path';
 import type { ArtifactIdentity, ProgramIdentity, ResolvedTrigoraConfig } from '@trigora/contracts';
 import { colors } from '../lib/colors';
 import { printSuccessSummary } from '../lib/cliOutput';
-import { compilePrograms, readCompileFiles } from '../lib/localRuntime/compiler';
 import {
   discoverPrograms,
   toProgramIdentity,
+  workspaceArtifact,
   type DiscoveredProgram,
 } from '../lib/localRuntime/discoverPrograms';
 import { LocalExecutionEngine } from '../lib/localRuntime/engine';
@@ -31,11 +31,11 @@ function printEngineEvent(event: {
     id: string;
     programId: string;
     status: string;
-    wait?: { type: string; eventName?: string };
+    wait?: { type: string; event?: string; wakeAt?: string; executionId?: string };
   };
   name?: string;
 }): void {
-  const executionId = colors.flow(event.execution.id);
+  const executionId = colors.id(event.execution.id);
   const program = colors.heading(event.execution.programId);
 
   if (event.type === 'started') {
@@ -46,7 +46,7 @@ function printEngineEvent(event: {
   if (event.type === 'waiting') {
     const wait =
       event.execution.wait?.type === 'event'
-        ? `event ${colors.heading(event.execution.wait.eventName ?? '')}`
+        ? `event ${colors.heading(event.execution.wait.event ?? '')}`
         : event.execution.wait?.type === 'timer'
           ? 'timer'
           : event.execution.wait?.type === 'child'
@@ -91,18 +91,9 @@ async function loadWorkspace(config: ResolvedTrigoraConfig): Promise<{
     rootDir: config.rootDir,
     globs: config.programGlobs,
   });
-  const files = await readCompileFiles(config.rootDir, programs.map(toProgramIdentity));
-  const compiled = await compilePrograms(
-    {
-      sourceRoot: config.rootDir,
-      programs: programs.map(toProgramIdentity),
-      files,
-    },
-    config.compiler.endpoint,
-  );
 
   return {
-    artifact: compiled.artifact,
+    artifact: workspaceArtifact(programs),
     programs,
   };
 }
@@ -111,11 +102,15 @@ export async function devCommand(options: DevCommandOptions = {}): Promise<void>
   const config = await loadProjectConfig();
   const host = options.host?.trim() || config.runtime.host;
   const requestedPort = options.port ?? config.runtime.port;
+  const dbPath = path.join(config.rootDir, '.trigora', 'state.db');
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+
   let workspace = await loadWorkspace(config);
-  const engine = new LocalExecutionEngine((event) => {
+  const engine = new LocalExecutionEngine(dbPath, (event) => {
     printEngineEvent(event);
   });
   engine.replacePrograms(workspace.programs);
+  const restored = engine.restoredWaiting();
 
   const server = await startLocalRuntimeServer({
     artifact: workspace.artifact,
@@ -128,6 +123,14 @@ export async function devCommand(options: DevCommandOptions = {}): Promise<void>
     console.log(colors.warn(`Port ${requestedPort} was in use, using ${server.port} instead.`));
   }
 
+  const restoredLine =
+    restored.length === 0
+      ? undefined
+      : {
+          label: 'Restored',
+          value: `${restored.length} suspended execution${restored.length === 1 ? '' : 's'}`,
+        };
+
   printSuccessSummary(
     'Local runtime ready',
     [
@@ -135,10 +138,17 @@ export async function devCommand(options: DevCommandOptions = {}): Promise<void>
       { label: 'Runtime', value: colors.link(server.url) },
       { label: 'Artifact', value: workspace.artifact.artifactHash.slice(0, 12) },
       { label: 'Compiler', value: workspace.artifact.compilerVersion },
+      ...(restoredLine ? [restoredLine] : []),
     ],
     [],
-    'Start executions with `@trigora/client` while this process is running.',
+    'Start executions with `@trigora/client` while this process is running. Kill and restart this process to resume waiting executions.',
   );
+
+  if (restored.length > 0) {
+    console.log(
+      `${colors.success('✔')} restored ${restored.length} suspended execution${restored.length === 1 ? '' : 's'}`,
+    );
+  }
 
   const watchers: fs.FSWatcher[] = [];
   const debounceTimers = new Map<string, NodeJS.Timeout>();

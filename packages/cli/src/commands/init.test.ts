@@ -44,8 +44,8 @@ describe('initCommand', () => {
     const envExample = await fs.readFile(path.join(tempDir, '.env.example'), 'utf-8');
 
     expect(config).toContain("programs: './src/programs/**/*.ts'");
-    expect(hello).toContain('export async function hello');
-    expect(hello).toContain('waitForEvent(greeted)');
+    expect(hello).toContain('export default async function hello');
+    expect(hello).toContain("waitForEvent('greeted')");
     expect(envExample).toContain('TRIGORA_RUNTIME_URL=http://127.0.0.1:3477');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Project initialized/));
@@ -103,7 +103,7 @@ describe('initCommand', () => {
     const envExample = await fs.readFile(path.join(tempDir, '.env.example'), 'utf-8');
 
     expect(config).toContain('defineConfig');
-    expect(hello).toContain('export async function hello');
+    expect(hello).toContain('export default async function hello');
     expect(envExample).toContain('TRIGORA_RUNTIME_URL');
 
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Updated/));

@@ -1,8 +1,8 @@
 import pc from 'picocolors';
 
 export const colors = {
-  flow: pc.cyan, // [flow.id] → stands out (primary signal)
-  dev: pc.dim, // subtle progress or background runtime notes
+  id: pc.cyan,
+  dev: pc.dim,
   label: pc.dim,
   heading: pc.bold,
   link: (value: string) => pc.cyan(pc.underline(value)),

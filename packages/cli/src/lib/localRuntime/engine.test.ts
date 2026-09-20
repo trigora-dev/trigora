@@ -1,92 +1,118 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-import { effect, event, invoke, waitForEvent } from '@trigora/sdk';
+import { afterEach, describe, expect, it } from 'vitest';
 
+import { compileTypeScriptProgram } from './compiler';
 import { LocalExecutionEngine, LocalRuntimeError } from './engine';
 import type { DiscoveredProgram } from './discoverPrograms';
 
-const approved = event<{ reviewer: string }>('approved');
+const SOURCE = `import { effect, waitForEvent } from "@trigora/sdk";
 
-async function analyzeSource(input: { source: string }) {
-  return effect('analyze', () => ({
-    source: input.source,
-    summary: `notes on ${input.source}`,
-  }));
+export default async function approval() {
+  const result = await effect("generate", () => 42);
+  const approval = await waitForEvent("approved");
+  return { result, approval };
 }
+`;
 
-async function researchAgent(input: { query: string }) {
-  const sources = await effect('search', () => [`${input.query}.example`]);
-  const reports = await Promise.all(sources.map((source) => invoke(analyzeSource, { source })));
-  const approval = await waitForEvent(approved);
+const tempDirs: string[] = [];
 
-  return effect('publish', () => ({
-    reports,
-    reviewer: approval.reviewer,
-  }));
-}
+afterEach(async () => {
+  await Promise.all(
+    tempDirs.splice(0).map(async (dir) => {
+      await fs.rm(dir, { recursive: true, force: true });
+    }),
+  );
+});
 
-function programs(): DiscoveredProgram[] {
-  return [
-    {
-      id: 'analyzeSource',
-      exportName: 'analyzeSource',
-      file: 'analyzeSource.ts',
-      fn: analyzeSource,
-    },
-    {
-      id: 'researchAgent',
-      exportName: 'researchAgent',
-      file: 'researchAgent.ts',
-      fn: researchAgent,
-    },
-  ];
+async function makeEngine(): Promise<{ engine: LocalExecutionEngine; program: DiscoveredProgram }> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-engine-'));
+  tempDirs.push(dir);
+  const compiled = compileTypeScriptProgram(SOURCE, 'approval.ts');
+  const program: DiscoveredProgram = {
+    id: 'approval',
+    exportName: 'approval',
+    file: 'approval.ts',
+    source: SOURCE,
+    ...compiled,
+  };
+  const engine = new LocalExecutionEngine(path.join(dir, 'state.db'));
+  engine.replacePrograms([program]);
+  return { engine, program };
 }
 
 describe('LocalExecutionEngine', () => {
-  it('runs effects, child invocations, event waits, and returns a typed result', async () => {
-    const engine = new LocalExecutionEngine();
-    engine.replacePrograms(programs());
-
-    const started = await engine.start('researchAgent', { query: 'durable agents' });
+  it('runs an effect, waits, resumes, and completes', async () => {
+    const { engine } = await makeEngine();
+    const started = await engine.start('approval', {});
     expect(started.status).toBe('waiting');
-    expect(started.wait).toEqual({ type: 'event', eventName: 'approved' });
+    expect(started.wait).toEqual({ type: 'event', event: 'approved' });
 
-    const resumed = await engine.send(started.id, 'approved', { reviewer: 'Omar' });
+    const resumed = await engine.send(started.id, 'approved', 'ok');
     expect(resumed.status).toBe('completed');
-    expect(resumed.result).toEqual({
-      reports: [{ source: 'durable agents.example', summary: 'notes on durable agents.example' }],
-      reviewer: 'Omar',
-    });
+    expect(resumed.result).toEqual({ result: 42, approval: 'ok' });
+  });
+
+  it('restores a waiting execution from sqlite after a new process', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-engine-'));
+    tempDirs.push(dir);
+    const dbPath = path.join(dir, 'state.db');
+    const compiled = compileTypeScriptProgram(SOURCE, 'approval.ts');
+    const program: DiscoveredProgram = {
+      id: 'approval',
+      exportName: 'approval',
+      file: 'approval.ts',
+      source: SOURCE,
+      ...compiled,
+    };
+
+    const first = new LocalExecutionEngine(dbPath);
+    first.replacePrograms([program]);
+    const started = await first.start('approval', {});
+    expect(started.status).toBe('waiting');
+
+    const second = new LocalExecutionEngine(dbPath);
+    second.replacePrograms([program]);
+    const restored = second.restoredWaiting();
+    expect(restored).toHaveLength(1);
+    expect(restored[0]?.id).toBe(started.id);
+
+    const resumed = await second.send(started.id, 'approved', 'ok');
+    expect(resumed.status).toBe('completed');
+    expect(resumed.result).toEqual({ result: 42, approval: 'ok' });
   });
 
   it('rejects mismatched events while waiting', async () => {
-    const engine = new LocalExecutionEngine();
-    engine.replacePrograms(programs());
+    const { engine } = await makeEngine();
+    const started = await engine.start('approval', {});
 
-    const started = await engine.start('researchAgent', { query: 'durable agents' });
-
-    await expect(engine.send(started.id, 'rejected', { reviewer: 'Omar' })).rejects.toMatchObject({
+    await expect(engine.send(started.id, 'rejected', 'ok')).rejects.toMatchObject({
       code: 'event_mismatch',
     });
   });
 
   it('cancels a waiting execution', async () => {
-    const engine = new LocalExecutionEngine();
-    engine.replacePrograms(programs());
-
-    const started = await engine.start('researchAgent', { query: 'durable agents' });
+    const { engine } = await makeEngine();
+    const started = await engine.start('approval', {});
     const cancelled = await engine.cancel(started.id);
 
     expect(cancelled.status).toBe('cancelled');
-    await expect(engine.send(started.id, 'approved', { reviewer: 'Omar' })).rejects.toBeInstanceOf(
+    await expect(engine.send(started.id, 'approved', 'ok')).rejects.toBeInstanceOf(
       LocalRuntimeError,
     );
   });
 
-  it('fails unknown programs', async () => {
-    const engine = new LocalExecutionEngine();
-    engine.replacePrograms(programs());
+  it('lists executions from sqlite', async () => {
+    const { engine } = await makeEngine();
+    const started = await engine.start('approval', {});
 
+    expect(engine.listExecutions().map((execution) => execution.id)).toEqual([started.id]);
+  });
+
+  it('fails unknown programs', async () => {
+    const { engine } = await makeEngine();
     await expect(engine.start('missing', {})).rejects.toMatchObject({
       code: 'program_not_found',
     });

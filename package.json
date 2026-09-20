@@ -23,6 +23,16 @@
     "webhooks"
   ],
   "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "overrides": {
+      "@tcc-engine/bindings-javascript": "file:dist-packages/tcc-engine-bindings-javascript-0.1.0-rc.1.tgz",
+      "@tcc-engine/frontend-typescript": "file:dist-packages/tcc-engine-frontend-typescript-0.1.0-rc.1.tgz",
+      "@tcc-engine/host-node": "file:dist-packages/tcc-engine-host-node-0.1.0-rc.1.tgz"
+    }
+  },
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",

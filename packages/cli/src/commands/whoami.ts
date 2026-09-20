@@ -1,37 +1,15 @@
 import type { WhoAmIResponse } from '@trigora/contracts';
-import { createDeployApiClient } from '../lib/createDeployApiClient';
-import { getDeployToken } from '../lib/getDeployToken';
-import {
-  printWhoAmI,
-  toWhoAmIApiFailure,
-  toWhoAmITokenFailure,
-  whoAmISteps,
-} from '../lib/whoamiOutput';
 
-function requireDeployToken(): string {
-  const token = getDeployToken();
-
-  if (!token) {
-    throw toWhoAmITokenFailure();
-  }
-
-  return token;
-}
-
-function createWhoAmIApiClient() {
-  return createDeployApiClient({
-    token: requireDeployToken(),
-  });
-}
+import { requireCloudClient } from '../lib/cloudRuntime';
+import { printWhoAmI, toWhoAmIApiFailure, whoAmISteps } from '../lib/whoamiOutput';
 
 export async function whoAmICommand(): Promise<WhoAmIResponse> {
-  const identity = await createWhoAmIApiClient()
-    .whoAmI()
-    .catch((error) => {
-      throw toWhoAmIApiFailure(error, whoAmISteps.fetchingIdentity);
-    });
-
-  printWhoAmI(identity);
-
-  return identity;
+  const client = requireCloudClient();
+  try {
+    const identity = await client.whoAmI();
+    printWhoAmI(identity);
+    return identity;
+  } catch (error) {
+    throw toWhoAmIApiFailure(error, whoAmISteps.fetchingIdentity);
+  }
 }

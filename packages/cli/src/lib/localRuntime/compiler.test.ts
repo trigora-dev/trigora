@@ -1,18 +1,123 @@
-import { describe, expect, it } from 'vitest';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 
-import { passthroughCompile } from './compiler';
+import { afterEach, describe, expect, it } from 'vitest';
 
-describe('passthroughCompile', () => {
-  it('hashes sources into an artifact identity', () => {
-    const result = passthroughCompile({
-      sourceRoot: '/tmp/project',
-      programs: [{ id: 'hello', exportName: 'hello', file: 'hello.ts' }],
-      files: [{ path: 'hello.ts', contents: 'export async function hello() {}' }],
+import { CliDisplayError } from '../cliOutput';
+import { compileTypeScriptProgram } from './compiler';
+
+describe('compileTypeScriptProgram', () => {
+  it('compiles a supported default-export program', () => {
+    const compiled = compileTypeScriptProgram(
+      `import { effect, waitForEvent } from "@trigora/sdk";
+
+export default async function approval() {
+  const result = await effect("generate", () => 42);
+  const approval = await waitForEvent("approved");
+  return { result, approval };
+}
+`,
+      'approval.ts',
+    );
+
+    expect(compiled.language).toBe('typescript');
+    expect(compiled.artifactHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(compiled.effects.generate?.()).toBe(42);
+  });
+
+  it('extracts effect callback source for Cloud workers', async () => {
+    const { extractTypeScriptEffectSources } = await import('./extractEffects');
+    const sources = extractTypeScriptEffectSources(
+      `import { effect, waitForEvent } from "@trigora/sdk";
+
+export default async function approval() {
+  const result = await effect("generate", () => 42);
+  const approval = await waitForEvent("approved");
+  return { result, approval };
+}
+`,
+      'approval.ts',
+    );
+
+    expect(sources.generate).toContain('42');
+  });
+
+  it('rejects named exports that are not the default entry', () => {
+    expect(() =>
+      compileTypeScriptProgram(
+        `import { effect } from "@trigora/sdk";
+export async function approval() {
+  return effect("generate", () => 42);
+}
+`,
+        'approval.ts',
+      ),
+    ).toThrow(/unsupported top-level statement|default export/);
+  });
+});
+
+describe('discoverPrograms', () => {
+  const tempDirs: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(
+      tempDirs.splice(0).map(async (dir) => {
+        await fs.rm(dir, { recursive: true, force: true });
+      }),
+    );
+  });
+
+  it('loads a default-export program from configured globs', async () => {
+    const { discoverPrograms } = await import('./discoverPrograms');
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-discover-'));
+    tempDirs.push(root);
+    await fs.mkdir(path.join(root, 'src', 'programs'), { recursive: true });
+    await fs.writeFile(
+      path.join(root, 'src', 'programs', 'hello.ts'),
+      `import { effect, waitForEvent } from '@trigora/sdk';
+
+export default async function hello() {
+  const greeting = await effect('greet', () => 'hello');
+  const who = await waitForEvent('greeted');
+  return { greeting, from: who };
+}
+`,
+    );
+
+    const programs = await discoverPrograms({
+      rootDir: root,
+      globs: ['./src/programs/**/*.ts'],
     });
 
-    expect(result.ok).toBe(true);
-    expect(result.artifact.compilerVersion).toBe('passthrough-local@0.9.0');
-    expect(result.artifact.artifactHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(result.diagnostics).toEqual([]);
+    expect(programs.map((program) => program.id)).toEqual(['hello']);
+    expect(programs[0]?.file).toBe('src/programs/hello.ts');
+    expect(programs[0]?.exportName).toBe('hello');
+  });
+
+  it('compiles a Python approval program when tcc_engine is installed', async () => {
+    const { compilePythonProgram } = await import('./compiler');
+    try {
+      const compiled = await compilePythonProgram(
+        `from trigora import effect, wait_for_event
+
+async def run():
+    result = await effect("generate", lambda: 42)
+    review = await wait_for_event("approved")
+    return {"result": result, "review": review}
+`,
+        'approval.py',
+      );
+      expect(compiled.language).toBe('python');
+      expect(compiled.artifactHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(compiled.effects.generate?.()).toBe(42);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const title = error instanceof CliDisplayError ? error.title : '';
+      if (/tcc_engine|Python compiler unavailable/.test(`${title} ${message}`)) {
+        return;
+      }
+      throw error;
+    }
   });
 });

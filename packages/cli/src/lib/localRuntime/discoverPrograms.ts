@@ -1,18 +1,22 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { createHash } from 'node:crypto';
 
-import { build, type Plugin } from 'esbuild';
-import type { ProgramIdentity } from '@trigora/contracts';
+import type { ArtifactIdentity, ProgramIdentity } from '@trigora/contracts';
 import { CliDisplayError } from '../cliOutput';
+import {
+  compilePythonProgram,
+  compileTypeScriptProgram,
+  languageFromFile,
+  type CompiledProgramArtifact,
+  type ProgramLanguage,
+} from './compiler';
 import { globFiles } from './globFiles';
 
-const require = createRequire(import.meta.url);
-
-export type DiscoveredProgram = ProgramIdentity & {
-  fn: (input: never) => Promise<unknown>;
-};
+export type DiscoveredProgram = ProgramIdentity &
+  CompiledProgramArtifact & {
+    source: string;
+  };
 
 export function toProgramIdentity(program: DiscoveredProgram): ProgramIdentity {
   return {
@@ -26,53 +30,37 @@ function toPosix(filePath: string): string {
   return filePath.split(path.sep).join('/');
 }
 
-function sdkSingletonPlugin(): Plugin {
+function defaultExportName(source: string, fallback: string): string {
+  const match = source.match(/export\s+default\s+async\s+function\s+([A-Za-z_$][\w$]*)/);
+  return match?.[1] ?? fallback;
+}
+
+function fileStem(filePath: string): string {
+  return path.basename(filePath, path.extname(filePath));
+}
+
+export function workspaceArtifact(programs: DiscoveredProgram[]): ArtifactIdentity {
+  const hash = createHash('sha256');
+  for (const program of [...programs].sort((left, right) => left.id.localeCompare(right.id))) {
+    hash.update(program.id);
+    hash.update('\0');
+    hash.update(program.artifactHash);
+    hash.update('\0');
+  }
+
   return {
-    name: 'trigora-sdk-singleton',
-    setup(buildApi) {
-      buildApi.onResolve({ filter: /^@trigora\/(?:sdk|contracts)(?:\/.*)?$/ }, (args) => {
-        try {
-          return {
-            path: require.resolve(args.path),
-            external: true,
-          };
-        } catch {
-          return {
-            path: args.path,
-            external: true,
-          };
-        }
-      });
-    },
+    artifactHash: hash.digest('hex'),
+    compilerVersion: programs[0]?.compilerVersion ?? 'tcc-engine',
   };
-}
-
-async function bundleProgramModule(filePath: string, outFile: string): Promise<void> {
-  await build({
-    absWorkingDir: path.dirname(filePath),
-    bundle: true,
-    entryPoints: [filePath],
-    format: 'esm',
-    keepNames: true,
-    logLevel: 'silent',
-    outfile: outFile,
-    packages: 'external',
-    platform: 'node',
-    plugins: [sdkSingletonPlugin()],
-    sourcemap: 'inline',
-    target: 'node20',
-  });
-}
-
-function isProgramFunction(value: unknown): value is (input: never) => Promise<unknown> {
-  return typeof value === 'function' && value.constructor.name === 'AsyncFunction';
 }
 
 export async function discoverPrograms(options: {
   rootDir: string;
   globs: string[];
 }): Promise<DiscoveredProgram[]> {
-  const files = await globFiles(options.rootDir, options.globs);
+  const files = (await globFiles(options.rootDir, options.globs)).filter((filePath) =>
+    Boolean(languageFromFile(filePath)),
+  );
 
   if (files.length === 0) {
     throw new CliDisplayError({
@@ -81,82 +69,44 @@ export async function discoverPrograms(options: {
         { label: 'Globs', value: options.globs.join(', ') },
         { label: 'Root', value: options.rootDir },
       ],
-      hint: 'Export named async functions from files matching `programs` in trigora.config.ts.',
+      hint: 'Export a default async function from TypeScript files, or `async def run()` from Python files, matching `programs` in trigora.config.ts.',
     });
   }
-
-  const cacheDir = path.join(options.rootDir, '.trigora', 'dev');
-  await fs.mkdir(cacheDir, { recursive: true });
 
   const discovered: DiscoveredProgram[] = [];
   const seen = new Map<string, string>();
 
   for (const filePath of files) {
     const relative = toPosix(path.relative(options.rootDir, filePath));
-    const outFile = path.join(
-      cacheDir,
-      `${relative.replaceAll('/', '__')}-${Date.now()}-${Math.random().toString(16).slice(2)}.mjs`,
-    );
+    const language = languageFromFile(filePath) as ProgramLanguage;
+    const source = await fs.readFile(filePath, 'utf-8');
+    const compiled =
+      language === 'python'
+        ? await compilePythonProgram(source, relative)
+        : compileTypeScriptProgram(source, relative);
+    const exportName = language === 'python' ? 'run' : defaultExportName(source, 'default');
+    const id = language === 'python' || exportName === 'default' ? fileStem(filePath) : exportName;
+    const previous = seen.get(id);
 
-    try {
-      await bundleProgramModule(filePath, outFile);
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
+    if (previous) {
       throw new CliDisplayError({
-        title: 'Failed to load program module',
+        title: 'Duplicate program id',
         details: [
-          { label: 'File', value: relative },
-          { label: 'Reason', value: reason },
+          { label: 'Program', value: id },
+          { label: 'First', value: previous },
+          { label: 'Second', value: relative },
         ],
+        hint: 'Use a unique default-export function name or file name for each program.',
       });
     }
 
-    const imported = (await import(pathToFileURL(outFile).href)) as Record<string, unknown>;
-
-    for (const [exportName, value] of Object.entries(imported)) {
-      if (!isProgramFunction(value)) {
-        continue;
-      }
-
-      const id = exportName === 'default' ? value.name : exportName;
-
-      if (!id) {
-        continue;
-      }
-
-      const previous = seen.get(id);
-      if (previous) {
-        throw new CliDisplayError({
-          title: 'Duplicate program id',
-          details: [
-            { label: 'Program', value: id },
-            { label: 'First', value: previous },
-            { label: 'Second', value: relative },
-          ],
-          hint: 'Export names must be unique across discovered program files.',
-        });
-      }
-
-      seen.set(id, relative);
-      discovered.push({
-        id,
-        exportName,
-        file: relative,
-        fn: value,
-      });
-    }
-  }
-
-  if (discovered.length === 0) {
-    throw new CliDisplayError({
-      title: 'No program exports found',
-      details: [
-        {
-          label: 'Files',
-          value: files.map((file) => toPosix(path.relative(options.rootDir, file))).join(', '),
-        },
-      ],
-      hint: 'Export a named async function such as `export async function researchAgent(input) { ... }`.',
+    seen.set(id, relative);
+    discovered.push({
+      id,
+      exportName,
+      file: relative,
+      source,
+      ...compiled,
     });
   }
 

@@ -2,13 +2,14 @@ import http from 'node:http';
 import net from 'node:net';
 
 import type {
-  ArtifactIdentity,
+  ApiErrorResponse,
   JsonValue,
-  RuntimeErrorResponse,
+  ProgramSummary,
   StartExecutionRequest,
 } from '@trigora/contracts';
+import { DEFAULT_PROJECT_NAME, DEFAULT_PROJECT_SLUG, ENGINE_FORMAT_VERSION } from '@trigora/contracts';
 import { LocalExecutionEngine, LocalRuntimeError } from './engine';
-import { toProgramIdentity } from './discoverPrograms';
+import type { DiscoveredProgram } from './discoverPrograms';
 
 export type LocalRuntimeServer = {
   close: () => Promise<void>;
@@ -97,7 +98,7 @@ function errorStatus(code: LocalRuntimeError['code']): number {
 
 function sendError(res: http.ServerResponse, error: unknown): void {
   if (error instanceof LocalRuntimeError) {
-    const body: RuntimeErrorResponse = {
+    const body: ApiErrorResponse = {
       error: {
         code: error.code,
         message: error.message,
@@ -108,7 +109,7 @@ function sendError(res: http.ServerResponse, error: unknown): void {
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  const body: RuntimeErrorResponse = {
+  const body: ApiErrorResponse = {
     error: {
       code: 'invalid_input',
       message,
@@ -117,8 +118,32 @@ function sendError(res: http.ServerResponse, error: unknown): void {
   sendJson(res, 500, body);
 }
 
+function publicLanguage(language: DiscoveredProgram['language']): ProgramSummary['language'] {
+  return language === 'python' ? 'python' : 'javascript';
+}
+
+function toProgramSummary(program: DiscoveredProgram, updatedAt: string): ProgramSummary {
+  return {
+    id: program.id,
+    name: program.id,
+    language: publicLanguage(program.language),
+    currentVersionId: program.artifactHash,
+    updatedAt,
+  };
+}
+
+function localProject(createdAt: string) {
+  return {
+    id: DEFAULT_PROJECT_SLUG,
+    workspaceId: 'local',
+    name: DEFAULT_PROJECT_NAME,
+    slug: DEFAULT_PROJECT_SLUG,
+    createdAt,
+  };
+}
+
 export async function startLocalRuntimeServer(options: {
-  artifact: ArtifactIdentity;
+  artifact: { artifactHash: string; compilerVersion: string };
   engine: LocalExecutionEngine;
   host: string;
   port: number;
@@ -140,11 +165,65 @@ export async function startLocalRuntimeServer(options: {
           return;
         }
 
+        if (method === 'GET' && pathName === '/v1/projects') {
+          sendJson(res, 200, { projects: [localProject(new Date(0).toISOString())] });
+          return;
+        }
+
         if (method === 'GET' && pathName === '/v1/programs') {
+          const updatedAt = new Date().toISOString();
           sendJson(res, 200, {
-            artifact: options.artifact,
-            programs: options.engine.listPrograms().map(toProgramIdentity),
-            runtime: { url: runtime.url },
+            programs: options.engine.listPrograms().map((program) => toProgramSummary(program, updatedAt)),
+          });
+          return;
+        }
+
+        const programVersionsMatch = /^\/v1\/programs\/([^/]+)\/versions$/.exec(pathName);
+        if (method === 'GET' && programVersionsMatch?.[1]) {
+          const program = options.engine.getProgram(decodeURIComponent(programVersionsMatch[1]));
+          if (!program) {
+            throw new LocalRuntimeError('program_not_found', 'Program was not found.');
+          }
+          sendJson(res, 200, {
+            versions: [
+              {
+                id: program.artifactHash,
+                artifactHash: program.artifactHash,
+                language: publicLanguage(program.language),
+                createdAt: new Date(0).toISOString(),
+              },
+            ],
+          });
+          return;
+        }
+
+        const programMatch = /^\/v1\/programs\/([^/]+)$/.exec(pathName);
+        if (method === 'GET' && programMatch?.[1]) {
+          const program = options.engine.getProgram(decodeURIComponent(programMatch[1]));
+          if (!program) {
+            throw new LocalRuntimeError('program_not_found', 'Program was not found.');
+          }
+          const updatedAt = new Date().toISOString();
+          sendJson(res, 200, {
+            program: {
+              id: program.id,
+              projectId: DEFAULT_PROJECT_SLUG,
+              name: program.id,
+              currentVersionId: program.artifactHash,
+              currentVersion: {
+                id: program.artifactHash,
+                programId: program.id,
+                artifactHash: program.artifactHash,
+                engineFormatVersion: ENGINE_FORMAT_VERSION,
+                languageSemanticsVersion: program.compilerVersion,
+                frontendId: publicLanguage(program.language),
+                frontendVersion: program.compilerVersion,
+                language: publicLanguage(program.language),
+                createdAt: updatedAt,
+              },
+              createdAt: updatedAt,
+              updatedAt,
+            },
           });
           return;
         }
@@ -157,6 +236,26 @@ export async function startLocalRuntimeServer(options: {
 
           const execution = await options.engine.start(body.programId, body.input ?? {});
           sendJson(res, 201, { execution });
+          return;
+        }
+
+        if (method === 'GET' && pathName === '/v1/executions') {
+          sendJson(res, 200, {
+            executions: options.engine.listExecutions(),
+          });
+          return;
+        }
+
+        const resultMatch = /^\/v1\/executions\/([^/]+)\/result$/.exec(pathName);
+        if (method === 'GET' && resultMatch?.[1]) {
+          const execution = options.engine.getExecution(decodeURIComponent(resultMatch[1]));
+          sendJson(res, 200, {
+            result: {
+              status: execution.status,
+              result: execution.result,
+              error: execution.error,
+            },
+          });
           return;
         }
 
@@ -192,8 +291,8 @@ export async function startLocalRuntimeServer(options: {
         }
 
         sendJson(res, 404, {
-          error: { code: 'execution_not_found', message: 'Not found.' },
-        } satisfies RuntimeErrorResponse);
+          error: { code: 'not_found', message: 'Not found.' },
+        } satisfies ApiErrorResponse);
       } catch (error) {
         sendError(res, error);
       }

@@ -14,23 +14,24 @@ export default defineConfig({
 });
 `;
 
-const HELLO_PROGRAM_TEMPLATE = `import { effect, event, waitForEvent } from '@trigora/sdk';
+const HELLO_PROGRAM_TEMPLATE = `import { effect, waitForEvent } from '@trigora/sdk';
 
-export const greeted = event<{ name: string }>('greeted');
-
-export async function hello(input: { query: string }) {
-  const greeting = await effect('greet', () => \`hello \${input.query}\`);
-  const who = await waitForEvent(greeted);
+export default async function hello() {
+  const greeting = await effect('greet', () => 'hello');
+  const who = await waitForEvent('greeted');
 
   return {
     greeting,
-    from: who.name,
+    from: who,
   };
 }
 `;
 
 const ENV_EXAMPLE_TEMPLATE = `# Local runtime used by @trigora/client while \`trigora dev\` is running.
 TRIGORA_RUNTIME_URL=http://127.0.0.1:3477
+
+# Cloud API token (optional). When set, CLI commands talk to Trigora Cloud.
+# TRIGORA_TOKEN=
 `;
 
 type FileWriteResult = {
@@ -117,7 +118,5 @@ export async function initCommand(options: InitOptions): Promise<void> {
 
   console.log(colors.heading('Next steps'));
   console.log(`  ${colors.label('1.')} trigora dev`);
-  console.log(
-    `  ${colors.label('2.')} start hello with @trigora/client, then send the greeted event`,
-  );
+  console.log(`  ${colors.label('2.')} start hello with @trigora/client, then send the greeted event`);
 }

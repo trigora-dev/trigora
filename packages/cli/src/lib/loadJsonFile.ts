@@ -1,6 +1,27 @@
 import type { JsonValue } from '@trigora/contracts';
 import fs from 'node:fs/promises';
 
+export async function parseJsonValue(value: string): Promise<JsonValue> {
+  const trimmed = value.trim();
+  if (
+    trimmed.startsWith('{') ||
+    trimmed.startsWith('[') ||
+    trimmed.startsWith('"') ||
+    trimmed === 'null' ||
+    trimmed === 'true' ||
+    trimmed === 'false' ||
+    /^-?\d/.test(trimmed)
+  ) {
+    try {
+      return JSON.parse(trimmed) as JsonValue;
+    } catch {
+      throw new Error(`Invalid JSON: ${value}`);
+    }
+  }
+
+  return loadJsonFile(trimmed);
+}
+
 export async function loadJsonFile(filePath: string): Promise<JsonValue> {
   let raw: string;
 

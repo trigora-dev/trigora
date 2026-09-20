@@ -1,31 +1,26 @@
+import type { TrigoraClient } from '@trigora/client';
+import { TrigoraRuntimeError } from '@trigora/client';
 import type { WhoAmIResponse } from '@trigora/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  createDeployApiClient,
-  type DeployApiClient,
-  DeployApiNetworkError,
-  DeployApiRequestError,
-} from '../lib/createDeployApiClient';
 import { whoAmICommand } from './whoami';
 
-vi.mock('../lib/createDeployApiClient', async () => {
-  const actual = await vi.importActual<typeof import('../lib/createDeployApiClient')>(
-    '../lib/createDeployApiClient',
-  );
-
+vi.mock('@trigora/client', async () => {
+  const actual = await vi.importActual<typeof import('@trigora/client')>('@trigora/client');
   return {
     ...actual,
-    createDeployApiClient: vi.fn(),
+    createClient: vi.fn(),
   };
 });
 
+import { createClient } from '@trigora/client';
+
 const originalConsoleLog = console.log;
 const originalEnv = { ...process.env };
-const mockedCreateDeployApiClient = vi.mocked(createDeployApiClient);
+const mockedCreateClient = vi.mocked(createClient);
 
 const identity = {
-  actorType: 'deploy_token' as const,
+  actorType: 'api_token' as const,
   workspace: {
     id: 'ws_123',
     name: 'Acme',
@@ -41,25 +36,25 @@ const identity = {
   },
 } satisfies WhoAmIResponse;
 
-function createMockApiClient(overrides: Partial<DeployApiClient> = {}): DeployApiClient {
+function createMockClient(overrides: Partial<TrigoraClient> = {}): TrigoraClient {
   return {
-    createDeployment: vi.fn(),
-    deleteFlow: vi.fn(),
-    deleteFlowSecret: vi.fn(),
-    deleteQueue: vi.fn(),
-    disableFlow: vi.fn(),
-    enableFlow: vi.fn(),
-    enqueueQueueMessage: vi.fn(),
-    getFlow: vi.fn(),
-    getInvocation: vi.fn(),
-    listInvocations: vi.fn(),
-    listQueues: vi.fn(),
-    listSecrets: vi.fn(),
-    listFlows: vi.fn(),
-    purgeFailedQueueMessages: vi.fn(),
-    retryFailedQueueMessages: vi.fn(),
-    setFlowSecret: vi.fn(),
     whoAmI: vi.fn().mockResolvedValue(identity),
+    listProjects: vi.fn(),
+    createProject: vi.fn(),
+    deployProgram: vi.fn(),
+    listPrograms: vi.fn(),
+    getProgram: vi.fn(),
+    listProgramVersions: vi.fn(),
+    start: vi.fn(),
+    startExecution: vi.fn(),
+    get: vi.fn(),
+    getExecution: vi.fn(),
+    listExecutions: vi.fn(),
+    sendEvent: vi.fn(),
+    cancelExecution: vi.fn(),
+    getResult: vi.fn(),
+    programs: vi.fn(),
+    executions: vi.fn(),
     ...overrides,
   };
 }
@@ -68,10 +63,10 @@ beforeEach(() => {
   console.log = vi.fn();
   process.env = {
     ...originalEnv,
-    TRIGORA_DEPLOY_TOKEN: 'secret-token',
+    TRIGORA_TOKEN: 'secret-token',
   };
-  mockedCreateDeployApiClient.mockReset();
-  mockedCreateDeployApiClient.mockReturnValue(createMockApiClient());
+  mockedCreateClient.mockReset();
+  mockedCreateClient.mockReturnValue(createMockClient());
 });
 
 afterEach(() => {
@@ -88,23 +83,20 @@ describe('whoAmICommand', () => {
     expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Status\s+active/));
   });
 
-  it('throws a polished error when the deploy token is missing', async () => {
-    delete process.env.TRIGORA_DEPLOY_TOKEN;
+  it('throws a polished error when the API token is missing', async () => {
+    delete process.env.TRIGORA_TOKEN;
 
-    await expect(whoAmICommand()).rejects.toThrow('TRIGORA_DEPLOY_TOKEN is not set.');
+    await expect(whoAmICommand()).rejects.toThrow('TRIGORA_TOKEN is not set.');
   });
 
   it('maps invalid token errors to the canonical token reason', async () => {
-    mockedCreateDeployApiClient.mockReturnValue(
-      createMockApiClient({
+    mockedCreateClient.mockReturnValue(
+      createMockClient({
         whoAmI: vi.fn().mockRejectedValue(
-          new DeployApiRequestError(
-            {
-              code: 'unauthorized',
-              message: 'A valid deploy token is required.',
-            },
-            401,
-          ),
+          new TrigoraRuntimeError('A valid API token is required.', {
+            status: 401,
+            code: 'unauthorized',
+          }),
         ),
       }),
     );
@@ -115,17 +107,19 @@ describe('whoAmICommand', () => {
         expect.objectContaining({ label: 'Step', value: 'Fetching identity' }),
         expect.objectContaining({
           label: 'Reason',
-          value: 'Deploy token is invalid or no longer active.',
+          value: 'API token is invalid or no longer active.',
         }),
       ]),
-      hint: 'Check your deploy token and try again.',
+      hint: 'Check your API token and try again.',
     });
   });
 
   it('maps network failures to a concise request error', async () => {
-    mockedCreateDeployApiClient.mockReturnValue(
-      createMockApiClient({
-        whoAmI: vi.fn().mockRejectedValue(new DeployApiNetworkError('connect ECONNREFUSED')),
+    mockedCreateClient.mockReturnValue(
+      createMockClient({
+        whoAmI: vi
+          .fn()
+          .mockRejectedValue(new TrigoraRuntimeError('connect ECONNREFUSED', { status: 0 })),
       }),
     );
 

@@ -1,32 +1,18 @@
 import { Command } from 'commander';
+import { cancelCommand } from './commands/cancel';
 import { deployCommand } from './commands/deploy';
 import { devCommand } from './commands/dev';
-import { deleteSecretCommand, listSecretsCommand, setSecretCommand } from './commands/secrets';
-import { inspectInvocationCommand, listInvocationsCommand } from './commands/invocations';
-import { getLogCommand } from './commands/logs';
-import { whoAmICommand } from './commands/whoami';
-import {
-  deleteFlowCommand,
-  disableFlowCommand,
-  enableFlowCommand,
-  inspectFlowCommand,
-  listFlowsCommand,
-} from './commands/flows';
-import {
-  deleteQueueCommand,
-  enqueueQueueCommand,
-  listQueuesCommand,
-  purgeFailedQueueCommand,
-  retryFailedQueueCommand,
-} from './commands/queues';
+import { inspectExecutionCommand, listExecutionsCommand } from './commands/executions';
 import { initCommand } from './commands/init';
-import { triggerCommand } from './commands/trigger';
-import { resolveFlowPath } from './lib/resolveFlowPath';
+import { listProgramsCommand } from './commands/programs';
+import { sendCommand } from './commands/send';
+import { startCommand } from './commands/start';
+import { whoAmICommand } from './commands/whoami';
 
 export function createProgram(): Command {
   const program = new Command();
 
-  program.name('trigora').description('Run code when things happen').version('0.9.0');
+  program.name('trigora').description('Local durable execution runtime').version('0.9.0');
 
   program
     .command('init')
@@ -35,19 +21,6 @@ export function createProgram(): Command {
     .action(async (options) => {
       await initCommand({
         force: options.force,
-      });
-    });
-
-  program
-    .command('trigger')
-    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' }) or a file path")
-    .option('-p, --payload <path>', 'Path to JSON payload file')
-    .action(async (flowNameOrPath, options) => {
-      const filePath = resolveFlowPath(flowNameOrPath);
-
-      await triggerCommand({
-        filePath,
-        payloadPath: options.payload,
       });
     });
 
@@ -71,186 +44,74 @@ export function createProgram(): Command {
 
   program
     .command('deploy')
-    .argument('[flow]', "The flow identifier defined in defineFlow({ id: '...' }) or a file path")
-    .action(async (flowNameOrPath) => {
-      const filePath = flowNameOrPath ? resolveFlowPath(flowNameOrPath) : undefined;
-
+    .description('Compile programs locally and deploy them to Trigora Cloud')
+    .option('--program <name>', 'Deploy a single program')
+    .action(async (options) => {
       await deployCommand({
-        filePath,
+        program: options.program,
       });
     });
 
-  const flowsCommand = program.command('flows').description('Manage deployed flows');
+  program
+    .command('programs')
+    .description('List programs')
+    .action(async () => {
+      await listProgramsCommand();
+    });
 
-  flowsCommand.action(async () => {
-    await listFlowsCommand();
+  const executionsCommand = program.command('executions').description('List executions');
+
+  executionsCommand.action(async () => {
+    await listExecutionsCommand();
   });
+
+  executionsCommand
+    .command('inspect')
+    .description('Inspect an execution')
+    .argument('<execution>', 'Execution ID')
+    .action(async (executionId) => {
+      await inspectExecutionCommand(executionId);
+    });
+
+  program
+    .command('start')
+    .description('Start a program execution')
+    .argument('<program>', 'Program id')
+    .option('--input <json>', 'JSON input or path to a JSON file')
+    .action(async (programId, options) => {
+      await startCommand({
+        programId,
+        input: options.input,
+      });
+    });
+
+  program
+    .command('send')
+    .description('Send an event to a waiting execution')
+    .argument('<execution>', 'Execution ID')
+    .argument('<event>', 'Event name')
+    .option('--payload <json>', 'JSON payload or path to a JSON file')
+    .action(async (executionId, event, options) => {
+      await sendCommand({
+        executionId,
+        event,
+        payload: options.payload,
+      });
+    });
+
+  program
+    .command('cancel')
+    .description('Cancel an execution')
+    .argument('<execution>', 'Execution ID')
+    .action(async (executionId) => {
+      await cancelCommand(executionId);
+    });
 
   program
     .command('whoami')
-    .description('Show the authenticated workspace and deploy token')
+    .description('Show the authenticated workspace and API token')
     .action(async () => {
       await whoAmICommand();
-    });
-
-  flowsCommand
-    .command('inspect')
-    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .action(async (flow) => {
-      await inspectFlowCommand(flow);
-    });
-
-  flowsCommand
-    .command('disable')
-    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .action(async (flow) => {
-      await disableFlowCommand(flow);
-    });
-
-  flowsCommand
-    .command('enable')
-    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .action(async (flow) => {
-      await enableFlowCommand(flow);
-    });
-
-  flowsCommand
-    .command('delete')
-    .argument('<flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .option('-y, --yes', 'Skip confirmation prompt')
-    .action(async (flow, options) => {
-      await deleteFlowCommand(flow, { yes: options.yes });
-    });
-
-  const queuesCommand = program.command('queues').description('Manage workspace queues');
-
-  queuesCommand.action(async () => {
-    await listQueuesCommand();
-  });
-
-  queuesCommand
-    .command('enqueue')
-    .argument('<queue>', 'Workspace queue name')
-    .option('-p, --payload <path>', 'Path to JSON payload file')
-    .action(async (queue, options) => {
-      await enqueueQueueCommand({
-        queue,
-        payloadPath: options.payload,
-      });
-    });
-
-  queuesCommand
-    .command('purge-failed')
-    .argument('<queue>', 'Workspace queue name')
-    .option('-y, --yes', 'Skip confirmation prompt')
-    .action(async (queue, options) => {
-      await purgeFailedQueueCommand({
-        queue,
-        yes: options.yes,
-      });
-    });
-
-  queuesCommand
-    .command('retry-failed')
-    .argument('<queue>', 'Workspace queue name')
-    .option('-y, --yes', 'Skip confirmation prompt')
-    .action(async (queue, options) => {
-      await retryFailedQueueCommand({
-        queue,
-        yes: options.yes,
-      });
-    });
-
-  queuesCommand
-    .command('delete')
-    .argument('<queue>', 'Workspace queue name')
-    .option('-y, --yes', 'Skip confirmation prompt')
-    .action(async (queue, options) => {
-      await deleteQueueCommand({
-        queue,
-        yes: options.yes,
-      });
-    });
-
-  const secretsCommand = program
-    .command('secrets')
-    .description('Manage hosted flow secrets')
-    .enablePositionalOptions()
-    .option('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })");
-
-  secretsCommand.action(async (options) => {
-    await listSecretsCommand({
-      flow: options.flow,
-    });
-  });
-
-  secretsCommand
-    .command('set')
-    .argument('<name>', 'Secret name')
-    .option('--value <value>', 'Secret value for non-interactive use')
-    .action(async (name, options, command) => {
-      const flow = options.flow ?? command.parent?.opts().flow;
-
-      if (!flow) {
-        command.error("required option '--flow <flow>' not specified");
-      }
-
-      await setSecretCommand({
-        flow,
-        name,
-        value: options.value,
-      });
-    });
-
-  secretsCommand
-    .command('delete')
-    .argument('<name>', 'Secret name')
-    .option('-y, --yes', 'Skip confirmation prompt')
-    .action(async (name, options, command) => {
-      const flow = options.flow ?? command.parent?.opts().flow;
-
-      if (!flow) {
-        command.error("required option '--flow <flow>' not specified");
-      }
-
-      await deleteSecretCommand({
-        flow,
-        name,
-        yes: options.yes,
-      });
-    });
-
-  const invocationsCommand = program
-    .command('invocations')
-    .description('Inspect hosted flow invocations');
-
-  invocationsCommand
-    .option('--flow <flow>', "The flow identifier defined in defineFlow({ id: '...' })")
-    .option('--status <status>', 'Invocation status filter')
-    .option('--range <range>', 'Time range filter like 7d or 24h')
-    .action(async (options) => {
-      await listInvocationsCommand({
-        flow: options.flow,
-        range: options.range,
-        status: options.status,
-      });
-    });
-
-  invocationsCommand
-    .command('inspect')
-    .argument('<invocation>', 'Invocation ID')
-    .action(async (invocationId) => {
-      await inspectInvocationCommand({
-        invocationId,
-      });
-    });
-
-  program
-    .command('logs')
-    .description('Show logs for a single invocation')
-    .argument('<invocation>', 'Invocation ID')
-    .action(async (invocationId) => {
-      await getLogCommand(invocationId);
     });
 
   return program;
