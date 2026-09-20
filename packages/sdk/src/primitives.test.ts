@@ -19,7 +19,7 @@ function createHost(overrides: Partial<DurableRuntimeHost> = {}): DurableRuntime
     getExecution: () => ({
       id: 'exec_test',
       attempt: 1,
-      programId: 'researchAgent',
+      programId: 'approval',
       signal: new AbortController().signal,
     }),
     ...overrides,
@@ -29,24 +29,28 @@ function createHost(overrides: Partial<DurableRuntimeHost> = {}): DurableRuntime
 describe('durable sdk primitives', () => {
   it('throws when used outside an execution', () => {
     expect(() => {
-      void effect(() => 1);
-    }).toThrow(/inside a Trigora execution/);
-    expect(() => execution.id).toThrow(/inside a Trigora execution/);
+      void effect('generate', () => 1);
+    }).toThrow(/trigora dev/);
+    expect(() => execution.id).toThrow(/trigora dev/);
   });
 
-  it('runs named and unnamed effects through the host', async () => {
+  it('requires a string effect key', () => {
+    expect(() => {
+      void (effect as unknown as (run: () => number) => Promise<number>)(() => 1);
+    }).toThrow(/non-empty string key/);
+  });
+
+  it('runs named effects through the host', async () => {
     const host = createHost({
       effect: vi.fn(async (_name, run) => run()),
     });
 
     await runWithDurableRuntime(host, async () => {
-      await expect(effect(() => 2)).resolves.toBe(2);
       await expect(effect('search', () => 'ok')).resolves.toBe('ok');
     });
 
-    expect(host.effect).toHaveBeenCalledTimes(2);
-    expect(host.effect).toHaveBeenNthCalledWith(1, undefined, expect.any(Function));
-    expect(host.effect).toHaveBeenNthCalledWith(2, 'search', expect.any(Function));
+    expect(host.effect).toHaveBeenCalledTimes(1);
+    expect(host.effect).toHaveBeenCalledWith('search', expect.any(Function));
   });
 
   it('exposes execution metadata from the host', async () => {
@@ -55,7 +59,7 @@ describe('durable sdk primitives', () => {
       getExecution: () => ({
         id: 'exec_42',
         attempt: 3,
-        programId: 'researchAgent',
+        programId: 'approval',
         signal,
       }),
     });
@@ -63,7 +67,7 @@ describe('durable sdk primitives', () => {
     await runWithDurableRuntime(host, async () => {
       expect(execution.id).toBe('exec_42');
       expect(execution.attempt).toBe(3);
-      expect(execution.programId).toBe('researchAgent');
+      expect(execution.programId).toBe('approval');
       expect(execution.signal).toBe(signal);
     });
   });
@@ -74,16 +78,11 @@ describe('durable sdk primitives', () => {
       waitForEvent: vi.fn(async () => ({ reviewer: 'Omar' })) as DurableRuntimeHost['waitForEvent'],
       invoke: vi.fn(async () => ({ summary: 'done' })) as DurableRuntimeHost['invoke'],
     });
-    const approved = event<{ reviewer: string }>('approved');
-
-    async function analyzeSource(input: { source: string }) {
-      return { summary: input.source };
-    }
 
     await runWithDurableRuntime(host, async () => {
       await sleep('5s');
-      await expect(waitForEvent(approved)).resolves.toEqual({ reviewer: 'Omar' });
-      await expect(invoke(analyzeSource, { source: 'https://example.com' })).resolves.toEqual({
+      await expect(waitForEvent('approved')).resolves.toEqual({ reviewer: 'Omar' });
+      await expect(invoke('analyzeSource', { source: 'https://example.com' })).resolves.toEqual({
         summary: 'done',
       });
     });
@@ -102,11 +101,11 @@ describe('durable sdk primitives', () => {
   });
 
   it('resolves named program functions', async () => {
-    async function researchAgent() {
+    async function approval() {
       return { ok: true };
     }
 
-    expect(resolveProgramId(researchAgent)).toBe('researchAgent');
+    expect(resolveProgramId(approval)).toBe('approval');
     expect(resolveProgramId('analyzeSource')).toBe('analyzeSource');
     expect(() => resolveProgramId('')).toThrow(/non-empty/);
     expect(() => resolveProgramId(async () => undefined)).toThrow(/anonymous/);

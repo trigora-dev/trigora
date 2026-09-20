@@ -10,7 +10,7 @@ export type ExecutionInfo = {
 };
 
 export type DurableRuntimeHost = {
-  effect<T>(name: string | undefined, run: () => T | Promise<T>): Promise<T>;
+  effect<T>(name: string, run: () => T | Promise<T>): Promise<T>;
   sleep(duration: string | number): Promise<void>;
   waitForEvent<T>(name: string, options?: WaitForEventOptions): Promise<T>;
   invoke<TInput, TResult>(programId: string, input: TInput): Promise<TResult>;

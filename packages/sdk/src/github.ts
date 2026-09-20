@@ -1,4 +1,4 @@
-import type { WebhookFlowEvent } from '@trigora/contracts';
+import type { WebhookRequest } from './webhookSignature';
 import {
   computeHmacSha256Hex,
   getHeaderCaseInsensitive,
@@ -39,7 +39,7 @@ function parseGitHubSignatureHeader(headerValue: string): string | null {
 }
 
 export async function verifyGitHubWebhook<T = unknown>(
-  event: WebhookFlowEvent,
+  event: WebhookRequest,
   options: VerifyGitHubWebhookOptions,
 ): Promise<T> {
   if (!options.secret || options.secret.trim().length === 0) {

@@ -4,7 +4,6 @@ export { event, resolveEventName } from './event';
 export { execution } from './execution';
 export { invoke } from './invoke';
 export { resolveProgramId } from './program';
-export { runWithDurableRuntime } from './runtimeHost';
 export { sleep } from './sleep';
 export { waitForEvent } from './waitForEvent';
 
@@ -17,10 +16,9 @@ export type { WaitForEventOptions } from './waitForEvent';
 
 export type {
   ArtifactIdentity,
-  CompilerDiagnostic,
-  ExecutionRecord,
+  Execution,
   ExecutionStatus,
+  ExecutionWait,
   JsonValue,
   ProgramIdentity,
-  WaitCondition,
 } from '@trigora/contracts';
