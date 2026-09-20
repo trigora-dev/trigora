@@ -20,24 +20,12 @@ Trigora is a durable execution substrate for long-running agents and dynamic sof
 Its underlying execution architecture—**Transparent Continuation Checkpointing (TCC)**—preserves resumable program state at durable boundaries. Recovery from a committed continuation checkpoint does not require replaying the accumulated execution-history prefix.
 
 ```ts
-import {
-  effect,
-  invoke,
-  waitForEvent,
-} from "@trigora/sdk";
+import { effect, waitForEvent } from "@trigora/sdk";
 
-export async function researchAgent(input: ResearchInput) {
-  const sources = await effect(() =>
-    searchWeb(input.query)
-  );
-
-  const analysis = await invoke(analyzeSources, {
-    sources,
-  });
-
-  await waitForEvent("human.approved");
-
-  return effect(() => publishReport(analysis));
+export default async function approval() {
+  const result = await effect("generate", () => 42);
+  const review = await waitForEvent("approved");
+  return { result, review };
 }
 ```
 
