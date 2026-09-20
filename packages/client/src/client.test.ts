@@ -29,7 +29,7 @@ describe('createClient', () => {
             programId: 'researchAgent',
             status: 'waiting',
             input: { query: 'durable agents' },
-            wait: { type: 'event', eventName: 'approved' },
+            wait: { type: 'event', event: 'approved' },
             attempt: 1,
             createdAt: '2026-08-31T00:00:00.000Z',
             updatedAt: '2026-08-31T00:00:00.000Z',
@@ -86,34 +86,25 @@ describe('createClient', () => {
         });
       }
 
-      polls += 1;
-      if (polls < 3) {
+      if (url.endsWith('/result')) {
+        polls += 1;
+        if (polls < 3) {
+          return jsonResponse(200, {
+            result: {
+              status: 'waiting',
+            },
+          });
+        }
+
         return jsonResponse(200, {
-          execution: {
-            id: 'exec_2',
-            programId: 'researchAgent',
-            status: 'waiting',
-            input: {},
-            wait: { type: 'event', eventName: 'approved' },
-            attempt: 1,
-            createdAt: '2026-08-31T00:00:00.000Z',
-            updatedAt: '2026-08-31T00:00:00.000Z',
+          result: {
+            status: 'completed',
+            result: { reviewer: 'Omar' },
           },
         });
       }
 
-      return jsonResponse(200, {
-        execution: {
-          id: 'exec_2',
-          programId: 'researchAgent',
-          status: 'completed',
-          input: {},
-          result: { reviewer: 'Omar' },
-          attempt: 1,
-          createdAt: '2026-08-31T00:00:00.000Z',
-          updatedAt: '2026-08-31T00:00:00.000Z',
-        },
-      });
+      throw new Error(`unexpected fetch ${url}`);
     }) as typeof fetch;
 
     const client = createClient({ url: 'http://127.0.0.1:9' });
@@ -131,5 +122,34 @@ describe('createClient', () => {
 
     const client = createClient({ url: 'http://127.0.0.1:9' });
     await expect(client.start('missing', {})).rejects.toBeInstanceOf(TrigoraRuntimeError);
+  });
+
+  it('lists executions from the runtime', async () => {
+    globalThis.fetch = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith('/v1/executions')) {
+        return jsonResponse(200, {
+          executions: [
+            {
+              id: 'exec_3',
+              programId: 'approval',
+              status: 'waiting',
+              input: {},
+              wait: { type: 'event', event: 'approved' },
+              attempt: 1,
+              createdAt: '2026-08-31T00:00:00.000Z',
+              updatedAt: '2026-08-31T00:00:00.000Z',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    const client = createClient({ url: 'http://127.0.0.1:9' });
+    await expect(client.executions()).resolves.toMatchObject({
+      executions: [{ id: 'exec_3', programId: 'approval' }],
+    });
   });
 });
