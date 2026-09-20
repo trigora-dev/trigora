@@ -1,0 +1,11 @@
+{
+  "name": "@trigora/example-approval-python",
+  "private": true,
+  "scripts": {
+    "dev": "trigora dev"
+  },
+  "devDependencies": {
+    "@trigora/sdk": "workspace:*",
+    "trigora": "workspace:*"
+  }
+}

@@ -4,5 +4,5 @@
     "lib": ["ES2022", "DOM"],
     "noEmit": true
   },
-  "include": ["./**/*.ts"]
+  "include": ["./typescript/**/*.ts"]
 }
