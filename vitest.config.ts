@@ -6,6 +6,8 @@ export default defineConfig({
     environment: 'node',
     passWithNoTests: true,
     hideSkippedTests: true,
+    pool: 'forks',
+    execArgv: ['--experimental-sqlite'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
