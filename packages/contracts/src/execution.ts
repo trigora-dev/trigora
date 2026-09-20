@@ -1,4 +1,4 @@
-import type { JsonValue } from './flow';
+import type { JsonValue } from './json';
 import type { ProgramId } from './program';
 
 export type ExecutionId = string;
@@ -11,42 +11,20 @@ export type SerializedError = {
   stack?: string;
 };
 
-export type TimerWaitCondition = {
-  type: 'timer';
-  resumeAt: string;
-};
+export type ExecutionWait =
+  | {
+      type: 'event';
+      event: string;
+    }
+  | {
+      type: 'timer';
+      wakeAt: string;
+    }
+  | {
+      type: 'child';
+      executionId: ExecutionId;
+    };
 
-export type EventWaitCondition = {
-  type: 'event';
-  eventName: string;
-  timeoutAt?: string;
-};
-
-export type ChildWaitCondition = {
-  type: 'child';
-  childExecutionId: ExecutionId;
-};
-
-export type WaitCondition = TimerWaitCondition | EventWaitCondition | ChildWaitCondition;
-
-export type ExecutionRecord = {
-  id: ExecutionId;
-  programId: ProgramId;
-  status: ExecutionStatus;
-  input: JsonValue;
-  result?: JsonValue;
-  error?: SerializedError;
-  wait?: WaitCondition;
-  parentExecutionId?: ExecutionId;
-  attempt: number;
-  createdAt: string;
-  updatedAt: string;
-};
-
-/**
- * Typed event channel used by `waitForEvent()` and `run.send()`.
- * `__payload` is a phantom field for inference only.
- */
 export type EventDefinition<TPayload = unknown> = {
   readonly name: string;
   readonly __payload?: TPayload;
@@ -55,4 +33,71 @@ export type EventDefinition<TPayload = unknown> = {
 export type WaitForEventOptions = {
   timeout?: string | number;
   match?: Record<string, JsonValue>;
+};
+
+export type ExecutionSummary = {
+  id: ExecutionId;
+  projectId: string;
+  programId: ProgramId;
+  programName: string;
+  status: ExecutionStatus;
+  wait?: ExecutionWait;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Execution = ExecutionSummary & {
+  programVersionId: string;
+  artifactHash: string;
+  engineFormatVersion: number;
+  input: JsonValue;
+  result?: JsonValue;
+  error?: SerializedError;
+  parentExecutionId?: ExecutionId;
+  attempt: number;
+};
+
+export type ExecutionDetail = Execution;
+
+export type ExecutionResult = {
+  status: ExecutionStatus;
+  result?: JsonValue;
+  error?: SerializedError;
+};
+
+export type StartExecutionRequest = {
+  programId: ProgramId;
+  input?: JsonValue;
+};
+
+export type StartExecutionResponse = {
+  execution: Execution;
+};
+
+export type GetExecutionResponse = {
+  execution: Execution;
+};
+
+export type ListExecutionsResponse = {
+  executions: ExecutionSummary[];
+  nextCursor?: string;
+};
+
+export type SendEventRequest = {
+  name: string;
+  payload?: JsonValue;
+};
+
+export type SendEventResponse = {
+  execution: Execution;
+};
+
+export type CancelExecutionRequest = Record<string, never>;
+
+export type CancelExecutionResponse = {
+  execution: Execution;
+};
+
+export type GetExecutionResultResponse = {
+  result: ExecutionResult;
 };

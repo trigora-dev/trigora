@@ -1,29 +1,14 @@
 # @trigora/contracts
 
-Shared public contracts for Trigora.
-
-`@trigora/contracts` is the shared contracts layer used across Trigora packages and advanced integrations.
+Public product contracts for Trigora.
 
 Most users should start with:
 
 - `trigora` for the local runtime and CLI
 - `@trigora/sdk` for durable program authoring
-- `@trigora/client` to start and resume executions
+- `@trigora/client` to talk to local or Cloud HTTP APIs
 
-This package is mainly intended for:
-
-- the compiler/runtime pipeline between this repo and the engine repo
-- typed API clients
-- advanced integrations
-- tooling that consumes Trigora responses
-
-This package is mainly intended for:
-
-- typed API clients
-- advanced integrations
-- tooling that consumes Trigora responses
-
-If you are authoring flows directly, you will usually want `@trigora/sdk` instead.
+This package is for typed clients and tooling that consume Trigora responses.
 
 ## Install
 
@@ -31,226 +16,32 @@ If you are authoring flows directly, you will usually want `@trigora/sdk` instea
 npm install @trigora/contracts
 ```
 
-## What This Package Covers
+## What this package covers
 
-This package exports public contracts for:
+Public developer-facing types only:
 
-- durable programs, executions, waits, and events
-- the TCC compiler request/result/diagnostic pipeline
-- the local runtime HTTP API
-- triggers
-- flow definitions (hosted API)
-- flow events and runtime context
-- deployment request and response payloads
-- structured API errors
-- hosted flow management responses
-- hosted flow secret responses
-- hosted flow invocation responses
+- Workspace, Project
+- Program, ProgramVersion, Execution, Event
+- Deploy / start / send / cancel request and response shapes
+- ApiError, Pagination
 
-Everything is exported from the package root:
+It does **not** export TCC IR, host protocol, effect journals, Durable Object storage, or Cloudflare internals.
 
 ```ts
 import type {
-  ApiErrorResponse,
-  CreateDeploymentRequest,
-  CreateDeploymentResponse,
-  FlowSecretRecord,
-  FlowDefinition,
-  FlowInvocationRecord,
-  FlowRecord,
-  FlowStatusResponse,
-  GetInvocationResponse,
-  ListInvocationsResponse,
-  ListSecretsResponse,
-  Trigger,
+  Execution,
+  ExecutionWait,
+  ProgramSummary,
+  ListProgramsResponse,
+  DeployProgramRequest,
 } from '@trigora/contracts';
 ```
 
-## Flow Authoring Contracts
+## Related packages
 
-These contracts define the core shape of Trigora flows:
-
-- `ManualTrigger`
-- `WebhookTrigger`
-- `CronTrigger`
-- `QueueTrigger`
-- `RetryPolicy`
-- `Trigger`
-- `FlowDefinition`
-- `FlowRunFn`
-- `FlowEvent`
-- `QueueFlowEvent`
-- `FlowContext`
-- `JsonValue`
-- `WebhookFlowResult`
-
-Optional `retry` on flow definitions configures queue retries (`attempts` 1–20, `backoff: 'exponential'`). Queue events include `attempt` and `maxAttempts`.
-
-For webhook flows, `FlowEvent` can also include `request` metadata with headers, method, URL, and `rawBody` in addition to the parsed `payload`.
-
-Example:
-
-```ts
-import type { FlowDefinition } from '@trigora/contracts';
-
-const flow: FlowDefinition = {
-  id: 'hello',
-  trigger: { type: 'manual' },
-  async run(event, ctx) {
-    await ctx.log.info('Hello from Trigora', {
-      payload: event.payload,
-    });
-  },
-};
-```
-
-Trigger contracts are strict, so invalid or mixed trigger fields should fail at compile time.
-
-For webhook triggers:
-
-- `id` remains the internal flow identifier used by the CLI
-- `route` is an optional public hosted webhook path
-- `route` must start with `/`
-- `route` is normalized before persistence
-- when omitted, the hosted default is `/${id}`
-- hosted routes must be unique per workspace
-- reserved hosted path prefixes are blocked
-
-## Deployment Contracts (Advanced)
-
-These contracts are primarily intended for advanced integrations and tooling. Most users will not need to interact with these directly.
-
-They cover the public deployment request and response shapes:
-
-- `DeploymentManifestFlow`
-- `DeploymentManifest`
-- `DeploymentArtifactFile`
-- `DeploymentArtifact`
-- `CreateDeploymentRequest`
-- `DeploymentStatus`
-- `DeploymentManifestSnapshot`
-- `DeployedFlowResponse`
-- `CreateDeploymentResponse`
-
-Example:
-
-```ts
-import type { CreateDeploymentRequest, DeploymentManifest } from '@trigora/contracts';
-
-const manifest: DeploymentManifest = {
-  version: 1,
-  flow: {
-    id: 'stripe-webhook',
-    entrypoint: 'flows/stripe-webhook.ts',
-    trigger: { type: 'webhook', route: '/hooks/stripe' },
-  },
-};
-
-const request: CreateDeploymentRequest = {
-  manifest,
-  artifact: {
-    version: 1,
-    format: 'esm',
-    target: 'node20',
-    files: [],
-  },
-};
-```
-
-## Structured API Error Contracts
-
-Client-facing errors use a structured shape:
-
-- `ApiErrorCode`
-- `ApiErrorStep`
-- `ApiErrorResponse`
-
-Example:
-
-```ts
-import type { ApiErrorResponse } from '@trigora/contracts';
-
-const error: ApiErrorResponse = {
-  error: {
-    code: 'internal_error',
-    message: 'Failed to activate deployment.',
-    step: 'activating',
-  },
-};
-```
-
-These contracts let typed clients branch on stable error codes and optional error steps without relying on ad hoc response parsing.
-
-## Hosted Flow Management Contracts
-
-These contracts support hosted flow management responses used by the CLI and other typed clients:
-
-- `FlowTriggerType`
-- `FlowStatus`
-- `WebhookFlowRecord`
-- `CronFlowRecord`
-- `QueueFlowRecord`
-- `FlowRecord`
-- `ListFlowsResponse`
-- `GetFlowResponse`
-- `FlowStatusResponse`
-- `FlowSecretRecord`
-- `ListSecretsResponse`
-- `SetFlowSecretRequest`
-- `SetFlowSecretResponse`
-- `DeleteFlowSecretResponse`
-- `FlowInvocationStatus`
-- `FlowInvocationLogLevel`
-- `FlowInvocationRecord`
-- `FlowInvocationLogRecord`
-- `InvocationExecutionContext`
-- `ListInvocationsResponse`
-- `GetInvocationResponse`
-- `ListFlowInvocationsQuery`
-
-Example:
-
-```ts
-import type { ListFlowsResponse } from '@trigora/contracts';
-
-const response: ListFlowsResponse = {
-  flows: [
-    {
-      id: 'stripe-webhook',
-      slug: 'stripe-webhook',
-      trigger: 'webhook',
-      status: 'ready',
-      createdAt: '2026-04-21T10:00:00.000Z',
-      routePath: '/hooks/stripe',
-      endpoint: 'https://acme.trigora.dev/hooks/stripe',
-    },
-  ],
-};
-```
-
-`FlowStatusResponse` is the shared response shape for flow status changes such as disable and enable.
-Webhook flow records expose both `routePath` and `endpoint` so clients do not need to infer public URLs from `slug`.
-
-Hosted secret responses expose secret metadata only. Secret values are write-only and should not be returned by the API.
-
-Hosted invocation responses expose invocation metadata and buffered log lines for debugging. They do not imply storage of request bodies, response bodies, or secret values.
-
-## When To Use `@trigora/contracts`
-
-Use this package when you are:
-
-- building a typed API client for Trigora Cloud
-- integrating with deployment or hosted flow management responses
-- building tooling around Trigora manifests or responses
-
-Most application authors should use `@trigora/sdk` for defining flows and `trigora` for running and deploying them.
-
-## Related Packages
-
-- `trigora` - CLI for local development, hosted deploys, and flow management
-- `@trigora/sdk` - durable program authoring
-- `@trigora/client` - start and control executions
-- `trigora` - local runtime and hosted workspace CLI
+- `@trigora/sdk` — durable program authoring
+- `@trigora/client` — start and control executions
+- `trigora` — local runtime and Cloud CLI
 
 ## License
 

@@ -1,23 +1,16 @@
-/**
- * Durable program identity and project configuration.
- *
- * A program is an ordinary exported async function discovered from
- * `trigora.config.ts` globs. There is no wrapper and no flow id.
- */
+import type { JsonValue } from './json';
 
 export const DEFAULT_RUNTIME_HOST = '127.0.0.1';
 export const DEFAULT_RUNTIME_PORT = 3477;
+export const ENGINE_FORMAT_VERSION = 1;
 
 export type ProgramId = string;
+export type ProgramVersionId = string;
+export type ProgramLanguage = 'javascript' | 'python';
 
 export type ProgramIdentity = {
-  /**
-   * Unique program id. Local preview uses the export name and requires
-   * export names to be unique across discovered files.
-   */
   id: ProgramId;
   exportName: string;
-  /** Project-relative POSIX path to the source module. */
   file: string;
 };
 
@@ -32,15 +25,10 @@ export type TrigoraRuntimeConfig = {
 };
 
 export type TrigoraCompilerConfig = {
-  /**
-   * Optional HTTP endpoint for the TCC compiler in the engine repo.
-   * When omitted, the CLI uses the local passthrough compiler.
-   */
   endpoint?: string;
 };
 
 export type TrigoraConfig = {
-  /** One or more globs of modules that export durable programs. */
   programs: string | string[];
   runtime?: TrigoraRuntimeConfig;
   compiler?: TrigoraCompilerConfig;
@@ -58,3 +46,91 @@ export type ResolvedTrigoraConfig = {
     endpoint?: string;
   };
 };
+
+export type DeployArtifact = {
+  hash: string;
+  blob: string;
+  engineFormatVersion: number;
+  languageSemanticsVersion: string;
+  frontendId: string;
+  frontendVersion: string;
+};
+
+export type ArtifactFile = {
+  path: string;
+  contents: string;
+  entrypoint?: boolean;
+};
+
+export type EffectBundle = {
+  language: ProgramLanguage;
+  files: ArtifactFile[];
+};
+
+export type DeployProgramRequest = {
+  name: string;
+  artifact: DeployArtifact;
+  effectBundle: EffectBundle;
+};
+
+export type ProgramVersion = {
+  id: ProgramVersionId;
+  programId: ProgramId;
+  artifactHash: string;
+  engineFormatVersion: number;
+  languageSemanticsVersion: string;
+  frontendId: string;
+  frontendVersion: string;
+  language: ProgramLanguage;
+  createdAt: string;
+};
+
+export type ProgramVersionSummary = {
+  id: ProgramVersionId;
+  artifactHash: string;
+  language: ProgramLanguage;
+  createdAt: string;
+};
+
+export type Program = {
+  id: ProgramId;
+  projectId: string;
+  name: string;
+  currentVersionId: string | null;
+  currentVersion: ProgramVersion | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProgramSummary = {
+  id: ProgramId;
+  name: string;
+  language: ProgramLanguage | null;
+  currentVersionId: string | null;
+  updatedAt: string;
+};
+
+export type DeployProgramResponse = {
+  program: Program;
+  version: ProgramVersion;
+};
+
+export type ListProgramsResponse = {
+  programs: ProgramSummary[];
+  nextCursor?: string;
+};
+
+export type GetProgramResponse = {
+  program: Program;
+};
+
+export type ListProgramVersionsResponse = {
+  versions: ProgramVersionSummary[];
+  nextCursor?: string;
+};
+
+export type HealthResponse = {
+  ok: true;
+};
+
+export type { JsonValue };
