@@ -9,7 +9,7 @@ async def run():
     return {"result": result, "approval": approval}
 ```
 
-The current `py.subset.v1` compiler accepts a parameterless `async def run()`. Entry parameters (`async def run(input)`) are not supported yet — that is a current subset limitation, not the permanent product model.
+The `py.subset.v1` compiler accepts `async def run()` or `async def run(input)`. One plain parameter, or none. Not a default, `*args`, a keyword-only parameter, or a pattern.
 
 This package is MIT and does not embed the TCC engine. Compile and recover through the `trigora` CLI. Directly calling the program function throws and tells you to use `trigora dev`.
 

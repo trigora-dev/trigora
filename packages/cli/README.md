@@ -68,7 +68,7 @@ Default runtime URL: `http://127.0.0.1:3477` (`TRIGORA_RUNTIME_URL` or `--port` 
 
 See [`examples/typescript/approval`](../../examples/typescript/approval).
 
-The current compiler subset (`ts.subset.v1` / `py.subset.v1`) accepts a default-export async function with **no parameters**. `export default async function run(input)` is not supported yet — that is a current subset limitation, not the permanent product model. Directly executing a program file still throws and tells you to use `trigora dev`.
+The compiler subset (`ts.subset.v1` / `py.subset.v1`) accepts a default-export async function, or Python `async def run()`, with no parameters or one plain parameter (`run(input)`). Not a second parameter, a default, a rest parameter, or a binding pattern. Directly executing a program file still throws and tells you to use `trigora dev`.
 
 ## Related Packages
 

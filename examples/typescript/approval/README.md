@@ -12,7 +12,7 @@ export default async function approval() {
 }
 ```
 
-This example stays inside `ts.subset.v1`: no program parameters, no `Promise.all`, no unnamed `effect(fn)`. Parameterless programs are a current subset limitation, not the permanent product model.
+This example stays inside `ts.subset.v1` and does not take a parameter. The subset also allows one plain parameter. It does not use `Promise.all` or an unnamed `effect(fn)`.
 
 ## Run locally
 

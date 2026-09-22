@@ -30,7 +30,7 @@ def sleep(duration: int | float | str) -> None:
     _require_cli()
 
 
-def invoke(name: str) -> object:
+def invoke(name: str, input: object | None = None) -> object:
     if not isinstance(name, str) or not name.strip():
-        raise ValueError("invoke(name) requires a non-empty program name.")
+        raise ValueError("invoke(name, input) requires a non-empty program name.")
     _require_cli()

@@ -14,7 +14,7 @@ export default async function approval() {
 }
 ```
 
-There is no `defineFlow()` and no mandatory `ctx`. The local compiler currently supports `ts.subset.v1`: a default-export async function with **no parameters**, string-literal effect keys and event names, and no `Promise.all`. Parameterless programs are a current subset limitation, not the permanent product model.
+There is no `defineFlow()` and no mandatory `ctx`. The local compiler supports `ts.subset.v1`: a default-export async function with no parameters, or one plain parameter (`approval(input)`). Not a second parameter, a default, a rest parameter, or a binding pattern. Effect keys and event names are string literals.
 
 ## Install
 
@@ -41,7 +41,7 @@ Each matching file should default-export one async function. The function name i
 - `effect(name, fn)` — durable side effect; `name` is required
 - `sleep(ms)` — timer suspension
 - `waitForEvent('approved')` — wait for an event
-- `invoke('otherProgram')` — child execution (string program id)
+- `invoke('analyze', input)` — child execution. `input` is optional.
 - `execution.id` / `execution.attempt` / `execution.signal` — current execution metadata
 
 `event()` helpers exist for typed clients but are not required. Directly executing a program file will throw; start it with `@trigora/client` while `trigora dev` is running.

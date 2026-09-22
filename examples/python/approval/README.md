@@ -11,7 +11,7 @@ async def run():
     return {"result": result, "review": review}
 ```
 
-The program id is the file stem (`approval`). Effect callbacks must be lambdas with no captures. Parameterless `async def run()` is a current `py.subset.v1` limitation, not the permanent product model.
+The program id is the file stem (`approval`). Effect callbacks must be lambdas with no captures. This example uses `async def run()` with no parameter. The subset also allows `async def run(input)`.
 
 ## Run locally
 

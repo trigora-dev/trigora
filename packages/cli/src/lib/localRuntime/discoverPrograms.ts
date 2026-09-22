@@ -69,7 +69,7 @@ export async function discoverPrograms(options: {
         { label: 'Globs', value: options.globs.join(', ') },
         { label: 'Root', value: options.rootDir },
       ],
-      hint: 'Export a default async function from TypeScript files, or `async def run()` from Python files, matching `programs` in trigora.config.ts.',
+      hint: 'Export a default async function from TypeScript files, or `async def run()` / `async def run(input)` from Python files, matching `programs` in trigora.config.ts.',
     });
   }
 
