@@ -1,4 +1,4 @@
-export type WorkspacePlan = 'free' | 'pro' | 'scale' | 'internal';
+export type WorkspacePlan = 'free' | 'pro' | 'internal';
 
 export type WorkspacePlanStatus = 'active' | 'past_due';
 
@@ -117,17 +117,6 @@ export type CreateWorkspaceApiTokenResponse = {
   workspace: CurrentWorkspace;
 };
 
-export type UsageWarningThreshold = 80 | 90 | 100;
-
-export type UsageMetric = 'executions' | 'activeApiTokens';
-
-export type UsageWarning = {
-  metric: UsageMetric;
-  thresholdPercent: UsageWarningThreshold;
-  current: number;
-  limit: number;
-};
-
 export type GetUsageResponse = {
   period: {
     month: string;
@@ -137,16 +126,22 @@ export type GetUsageResponse = {
   plan: {
     name: WorkspacePlan;
     status: WorkspacePlanStatus;
-    executionLimit: number | null;
-    enforcement: 'hard' | 'soft' | 'none';
   };
-  usage: {
-    executions: number;
-    succeededExecutions: number;
-    failedExecutions: number;
-    activeApiTokens: number;
+  meters: {
+    durableOperations: number;
+    durableOperationsCents: number;
+    cpuMs: number;
+    cpuCents: number;
+    storageByteSeconds: number;
+    storageCents: number;
   };
-  warnings: UsageWarning[];
+  credit: {
+    includedCents: number | null;
+    grossCents: number;
+    remainingCents: number | null;
+    overageCents: number;
+    invoiceCents: number | null;
+  };
 };
 
 export type CreateBillingCheckoutRequest = {
