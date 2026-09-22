@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://trigora.dev">
-    <img src="https://trigora.dev/banner.png?v=2" alt="Trigora — durable execution, without replay." width="100%" />
+    <img src="https://trigora.dev/banner.png?v=2" alt="Trigora — durable execution without history replay." width="100%" />
   </a>
 </p>
 
@@ -13,7 +13,7 @@
 
 # Trigora
 
-**Durable execution, without replay.**
+**Durable execution without history replay.**
 
 Trigora is a durable execution substrate for long-running agents and dynamic software.
 
@@ -40,27 +40,26 @@ Trigora is designed for programs that:
 
 Cron, webhooks, queues, and API calls act as **triggers** that start durable executions rather than separate programming models.
 
-## Status
+## What is ready
 
-Trigora is under active development.
+- **Trigora Cloud** — managed production platform at [cloud.trigora.dev](https://cloud.trigora.dev).
+- **TCC Engine** — portable, source-available engine and language frontends in this repository.
+- **TCC Recovery Lab** — public proof of continuation restore at [demo.trigora.dev](https://demo.trigora.dev).
 
-The TCC research engine and evaluation prototype exist today, including a public [demo](https://demo.trigora.dev). The public SDK, CLI, and managed Trigora Cloud platform are being built. Some code in this repository still reflects Trigora’s earlier event-execution product and should not be considered the final durable-execution API.
+See the [docs quickstart](https://trigora.dev/docs/quickstart) for the write → start → suspend → restore → continue loop.
 
 ## Research
 
-In a controlled evaluation at fixed live state:
+Portable TCC Engine benches (Node / WASM reference host) measure recovery vs history depth, live continuation size, and healthy-path overhead vs a matched history-replay baseline. See [Research](https://trigora.dev/research).
 
-- TCC recovery remained approximately **0.6–0.9 ms** across history depths from 10 to 1,000.
-- No semantic failures were observed across **50,000 generated cases** within the tested TypeScript subset.
+An earlier Temporal comparison used a **research prototype** (not the portable engine). Those labeled prototype results remain in the [technical report](https://trigora.dev/research/whitepaper) and [recovery vs history](https://trigora.dev/research/recovery-vs-history) page.
 
-These are research-prototype measurements, not production performance guarantees.
+Crash an executor and restore from a committed continuation in the [TCC Recovery Lab](https://demo.trigora.dev). The lab is a controlled demonstration, not the hosted Cloud product.
 
-Crash an executor and restore from a committed continuation in the [TCC demo](https://demo.trigora.dev). The demo is a research demonstration, not the hosted product.
-
-[Read the research](https://trigora.dev/research) · [Technical report](https://trigora.dev/research/whitepaper) · [Limitations](https://trigora.dev/research/limitations) · [Demo](https://demo.trigora.dev)
+[Read the research](https://trigora.dev/research) · [Technical report](https://trigora.dev/research/whitepaper) · [Limitations](https://trigora.dev/research/limitations) · [Recovery Lab](https://demo.trigora.dev)
 
 ## Learn more
 
-[Website](https://trigora.dev) · [Technology](https://trigora.dev/technology) · [Documentation](https://trigora.dev/docs) · [Demo](https://demo.trigora.dev) · [Design partners](https://trigora.dev/early-access)
+[Website](https://trigora.dev) · [Product](https://trigora.dev/product) · [Documentation](https://trigora.dev/docs) · [Start building](https://cloud.trigora.dev) · [Recovery Lab](https://demo.trigora.dev)
 
-Building a workload that needs durable execution? Contact [omar@trigora.dev](mailto:omar@trigora.dev).
+Building a workload that needs durable execution? Start on [Cloud](https://cloud.trigora.dev) or contact [omar@trigora.dev](mailto:omar@trigora.dev).
