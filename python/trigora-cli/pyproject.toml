@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trigora-cli"
+# Pre-1.0 pin. A public release should match the Trigora version, likely 1.0.0,
+# unless this package is deliberately versioned on its own.
+version = "0.9.0"
+description = "Platform CLI distribution for Trigora Python projects"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Trigora" }]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+]
+
+[project.urls]
+Homepage = "https://trigora.dev"
+Repository = "https://github.com/trigora-dev/trigora"
+
+[project.scripts]
+trigora = "trigora_cli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+trigora_cli = ["_vendor/*"]
