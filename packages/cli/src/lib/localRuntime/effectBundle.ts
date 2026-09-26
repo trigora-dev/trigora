@@ -1,15 +1,17 @@
 import { extractPythonEffectSources } from './compiler';
 import { extractTypeScriptEffectSources } from './extractEffects';
 import type { DiscoveredProgram } from './discoverPrograms';
+import { extractRustEffects, rustEffectWasm } from './rustEffects';
 
 export type EffectBundleFile = {
   path: string;
   contents: string;
   entrypoint?: boolean;
+  encoding?: 'base64';
 };
 
 export type EffectBundle = {
-  language: 'javascript' | 'python';
+  language: 'typescript' | 'python' | 'rust';
   files: EffectBundleFile[];
 };
 
@@ -76,9 +78,78 @@ async def on_fetch(request):
 `;
 }
 
-export async function buildEffectBundle(program: DiscoveredProgram): Promise<EffectBundle> {
+function effectManifest(keys: string[]): EffectBundleFile {
+  return {
+    path: 'effects.json',
+    contents: JSON.stringify({ keys }),
+  };
+}
+
+const RUST_WORKER_SOURCE = `import wasmModule from "./effects.wasm";
+
+let ready;
+
+function load() {
+  if (!ready) {
+    ready = WebAssembly.instantiate(wasmModule);
+  }
+  return ready;
+}
+
+export default {
+  async fetch(request) {
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json({ error: "effect request requires key and input" }, { status: 400 });
+    }
+    if (typeof body?.key !== "string" || !Object.hasOwn(body, "input")) {
+      return Response.json({ error: "effect request requires key and input" }, { status: 400 });
+    }
+    const instance = await load();
+    const { alloc, handle, out_len: outLen, memory } = instance.exports;
+    const payload = new TextEncoder().encode(JSON.stringify({ key: body.key, input: body.input }));
+    const ptr = alloc(payload.byteLength);
+    new Uint8Array(memory.buffer, ptr, payload.byteLength).set(payload);
+    const outPtr = handle(ptr, payload.byteLength);
+    const response = JSON.parse(new TextDecoder().decode(new Uint8Array(memory.buffer, outPtr, outLen())));
+    return Response.json(response, { status: response.error ? 400 : 200 });
+  },
+};
+`;
+
+export async function buildEffectBundle(
+  program: DiscoveredProgram,
+  rootDir = process.cwd(),
+): Promise<EffectBundle> {
+  if (program.language === 'rust') {
+    const effects = extractRustEffects(program.source);
+    if (effects.length === 0) {
+      return { language: 'rust', files: [] };
+    }
+    const wasm = rustEffectWasm({
+      rootDir,
+      programId: program.id,
+      file: program.file,
+      source: program.source,
+    });
+    return {
+      language: 'rust',
+      files: [
+        { path: 'worker.js', contents: RUST_WORKER_SOURCE, entrypoint: true },
+        { path: 'effects.wasm', contents: wasm.toString('base64'), encoding: 'base64' },
+        effectManifest(effects.map((effect) => effect.key)),
+      ],
+    };
+  }
+
   if (program.language === 'python') {
     const handlers = await extractPythonEffectSources(program.source, program.file);
+    const keys = Object.keys(handlers);
+    if (keys.length === 0) {
+      return { language: 'python', files: [] };
+    }
     return {
       language: 'python',
       files: [
@@ -87,18 +158,26 @@ export async function buildEffectBundle(program: DiscoveredProgram): Promise<Eff
           contents: pythonWorkerSource(handlers),
           entrypoint: true,
         },
+        effectManifest(keys),
       ],
     };
   }
 
+  const handlers = extractTypeScriptEffectSources(program.source, program.file);
+  const keys = Object.keys(handlers);
+  if (keys.length === 0) {
+    return { language: 'typescript', files: [] };
+  }
+
   return {
-    language: 'javascript',
+    language: 'typescript',
     files: [
       {
         path: 'worker.js',
-        contents: javascriptWorkerSource(extractTypeScriptEffectSources(program.source, program.file)),
+        contents: javascriptWorkerSource(handlers),
         entrypoint: true,
       },
+      effectManifest(keys),
     ],
   };
 }

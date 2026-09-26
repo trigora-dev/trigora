@@ -51,11 +51,7 @@ describe('loadProjectEnv', () => {
     const tempDir = await makeTempDir();
 
     await fs.writeFile(path.join(tempDir, '.env'), `TRIGORA_TOKEN=base-token`, 'utf-8');
-    await fs.writeFile(
-      path.join(tempDir, '.env.local'),
-      `TRIGORA_TOKEN=local-token`,
-      'utf-8',
-    );
+    await fs.writeFile(path.join(tempDir, '.env.local'), `TRIGORA_TOKEN=local-token`, 'utf-8');
 
     process.chdir(tempDir);
     delete process.env.TRIGORA_TOKEN;

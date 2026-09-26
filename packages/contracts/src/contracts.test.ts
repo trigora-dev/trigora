@@ -46,7 +46,7 @@ describe('public contracts', () => {
         {
           id: 'prog_1',
           name: 'researchAgent',
-          language: 'javascript',
+          language: 'typescript',
           currentVersionId: 'ver_1',
           updatedAt: execution.updatedAt,
         } satisfies ProgramSummary,
@@ -73,7 +73,7 @@ describe('public contracts', () => {
         frontendId: 'typescript',
         frontendVersion: '0.9.0',
       },
-      effectBundle: { language: 'javascript', files: [] },
+      effectBundle: { language: 'typescript', files: [] },
     };
     const approved: EventDefinition<{ reviewer: string }> = { name: 'approved' };
 

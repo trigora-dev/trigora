@@ -30,12 +30,14 @@ function collectEffectAliases(sourceFile: ts.SourceFile): Set<string> {
   return aliases;
 }
 
-function compileHandler(source: string): () => unknown {
-  const factory = new Function(`"use strict"; return (${source});`) as () => () => unknown;
+function compileHandler(source: string): (input?: unknown) => unknown {
+  const factory = new Function(`"use strict"; return (${source});`) as () => (
+    input?: unknown,
+  ) => unknown;
   const handler = factory();
 
-  return () => {
-    const result = handler();
+  return (input?: unknown) => {
+    const result = handler(input ?? {});
     if (result && typeof result === 'object' && 'then' in result) {
       throw new Error('Effect callbacks must be synchronous in the local preview.');
     }
@@ -43,7 +45,10 @@ function compileHandler(source: string): () => unknown {
   };
 }
 
-export function extractTypeScriptEffects(source: string, filename = 'program.ts'): Record<string, () => unknown> {
+export function extractTypeScriptEffects(
+  source: string,
+  filename = 'program.ts',
+): Record<string, (input?: unknown) => unknown> {
   const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   const aliases = collectEffectAliases(sourceFile);
   const effects: Record<string, () => unknown> = {};

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createClient } from '@trigora/client';
+import { createApiClient } from '../lib/apiClient';
 
 import { compileTypeScriptProgram } from '../lib/localRuntime/compiler';
-import { LocalExecutionEngine } from '../lib/localRuntime/engine';
-import { startLocalRuntimeServer } from '../lib/localRuntime/server';
+import { startNativeRuntime } from '../lib/localRuntime/nativeRuntime';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -36,26 +35,23 @@ describe('local runtime server', () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'trigora-dev-'));
     tempDirs.push(dir);
     const compiled = compileTypeScriptProgram(SOURCE, 'approval.ts');
-    const engine = new LocalExecutionEngine(path.join(dir, 'state.db'));
-    engine.replacePrograms([
-      {
-        id: 'approval',
-        exportName: 'approval',
-        file: 'approval.ts',
-        source: SOURCE,
-        ...compiled,
-      },
-    ]);
-
-    const server = await startLocalRuntimeServer({
-      artifact: { artifactHash: compiled.artifactHash, compilerVersion: compiled.compilerVersion },
-      engine,
+    const server = await startNativeRuntime({
+      dbPath: path.join(dir, 'state.db'),
       host: '127.0.0.1',
       port: 0,
+      programs: [
+        {
+          id: 'approval',
+          exportName: 'approval',
+          file: 'approval.ts',
+          source: SOURCE,
+          ...compiled,
+        },
+      ],
     });
     servers.push(server);
 
-    const client = createClient({ url: server.url });
+    const client = createApiClient({ url: server.url });
     const listed = await client.programs();
     expect(listed.programs.map((program) => program.id)).toEqual(['approval']);
 

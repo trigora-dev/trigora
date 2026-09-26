@@ -5,3 +5,4 @@ export * from './workspace';
 export * from './project';
 export * from './program';
 export type * from './execution';
+export * from './identity';

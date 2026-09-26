@@ -1,5 +1,3 @@
 packages:
   - 'packages/*'
   - 'tooling/*'
-  - 'examples/typescript/*'
-  - 'examples/python/*'

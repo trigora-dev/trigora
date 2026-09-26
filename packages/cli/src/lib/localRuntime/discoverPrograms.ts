@@ -1,21 +1,26 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { createHash } from 'node:crypto';
 
 import type { ArtifactIdentity, ProgramIdentity } from '@trigora/contracts';
 import { CliDisplayError } from '../cliOutput';
 import {
   compilePythonProgram,
   compileTypeScriptProgram,
+  compileRustProgram,
   languageFromFile,
   type CompiledProgramArtifact,
   type ProgramLanguage,
 } from './compiler';
 import { globFiles } from './globFiles';
+import { findCargoToml } from './rustEffects';
 
 export type DiscoveredProgram = ProgramIdentity &
   CompiledProgramArtifact & {
     source: string;
+    deployed?: boolean;
+    blocksExecution?: boolean;
   };
 
 export function toProgramIdentity(program: DiscoveredProgram): ProgramIdentity {
@@ -35,8 +40,54 @@ function defaultExportName(source: string, fallback: string): string {
   return match?.[1] ?? fallback;
 }
 
+function exportNameFromArtifact(artifactJson: string, file: string): string {
+  let artifact: {
+    program?: { entry?: unknown; functions?: Array<{ id?: unknown; name?: unknown }> };
+  };
+  try {
+    artifact = JSON.parse(artifactJson) as typeof artifact;
+  } catch {
+    throw new CliDisplayError({
+      title: 'Invalid program artifact',
+      details: [
+        { label: 'File', value: file },
+        { label: 'Reason', value: 'The compiler did not return JSON.' },
+      ],
+    });
+  }
+
+  const entry = artifact.program?.entry;
+  const functions = artifact.program?.functions;
+  const func = Array.isArray(functions)
+    ? (functions.find((item) => item.id === entry) ??
+      (typeof entry === 'number' ? functions[entry] : undefined))
+    : undefined;
+  if (entry === undefined || entry === null || typeof func?.name !== 'string' || func.name === '') {
+    throw new CliDisplayError({
+      title: 'Invalid program artifact',
+      details: [
+        { label: 'File', value: file },
+        { label: 'Reason', value: 'program.entry does not name a function.' },
+      ],
+    });
+  }
+  return func.name;
+}
+
 function fileStem(filePath: string): string {
   return path.basename(filePath, path.extname(filePath));
+}
+
+function rustProgramId(stem: string, filePath: string, rootDir: string): string {
+  if (stem !== 'lib' && stem !== 'main') {
+    return stem;
+  }
+  const cargoPath = findCargoToml(path.dirname(filePath), rootDir);
+  if (!cargoPath) {
+    return stem;
+  }
+  const match = readFileSync(cargoPath, 'utf8').match(/^name\s*=\s*"([^"]+)"/m);
+  return match?.[1] || stem;
 }
 
 export function workspaceArtifact(programs: DiscoveredProgram[]): ArtifactIdentity {
@@ -69,7 +120,7 @@ export async function discoverPrograms(options: {
         { label: 'Globs', value: options.globs.join(', ') },
         { label: 'Root', value: options.rootDir },
       ],
-      hint: 'Export a default async function from TypeScript files, or `async def run()` / `async def run(input)` from Python files, matching `programs` in trigora.config.ts.',
+      hint: 'TypeScript default-exports an async program entry, Python marks one with `@program`, and Rust uses `pub async fn main`. Point `[project].programs` at those files in trigora.toml.',
     });
   }
 
@@ -80,12 +131,20 @@ export async function discoverPrograms(options: {
     const relative = toPosix(path.relative(options.rootDir, filePath));
     const language = languageFromFile(filePath) as ProgramLanguage;
     const source = await fs.readFile(filePath, 'utf-8');
+    const stem = fileStem(filePath);
+    const id =
+      language === 'rust'
+        ? rustProgramId(stem, filePath, options.rootDir)
+        : language === 'python' || defaultExportName(source, 'default') === 'default'
+          ? stem
+          : defaultExportName(source, 'default');
     const compiled =
       language === 'python'
         ? await compilePythonProgram(source, relative)
-        : compileTypeScriptProgram(source, relative);
-    const exportName = language === 'python' ? 'run' : defaultExportName(source, 'default');
-    const id = language === 'python' || exportName === 'default' ? fileStem(filePath) : exportName;
+        : language === 'rust'
+          ? await compileRustProgram(source, relative, { rootDir: options.rootDir, programId: id })
+          : compileTypeScriptProgram(source, relative);
+    const exportName = exportNameFromArtifact(compiled.artifactJson, relative);
     const previous = seen.get(id);
 
     if (previous) {

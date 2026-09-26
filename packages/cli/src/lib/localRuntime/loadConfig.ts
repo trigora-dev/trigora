@@ -1,32 +1,22 @@
 import fs from 'node:fs/promises';
-import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
-import { build } from 'esbuild';
 import {
   DEFAULT_RUNTIME_HOST,
   DEFAULT_RUNTIME_PORT,
   type ResolvedTrigoraConfig,
-  type TrigoraConfig,
+  type TriggerConfig,
 } from '@trigora/contracts';
 import { CliDisplayError } from '../cliOutput';
+import { parseSchemaManifest } from './manifest';
 
-const CONFIG_FILENAMES = [
-  'trigora.config.ts',
-  'trigora.config.mts',
-  'trigora.config.js',
-  'trigora.config.mjs',
-];
+const TOML_CONFIG = 'trigora.toml';
 
-function isTrigoraConfig(value: unknown): value is TrigoraConfig {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-
-  const programs = (value as TrigoraConfig).programs;
-  return typeof programs === 'string' || Array.isArray(programs);
-}
+export type ParsedTrigoraToml = {
+  projectName: string;
+  programs: string[];
+  triggers: TriggerConfig[];
+};
 
 async function pathExists(filePath: string): Promise<boolean> {
   try {
@@ -38,81 +28,38 @@ async function pathExists(filePath: string): Promise<boolean> {
 }
 
 export async function findConfigPath(cwd = process.cwd()): Promise<string | undefined> {
-  for (const filename of CONFIG_FILENAMES) {
-    const candidate = path.join(cwd, filename);
-    if (await pathExists(candidate)) {
-      return candidate;
-    }
+  const tomlPath = path.join(cwd, TOML_CONFIG);
+  if (await pathExists(tomlPath)) {
+    return tomlPath;
   }
 
   return undefined;
 }
 
-async function importBundledConfig(configPath: string): Promise<unknown> {
-  const outfile = path.join(
-    os.tmpdir(),
-    `trigora-config-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}.mjs`,
-  );
-
-  try {
-    await build({
-      absWorkingDir: path.dirname(configPath),
-      bundle: true,
-      entryPoints: [configPath],
-      format: 'esm',
-      logLevel: 'silent',
-      outfile,
-      packages: 'external',
-      platform: 'node',
-      target: 'node20',
-    });
-
-    const imported = (await import(pathToFileURL(outfile).href)) as { default?: unknown };
-    return imported.default ?? imported;
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new CliDisplayError({
-      title: 'Failed to load trigora.config',
-      details: [
-        { label: 'File', value: path.relative(process.cwd(), configPath) || configPath },
-        { label: 'Reason', value: reason },
-      ],
-    });
-  } finally {
-    await fs.rm(outfile, { force: true }).catch(() => undefined);
-  }
+export function parseTrigoraToml(source: string): ParsedTrigoraToml {
+  const manifest = parseSchemaManifest(source);
+  return {
+    projectName: manifest.projectName,
+    programs: manifest.programs,
+    triggers: manifest.triggers,
+  };
 }
 
 export function resolveConfig(
-  config: TrigoraConfig,
+  config: ParsedTrigoraToml,
   options: { configPath: string; rootDir: string },
 ): ResolvedTrigoraConfig {
-  const programGlobs = (Array.isArray(config.programs) ? config.programs : [config.programs])
-    .map((pattern) => pattern.trim())
-    .filter(Boolean);
-
-  if (programGlobs.length === 0) {
-    throw new CliDisplayError({
-      title: 'Invalid trigora.config',
-      details: [
-        { label: 'File', value: path.relative(options.rootDir, options.configPath) },
-        { label: 'Reason', value: '`programs` must be one or more entrypoint globs.' },
-      ],
-      hint: 'Example: defineConfig({ programs: "./src/programs/**/*.ts" })',
-    });
-  }
-
   return {
     configPath: options.configPath,
     rootDir: options.rootDir,
-    programGlobs,
+    programGlobs: config.programs,
+    projectName: config.projectName,
+    triggers: config.triggers,
     runtime: {
-      host: config.runtime?.host?.trim() || DEFAULT_RUNTIME_HOST,
-      port: config.runtime?.port ?? DEFAULT_RUNTIME_PORT,
+      host: DEFAULT_RUNTIME_HOST,
+      port: DEFAULT_RUNTIME_PORT,
     },
-    compiler: {
-      endpoint: config.compiler?.endpoint?.trim() || undefined,
-    },
+    compiler: {},
   };
 }
 
@@ -121,27 +68,26 @@ export async function loadProjectConfig(cwd = process.cwd()): Promise<ResolvedTr
 
   if (!configPath) {
     throw new CliDisplayError({
-      title: 'No trigora.config found',
+      title: 'No trigora.toml found',
       details: [{ label: 'Looked in', value: cwd }],
-      hint: 'Run `trigora init` or add a trigora.config.ts with a `programs` glob.',
+      hint: 'Run `trigora init` or add trigora.toml with `[project].programs`.',
     });
   }
 
-  const loaded = await importBundledConfig(configPath);
-
-  if (!isTrigoraConfig(loaded)) {
+  let loaded: ParsedTrigoraToml;
+  try {
+    loaded = parseTrigoraToml(await fs.readFile(configPath, 'utf8'));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     throw new CliDisplayError({
-      title: 'Invalid trigora.config',
+      title: 'Invalid trigora.toml',
       details: [
         { label: 'File', value: path.relative(cwd, configPath) },
-        { label: 'Reason', value: 'Default export must be a config object with `programs`.' },
+        { label: 'Reason', value: reason },
       ],
-      hint: 'Use defineConfig({ programs: "./src/programs/**/*.ts" }) from @trigora/sdk.',
+      hint: 'Example: programs = ["src/**/*.ts"] under [project].',
     });
   }
 
-  return resolveConfig(loaded, {
-    configPath,
-    rootDir: cwd,
-  });
+  return resolveConfig(loaded, { configPath, rootDir: cwd });
 }

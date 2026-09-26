@@ -26,6 +26,38 @@ export default async function approval() {
     expect(compiled.effects.generate?.()).toBe(42);
   });
 
+  it('compiles JavaScript-style source as typescript', () => {
+    const compiled = compileTypeScriptProgram(
+      `import { effect } from "@trigora/sdk";
+
+export default async function run(a, b) {
+  const total = a + b;
+  const doubled = await effect("double", () => 1);
+  return doubled;
+}
+`,
+      'run.js',
+    );
+
+    expect(compiled.language).toBe('typescript');
+    expect(compiled.effects.double?.()).toBe(1);
+  });
+
+  it('names an anonymous default export "default"', () => {
+    const compiled = compileTypeScriptProgram(
+      `export default async function () {
+  return 1;
+}
+`,
+      'program.ts',
+    );
+    const artifact = JSON.parse(compiled.artifactJson) as {
+      program: { entry: number; functions: Array<{ id: number; name: string }> };
+    };
+    const entry = artifact.program.functions.find((fn) => fn.id === artifact.program.entry);
+    expect(entry?.name).toBe('default');
+  });
+
   it('extracts effect callback source for Cloud workers', async () => {
     const { extractTypeScriptEffectSources } = await import('./extractEffects');
     const sources = extractTypeScriptEffectSources(
@@ -99,9 +131,10 @@ export default async function hello() {
     const { compilePythonProgram } = await import('./compiler');
     try {
       const compiled = await compilePythonProgram(
-        `from trigora import effect, wait_for_event
+        `from trigora import effect, program, wait_for_event
 
-async def run():
+@program
+async def approval():
     result = await effect("generate", lambda: 42)
     review = await wait_for_event("approved")
     return {"result": result, "review": review}

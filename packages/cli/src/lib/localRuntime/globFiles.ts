@@ -58,7 +58,13 @@ async function walk(directory: string): Promise<string[]> {
     const fullPath = path.join(directory, entry.name);
 
     if (entry.isDirectory()) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name === '.git') {
+      if (
+        entry.name === 'node_modules' ||
+        entry.name === 'dist' ||
+        entry.name === '.git' ||
+        entry.name === 'target' ||
+        entry.name === '.trigora'
+      ) {
         continue;
       }
 

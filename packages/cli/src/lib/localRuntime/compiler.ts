@@ -1,5 +1,7 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   compile as compileTypeScript,
@@ -12,16 +14,29 @@ import {
   PYTHON_EFFECT_SCRIPT,
   PYTHON_EFFECT_SOURCE_SCRIPT,
 } from './extractEffects';
+import { extractRustEffects, runRustEffect, rustEffectBinary } from './rustEffects';
 
-export type ProgramLanguage = 'typescript' | 'python';
+export type ProgramLanguage = 'typescript' | 'python' | 'rust';
+
+export type EffectHandler = (input?: unknown) => unknown;
 
 export type CompiledProgramArtifact = {
   language: ProgramLanguage;
   artifactJson: string;
   artifactHash: string;
   compilerVersion: string;
-  effects: Record<string, () => unknown>;
+  effects: Record<string, EffectHandler>;
 };
+
+const PYTHON_VERSION_SCRIPT = `
+import json, sys
+try:
+    from tcc_engine import PACKAGE_VERSION
+except ModuleNotFoundError:
+    json.dump({"status": "missing"}, sys.stdout)
+    raise SystemExit(0)
+json.dump({"status": "ok", "version": PACKAGE_VERSION}, sys.stdout)
+`;
 
 const PYTHON_COMPILE_SCRIPT = `
 import json, sys
@@ -41,7 +56,12 @@ except CompileError as err:
     sys.exit(2)
 `;
 
-function runPython(script: string, filename: string, source: string, extraArgs: string[] = []): Promise<{
+function runPython(
+  script: string,
+  filename: string,
+  source: string,
+  extraArgs: string[] = [],
+): Promise<{
   stdout: string;
   stderr: string;
   status: number | null;
@@ -70,14 +90,17 @@ function isCompileError(error: unknown): error is CompileError {
   return error instanceof Error && error.name === 'CompileError';
 }
 
-function throwCompileFailure(title: string, file: string, message: string, span?: {
-  start_line?: number;
-  start_column?: number;
-}): never {
+function throwCompileFailure(
+  title: string,
+  file: string,
+  message: string,
+  span?: {
+    start_line?: number;
+    start_column?: number;
+  },
+): never {
   const location =
-    span?.start_line === undefined
-      ? file
-      : `${file}:${span.start_line}:${span.start_column ?? 1}`;
+    span?.start_line === undefined ? file : `${file}:${span.start_line}:${span.start_column ?? 1}`;
   throw new CliDisplayError({
     title,
     message,
@@ -88,7 +111,10 @@ function throwCompileFailure(title: string, file: string, message: string, span?
   });
 }
 
-export function compileTypeScriptProgram(source: string, filename: string): CompiledProgramArtifact {
+export function compileTypeScriptProgram(
+  source: string,
+  filename: string,
+): CompiledProgramArtifact {
   try {
     const artifact = compileTypeScript(source, { filename });
     return {
@@ -100,45 +126,96 @@ export function compileTypeScriptProgram(source: string, filename: string): Comp
     };
   } catch (error) {
     if (isCompileError(error)) {
-      throwCompileFailure('Compilation failed', error.file || filename, error.message, error.span ?? undefined);
+      throwCompileFailure(
+        'Compilation failed',
+        error.file || filename,
+        error.message,
+        error.span ?? undefined,
+      );
     }
     throw error;
   }
 }
 
-export async function compilePythonProgram(source: string, filename: string): Promise<CompiledProgramArtifact> {
+function pythonInstallCommand(): string {
+  return 'python3 -m pip install trigora';
+}
+
+function pythonCompilerMissing(filename: string): CliDisplayError {
+  return new CliDisplayError({
+    title: 'Python compiler unavailable',
+    message: 'Python compiler support is not installed.',
+    details: [
+      { label: 'File', value: filename },
+      { label: 'Install', value: pythonInstallCommand() },
+    ],
+  });
+}
+
+function pythonCompilerMismatch(filename: string, found: string): CliDisplayError {
+  return new CliDisplayError({
+    title: 'Python compiler version mismatch',
+    message: `This CLI requires Python compiler ${PACKAGE_VERSION}, installed with the trigora authoring package.`,
+    details: [
+      { label: 'File', value: filename },
+      { label: 'Found', value: found },
+      { label: 'Install', value: pythonInstallCommand() },
+    ],
+  });
+}
+
+async function requirePythonCompiler(filename: string): Promise<void> {
+  let probed;
+  try {
+    probed = await runPython(PYTHON_VERSION_SCRIPT, filename, '');
+  } catch {
+    throw pythonCompilerMissing(filename);
+  }
+
+  let payload: { status?: string; version?: string } = {};
+  try {
+    payload = JSON.parse(probed.stdout) as typeof payload;
+  } catch {
+    throw pythonCompilerMissing(filename);
+  }
+
+  if (payload.status === 'missing') {
+    throw pythonCompilerMissing(filename);
+  }
+  if (payload.version !== PACKAGE_VERSION) {
+    throw pythonCompilerMismatch(filename, payload.version || 'unknown');
+  }
+}
+
+export async function compilePythonProgram(
+  source: string,
+  filename: string,
+): Promise<CompiledProgramArtifact> {
+  await requirePythonCompiler(filename);
+
   let compiled;
   try {
     compiled = await runPython(PYTHON_COMPILE_SCRIPT, filename, source);
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    throw new CliDisplayError({
-      title: 'Python compiler unavailable',
-      details: [
-        { label: 'File', value: filename },
-        { label: 'Reason', value: reason },
-      ],
-      hint: 'Install the local tcc_engine wheel from dist-packages/, then retry.',
-    });
+  } catch {
+    throw pythonCompilerMissing(filename);
   }
 
   if (compiled.status !== 0) {
-    let payload: { message?: string; file?: string; span?: { start_line?: number; start_column?: number } } = {};
+    let payload: {
+      message?: string;
+      file?: string;
+      span?: { start_line?: number; start_column?: number };
+    } = {};
     try {
       payload = JSON.parse(compiled.stderr || compiled.stdout) as typeof payload;
     } catch {
-      payload = { message: compiled.stderr.trim() || compiled.stdout.trim() || 'Python compilation failed.' };
+      payload = {
+        message: compiled.stderr.trim() || compiled.stdout.trim() || 'Python compilation failed.',
+      };
     }
 
     if (/No module named ['"]tcc_engine['"]/.test(payload.message ?? compiled.stderr)) {
-      throw new CliDisplayError({
-        title: 'Python compiler unavailable',
-        details: [
-          { label: 'File', value: filename },
-          { label: 'Reason', value: 'The tcc_engine package is not installed.' },
-        ],
-        hint: 'pip install ./dist-packages/tcc_engine-0.1.0rc1-cp39-cp39-macosx_11_0_arm64.whl',
-      });
+      throw pythonCompilerMissing(filename);
     }
 
     throwCompileFailure(
@@ -149,7 +226,9 @@ export async function compilePythonProgram(source: string, filename: string): Pr
     );
   }
 
-  const artifact = JSON.parse(compiled.stdout) as { envelope: { artifact_hash: string; frontend_version: string } };
+  const artifact = JSON.parse(compiled.stdout) as {
+    envelope: { artifact_hash: string; frontend_version: string };
+  };
   const extracted = await runPython(PYTHON_EFFECT_SCRIPT, filename, source);
   if (extracted.status !== 0) {
     throwCompileFailure(
@@ -189,6 +268,91 @@ export async function extractPythonEffectSources(
   return JSON.parse(extracted.stdout || '{}') as Record<string, string>;
 }
 
+function rustCompilerBin(): string | undefined {
+  const override = process.env.TRIGORA_RUST_COMPILER_BIN?.trim();
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const extension = process.platform === 'win32' ? '.exe' : '';
+  const candidates = [
+    override,
+    path.resolve(
+      here,
+      `../../../node_modules/@tcc-engine/frontend-rust/vendor/tcc-rust-compile${extension}`,
+    ),
+    path.resolve(here, `../../../../tcc-engine/target/release/tcc-rust-compile${extension}`),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => fs.existsSync(candidate));
+}
+
+export async function compileRustProgram(
+  source: string,
+  filename: string,
+  options: { rootDir: string; programId: string },
+): Promise<CompiledProgramArtifact> {
+  const compiler = rustCompilerBin();
+  if (!compiler) {
+    throw new CliDisplayError({
+      title: 'Rust compiler unavailable',
+      details: [
+        { label: 'File', value: filename },
+        { label: 'Reason', value: 'The Rust compiler binary was not found.' },
+      ],
+      hint: 'Reinstall trigora. The Rust compiler is included with the CLI.',
+    });
+  }
+  const file = path.join(options.rootDir, `.trigora-compile-${options.programId}.rs`);
+  fs.mkdirSync(options.rootDir, { recursive: true });
+  fs.writeFileSync(file, source);
+  const compiled = spawnSync(compiler, [file], { encoding: 'utf8' });
+  fs.rmSync(file, { force: true });
+  if (compiled.error || compiled.status !== 0) {
+    throwCompileFailure(
+      'Compilation failed',
+      filename,
+      (
+        compiled.stderr ||
+        compiled.stdout ||
+        compiled.error?.message ||
+        'Rust compilation failed.'
+      ).trim(),
+    );
+  }
+  let artifact: { envelope: { artifact_hash: string; frontend_version?: string } };
+  try {
+    artifact = JSON.parse(compiled.stdout) as typeof artifact;
+  } catch {
+    throwCompileFailure('Compilation failed', filename, 'The compiler did not return JSON.');
+  }
+
+  let extracted;
+  try {
+    extracted = extractRustEffects(source);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throwCompileFailure('Failed to load effect handlers', filename, message);
+  }
+
+  const effects: Record<string, EffectHandler> = {};
+  if (extracted.length > 0) {
+    const binary = rustEffectBinary({
+      rootDir: options.rootDir,
+      programId: options.programId,
+      file: filename,
+      source,
+    });
+    for (const effect of extracted) {
+      effects[effect.key] = (input?: unknown) => runRustEffect(binary, effect.key, input ?? {});
+    }
+  }
+
+  return {
+    language: 'rust',
+    artifactJson: JSON.stringify(artifact),
+    artifactHash: artifact.envelope.artifact_hash,
+    compilerVersion: artifact.envelope.frontend_version || '',
+    effects,
+  };
+}
+
 export function languageFromFile(filePath: string): ProgramLanguage | undefined {
   const extension = path.extname(filePath).toLowerCase();
   if (extension === '.ts' || extension === '.mts' || extension === '.js' || extension === '.mjs') {
@@ -196,6 +360,9 @@ export function languageFromFile(filePath: string): ProgramLanguage | undefined 
   }
   if (extension === '.py') {
     return 'python';
+  }
+  if (extension === '.rs') {
+    return 'rust';
   }
   return undefined;
 }

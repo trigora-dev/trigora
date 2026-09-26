@@ -6,7 +6,7 @@ export const ENGINE_FORMAT_VERSION = 1;
 
 export type ProgramId = string;
 export type ProgramVersionId = string;
-export type ProgramLanguage = 'javascript' | 'python';
+export type ProgramLanguage = 'typescript' | 'python' | 'rust';
 
 export type ProgramIdentity = {
   id: ProgramId;
@@ -34,10 +34,53 @@ export type TrigoraConfig = {
   compiler?: TrigoraCompilerConfig;
 };
 
+export type WebhookTriggerConfig = {
+  name: string;
+  type: 'webhook';
+  program: string;
+};
+
+export type CronTriggerConfig = {
+  name: string;
+  type: 'cron';
+  program: string;
+  schedule: string;
+  timezone?: string;
+  input?: JsonValue;
+};
+
+export type TriggerConfig = WebhookTriggerConfig | CronTriggerConfig;
+
+export type TriggerSummary = {
+  id: string;
+  publicId: string;
+  name: string;
+  type: 'webhook' | 'cron';
+  programId: string;
+  schedule: string | null;
+  timezone: string | null;
+  status: string;
+  url: string | null;
+};
+
+export type ReplaceTriggersRequest = {
+  triggers: TriggerConfig[];
+};
+
+export type ReplaceTriggersResponse = {
+  triggers: TriggerSummary[];
+};
+
+export type ListProgramTriggersResponse = {
+  triggers: TriggerSummary[];
+};
+
 export type ResolvedTrigoraConfig = {
   configPath: string;
   rootDir: string;
   programGlobs: string[];
+  projectName: string;
+  triggers: TriggerConfig[];
   runtime: {
     host: string;
     port: number;
@@ -60,6 +103,7 @@ export type ArtifactFile = {
   path: string;
   contents: string;
   entrypoint?: boolean;
+  encoding?: 'base64';
 };
 
 export type EffectBundle = {
@@ -89,6 +133,9 @@ export type ProgramVersionSummary = {
   id: ProgramVersionId;
   artifactHash: string;
   language: ProgramLanguage;
+  frontendId: string;
+  frontendVersion: string;
+  languageSemanticsVersion: string;
   createdAt: string;
 };
 
