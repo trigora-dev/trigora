@@ -1,0 +1,3 @@
+[workspace]
+resolver = "2"
+members = ["crates/trigora-local", "crates/trigora-cli"]

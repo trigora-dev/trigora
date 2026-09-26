@@ -78,6 +78,15 @@ temp/
 .trigora/
 dist-packages/
 *.whl
+/tcc-engine
+/target
+packages/cli/vendor/trigora/
+packages/cli/vendor/trigora-local/
+packages/cli/vendor/tcc-rust-compile/
+packages/cli/helper/ts-adapter.js
+python/trigora-cli/src/trigora_cli/_vendor/
+python/**/__pycache__/
+python/**/*.egg-info/
 
 # md
 context.md
