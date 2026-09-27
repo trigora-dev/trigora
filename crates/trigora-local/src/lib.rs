@@ -1,9 +1,11 @@
+mod command;
 mod error;
 mod http;
 mod product;
 mod runtime;
 mod value;
 
+pub use command::run;
 pub use error::LocalError;
 pub use http::Listeners;
 pub use runtime::{EffectEndpoint, EventSink, FileProgram, LocalRuntime};

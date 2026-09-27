@@ -392,7 +392,7 @@ fn rust_compiler(root: &std::path::Path) -> PathBuf {
     let stub = root.join("tcc-rust-compile");
     std::fs::write(
         &stub,
-        "#!/bin/sh\nprintf '%s\\n' '{\"envelope\":{\"artifact_hash\":\"abc\",\"frontend_version\":\"0.1.0-rc.1\"},\"program\":{\"entry\":0,\"functions\":[{\"id\":0,\"name\":\"main\"}]}}'\n",
+        "#!/bin/sh\nprintf '%s\\n' '{\"envelope\":{\"artifact_hash\":\"abc\",\"frontend_version\":\"0.1.0\"},\"program\":{\"entry\":0,\"functions\":[{\"id\":0,\"name\":\"main\"}]}}'\n",
     )
     .unwrap();
     #[cfg(unix)]

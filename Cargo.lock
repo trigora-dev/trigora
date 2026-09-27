@@ -1038,7 +1038,7 @@ dependencies = [
 
 [[package]]
 name = "tcc-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "tcc-ir",
  "tcc-state",
@@ -1046,7 +1046,7 @@ dependencies = [
 
 [[package]]
 name = "tcc-host"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "tcc-core",
  "tcc-ir",
@@ -1055,7 +1055,7 @@ dependencies = [
 
 [[package]]
 name = "tcc-host-sqlite"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "libc",
  "rusqlite",
@@ -1069,11 +1069,11 @@ dependencies = [
 
 [[package]]
 name = "tcc-ir"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "tcc-rust-frontend"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "proc-macro2",
  "sha2",
@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "tcc-state"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "tinystr"
@@ -1154,6 +1154,7 @@ dependencies = [
  "tcc-ir",
  "tcc-rust-frontend",
  "toml",
+ "trigora-local",
  "ureq",
 ]
 

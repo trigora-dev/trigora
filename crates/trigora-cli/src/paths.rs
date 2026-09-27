@@ -11,13 +11,46 @@ pub struct Tools {
 pub fn tools() -> Result<Tools, CliError> {
     let exe = std::env::current_exe().unwrap_or_default();
     Ok(Tools {
-        local_bin: required(
-            "TRIGORA_LOCAL_BIN",
-            "The local runtime binary is missing. Reinstall trigora.",
-        )?,
+        local_bin: local_runtime_from(&exe)?,
         node_helper: optional("TRIGORA_NODE_HELPER"),
         rust_compiler: rust_compiler_from(&exe),
     })
+}
+
+pub fn local_runtime_from(exe: &Path) -> Result<PathBuf, CliError> {
+    const MISSING: &str = "The local runtime binary is missing. Reinstall trigora.";
+    if std::env::var_os("TRIGORA_LOCAL_BIN").is_some() {
+        return std::env::var("TRIGORA_LOCAL_BIN")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|path| path.is_file())
+            .ok_or_else(|| CliError::plain(MISSING));
+    }
+    let name = local_file_name();
+    let Some(dir) = exe.parent() else {
+        return Err(CliError::plain(MISSING));
+    };
+    let sibling = dir.join(&name);
+    if sibling.is_file() {
+        return Ok(sibling);
+    }
+    if let Some(platform) = dir.file_name() {
+        if let Some(vendor) = dir.parent().and_then(|parent| parent.parent()) {
+            let packaged = vendor.join("trigora-local").join(platform).join(&name);
+            if packaged.is_file() {
+                return Ok(packaged);
+            }
+        }
+    }
+    Err(CliError::plain(MISSING))
+}
+
+fn local_file_name() -> &'static str {
+    if cfg!(windows) {
+        "trigora-local.exe"
+    } else {
+        "trigora-local"
+    }
 }
 
 pub fn rust_compiler_from(exe: &Path) -> Option<PathBuf> {
@@ -45,15 +78,6 @@ fn compiler_file_name() -> &'static str {
     } else {
         "tcc-rust-compile"
     }
-}
-
-fn required(var: &str, message: &str) -> Result<PathBuf, CliError> {
-    let path = std::env::var(var)
-        .ok()
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-        .ok_or_else(|| CliError::plain(message))?;
-    Ok(path)
 }
 
 fn optional(var: &str) -> Option<PathBuf> {
@@ -161,6 +185,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(elsewhere);
         let _ = std::fs::remove_dir_all(isolated);
+        let _ = std::fs::remove_dir_all(vendor);
+    }
+
+    #[test]
+    fn the_local_runtime_is_found_beside_the_executable() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous = std::env::var("TRIGORA_LOCAL_BIN").ok();
+        std::env::remove_var("TRIGORA_LOCAL_BIN");
+        let dir = std::env::temp_dir().join(format!("trigora-local-beside-{}", random_token()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("trigora");
+        let runtime = dir.join(local_file_name());
+        std::fs::write(&exe, b"exe").unwrap();
+        std::fs::write(&runtime, b"runtime").unwrap();
+        assert_eq!(local_runtime_from(&exe).unwrap(), runtime);
+
+        let missing = dir.join("missing-runtime");
+        std::env::set_var("TRIGORA_LOCAL_BIN", &missing);
+        assert!(local_runtime_from(&exe).is_err());
+
+        let vendor = std::env::temp_dir().join(format!("trigora-local-vendor-{}", random_token()));
+        let platform = vendor.join("vendor").join("trigora").join("test-platform");
+        std::fs::create_dir_all(&platform).unwrap();
+        let packaged_exe = platform.join("trigora");
+        std::fs::write(&packaged_exe, b"exe").unwrap();
+        let packaged = vendor
+            .join("vendor")
+            .join("trigora-local")
+            .join("test-platform")
+            .join(local_file_name());
+        std::fs::create_dir_all(packaged.parent().unwrap()).unwrap();
+        std::fs::write(&packaged, b"runtime").unwrap();
+        std::env::remove_var("TRIGORA_LOCAL_BIN");
+        assert_eq!(local_runtime_from(&packaged_exe).unwrap(), packaged);
+
+        match previous {
+            Some(value) => std::env::set_var("TRIGORA_LOCAL_BIN", value),
+            None => std::env::remove_var("TRIGORA_LOCAL_BIN"),
+        }
+        let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(vendor);
     }
 }

@@ -356,9 +356,9 @@ fn sample(id: &str) -> Program {
         frontend_id: "typescript".to_string(),
         semantics_version: "ts.subset.v1".to_string(),
         source: String::new(),
-        artifact_json: r#"{"envelope":{"artifact_hash":"abc","engine_format_version":1,"language_semantics_version":"ts.subset.v1","frontend_id":"typescript","frontend_version":"0.1.0-rc.1"},"program":{"entry":0,"functions":[{"id":0,"name":"program"}]}}"#.to_string(),
+        artifact_json: r#"{"envelope":{"artifact_hash":"abc","engine_format_version":1,"language_semantics_version":"ts.subset.v1","frontend_id":"typescript","frontend_version":"0.1.0"},"program":{"entry":0,"functions":[{"id":0,"name":"program"}]}}"#.to_string(),
         artifact_hash: "abc".to_string(),
-        compiler_version: "0.1.0-rc.1".to_string(),
+        compiler_version: "0.1.0".to_string(),
         effects: Vec::<Effect>::new(),
     }
 }
