@@ -1,6 +1,6 @@
 [package]
 name = "trigora-cli"
-version = "0.9.0"
+version = "1.0.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/trigora-dev/trigora"
@@ -32,7 +32,7 @@ toml = "0.8"
 ureq = { version = "2.12", default-features = false, features = ["tls", "json"] }
 # `cargo install trigora-cli` installs trigora, trigora-local, and tcc-rust-compile.
 # version plus path keeps local builds on the checkout and packaged builds on crates.io.
-trigora-local = { version = "0.9.0", path = "../trigora-local" }
+trigora-local = { version = "1.0.0", path = "../trigora-local" }
 tcc-rust-frontend = { version = "0.1.0", path = "../../tcc-engine/frontends/rust" }
 tcc-ir = { version = "0.1.0", path = "../../tcc-engine/crates/tcc-ir" }
 

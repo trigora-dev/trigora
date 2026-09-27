@@ -44,7 +44,7 @@ rm -rf "${root}/python/trigora-cli/build" "${root}/python/trigora-cli/src/trigor
 python3 -m build --wheel --outdir "${out}/python" "${root}/python/trigora-cli"
 python3 -m build --wheel --outdir "${out}/python" "${engine}/bindings/python"
 
-for tarball in "${out}/npm/trigora-sdk-0.9.0.tgz" "${out}/npm/trigora-client-0.9.0.tgz"; do
+for tarball in "${out}/npm/trigora-sdk-1.0.0.tgz" "${out}/npm/trigora-client-1.0.0.tgz"; do
   if tar -xOf "$tarball" package/package.json | grep -q 'link:'; then
     echo "packed package.json still contains a link: dependency: ${tarball}" >&2
     exit 1

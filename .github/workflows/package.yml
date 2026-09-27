@@ -116,14 +116,14 @@ jobs:
           node packages/cli/scripts/build-adapter.mjs
           cd packages/cli && npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
       - name: Inspect the npm tarball
-        run: python3 release/licenses/check_archive.py npm dist/trigora-0.9.0.tgz
+        run: python3 release/licenses/check_archive.py npm dist/trigora-1.0.0.tgz
       - name: Install the npm tarball
         run: |
           mkdir -p /tmp/trigora-npm
           npm install --prefix /tmp/trigora-npm \
-            "$GITHUB_WORKSPACE"/dist/trigora-contracts-0.9.0.tgz \
+            "$GITHUB_WORKSPACE"/dist/trigora-contracts-1.0.0.tgz \
             "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-0.1.0.tgz \
-            "$GITHUB_WORKSPACE"/dist/trigora-0.9.0.tgz
+            "$GITHUB_WORKSPACE"/dist/trigora-1.0.0.tgz
           /tmp/trigora-npm/node_modules/.bin/trigora --version
       - name: TypeScript dev reaches ready
         run: |
@@ -166,5 +166,5 @@ jobs:
           cp release-candidate/cargo/*.crate dist/cargo/
       - uses: actions/upload-artifact@v4
         with:
-          name: trigora-0.9.0
+          name: trigora-1.0.0
           path: dist/

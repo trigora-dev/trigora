@@ -178,7 +178,7 @@ fn pyproject(name: &str) -> String {
 }
 
 fn cargo(name: &str) -> String {
-    format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n# Unpublished: trigora = {{ path = \"../trigora-rust/crates/trigora\" }}\ntrigora = \"0.9.0\"\n")
+    format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n# Unpublished: trigora = {{ path = \"../trigora-rust/crates/trigora\" }}\ntrigora = \"1.0.0\"\n")
 }
 
 pub fn parse_language(language: &str) -> Result<String, CliError> {
@@ -268,7 +268,7 @@ mod tests {
         let manifest = fs::read_to_string(rust.join("Cargo.toml")).unwrap();
         let program = fs::read_to_string(rust.join("src/lib.rs")).unwrap();
         assert!(config.contains("programs = [\"src/**/*.rs\"]"));
-        assert!(manifest.contains("trigora = \"0.9.0\""));
+        assert!(manifest.contains("trigora = \"1.0.0\""));
         assert!(manifest.contains("path = \"../trigora-rust/crates/trigora\""));
         assert!(program.contains("pub async fn main()"));
         assert!(program.contains("wait_for_event(\"greeted\")"));

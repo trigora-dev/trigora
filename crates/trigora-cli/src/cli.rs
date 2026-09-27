@@ -48,7 +48,7 @@ pub enum Invocation {
 #[derive(Parser)]
 #[command(
     name = "trigora",
-    version = "0.9.0",
+    version = "1.0.0",
     about = "Local durable execution runtime"
 )]
 struct Cli {
