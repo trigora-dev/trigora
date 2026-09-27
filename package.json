@@ -28,9 +28,8 @@
   },
   "pnpm": {
     "overrides": {
-      "@tcc-engine/bindings-javascript": "file:dist-packages/tcc-engine-bindings-javascript-0.1.0-rc.1.tgz",
-      "@tcc-engine/frontend-rust": "file:dist-packages/tcc-engine-frontend-rust-0.1.0-rc.1.tgz",
-      "@tcc-engine/frontend-typescript": "file:dist-packages/tcc-engine-frontend-typescript-0.1.0-rc.1.tgz"
+      "@tcc-engine/frontend-typescript": "file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz",
+      "@trigora/contracts": "workspace:*"
     }
   },
   "scripts": {

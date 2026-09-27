@@ -1,0 +1,19 @@
+# License texts for the crates a Trigora artifact redistributes.
+# cargo deny is the policy gate. This list only lets cargo-about emit text.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Unlicense",
+    "BUSL-1.1",
+    "CDLA-Permissive-2.0",
+]
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+workarounds = ["ring"]

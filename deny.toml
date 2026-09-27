@@ -1,0 +1,32 @@
+[licenses]
+version = 2
+unused-allowed-license = "allow"
+confidence-threshold = 0.8
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "Unlicense",
+]
+exceptions = [
+    { allow = ["BUSL-1.1"], crate = "tcc-core" },
+    { allow = ["BUSL-1.1"], crate = "tcc-host" },
+    { allow = ["BUSL-1.1"], crate = "tcc-host-sqlite" },
+    { allow = ["BUSL-1.1"], crate = "tcc-ir" },
+    { allow = ["BUSL-1.1"], crate = "tcc-rust-frontend" },
+    { allow = ["BUSL-1.1"], crate = "tcc-state" },
+    # Certificate roots only. CDLA-Permissive-2.0 is not a general allowlist entry.
+    { allow = ["CDLA-Permissive-2.0"], crate = "webpki-roots" },
+]
+
+[licenses.private]
+ignore = true
+
+[graph]
+exclude-dev = true

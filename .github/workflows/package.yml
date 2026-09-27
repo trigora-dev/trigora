@@ -1,0 +1,170 @@
+name: package
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [main]
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: trigora-dev/tcc-engine
+          path: tcc-engine
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install license tools
+        run: |
+          cargo install cargo-deny --version 0.18.9 --locked
+          cargo install cargo-about --version 0.6.6 --locked
+      - name: Check dependency licenses
+        run: python3 release/licenses/collect.py --deny-only --manifest Cargo.toml
+      - name: Build the three CLI binaries
+        run: cargo build --release -p trigora-cli
+      - name: Record checksums
+        run: |
+          mkdir -p dist/linux-x64
+          cp target/release/trigora dist/linux-x64/trigora
+          cp target/release/trigora-local dist/linux-x64/trigora-local
+          cp target/release/tcc-rust-compile dist/linux-x64/tcc-rust-compile
+          chmod +x dist/linux-x64/trigora dist/linux-x64/trigora-local dist/linux-x64/tcc-rust-compile
+          (cd dist/linux-x64 && sha256sum trigora trigora-local tcc-rust-compile > SHA256SUMS)
+      - name: Write notices for the shipped binaries
+        run: |
+          stage="$(mktemp -d)"
+          python3 release/licenses/collect.py \
+            --skip-deny \
+            --manifest Cargo.toml \
+            --sqlite \
+            --exclude trigora-cli \
+            --exclude trigora-local \
+            --out "$stage" \
+            --bin target/release/trigora \
+            --bin target/release/trigora-local \
+            --bin target/release/tcc-rust-compile
+          cp LICENSE LICENSE_NOTICES "$stage/"
+          mkdir -p "$stage/licenses/tcc-engine"
+          cp licenses/tcc-engine/LICENSE "$stage/licenses/tcc-engine/LICENSE"
+          cp "$stage/LICENSE" "$stage/LICENSE_NOTICES" "$stage/THIRD_PARTY_LICENSES" dist/linux-x64/
+          mkdir -p dist/linux-x64/licenses
+          cp -R "$stage/licenses/." dist/linux-x64/licenses/
+          cp "$stage/LICENSE" "$stage/LICENSE_NOTICES" "$stage/THIRD_PARTY_LICENSES" packages/cli/
+          rm -rf packages/cli/licenses
+          cp -R "$stage/licenses" packages/cli/licenses
+          wheel="$(mktemp -d)"
+          python3 release/licenses/collect.py \
+            --skip-deny \
+            --manifest Cargo.toml \
+            --sqlite \
+            --exclude trigora-cli \
+            --exclude trigora-local \
+            --out "$wheel" \
+            --bin target/release/trigora \
+            --bin target/release/trigora-local
+          dest=python/trigora-cli/src/trigora_cli/_licenses
+          rm -rf "$dest"
+          mkdir -p "$dest/licenses/tcc-engine"
+          cp "$wheel/THIRD_PARTY_LICENSES" LICENSE LICENSE_NOTICES "$dest/"
+          cp -R "$wheel/licenses/third-party" "$dest/licenses/third-party"
+          cp licenses/tcc-engine/LICENSE "$dest/licenses/tcc-engine/LICENSE"
+          if grep -q '^tcc-rust-frontend ' "$dest/THIRD_PARTY_LICENSES"; then
+            echo "the wheel notices include the compiler closure" >&2
+            exit 1
+          fi
+          grep -q '^rusqlite ' "$dest/THIRD_PARTY_LICENSES"
+          grep -q '^tcc-rust-frontend ' packages/cli/THIRD_PARTY_LICENSES
+          test -s dist/linux-x64/THIRD_PARTY_LICENSES
+          test -s dist/linux-x64/licenses/tcc-engine/LICENSE
+          grep -q '^tcc-rust-frontend ' dist/linux-x64/THIRD_PARTY_LICENSES
+      - name: Pack the TypeScript compiler
+        working-directory: tcc-engine/frontends/typescript
+        run: |
+          npm install
+          npm run build
+          npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+      - name: Pack contracts
+        working-directory: packages/contracts
+        run: |
+          npm install
+          npm run build
+          npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+      - name: Assemble the npm package
+        run: |
+          mkdir -p packages/cli/vendor/trigora/linux-x64
+          mkdir -p packages/cli/vendor/trigora-local/linux-x64
+          mkdir -p packages/cli/vendor/tcc-rust-compile/linux-x64
+          cp dist/linux-x64/trigora packages/cli/vendor/trigora/linux-x64/trigora
+          cp dist/linux-x64/trigora-local packages/cli/vendor/trigora-local/linux-x64/trigora-local
+          cp dist/linux-x64/tcc-rust-compile packages/cli/vendor/tcc-rust-compile/linux-x64/tcc-rust-compile
+          chmod +x packages/cli/vendor/trigora/linux-x64/trigora
+          chmod +x packages/cli/vendor/trigora-local/linux-x64/trigora-local
+          chmod +x packages/cli/vendor/tcc-rust-compile/linux-x64/tcc-rust-compile
+          node packages/cli/scripts/build-adapter.mjs
+          cd packages/cli && npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+      - name: Inspect the npm tarball
+        run: python3 release/licenses/check_archive.py npm dist/trigora-0.9.0.tgz
+      - name: Install the npm tarball
+        run: |
+          mkdir -p /tmp/trigora-npm
+          npm install --prefix /tmp/trigora-npm \
+            "$GITHUB_WORKSPACE"/dist/trigora-contracts-0.9.0.tgz \
+            "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-0.1.0.tgz \
+            "$GITHUB_WORKSPACE"/dist/trigora-0.9.0.tgz
+          /tmp/trigora-npm/node_modules/.bin/trigora --version
+      - name: TypeScript dev reaches ready
+        run: |
+          proj=/tmp/trigora-dev
+          mkdir -p "$proj/src"
+          printf '%s\n' '[project]' 'name = "smoke"' 'programs = ["src/program.ts"]' > "$proj/trigora.toml"
+          printf '%s\n' 'export default async function run() { return "ok"; }' > "$proj/src/program.ts"
+          cd "$proj"
+          /tmp/trigora-npm/node_modules/.bin/trigora dev >"$proj/out" 2>"$proj/err" &
+          pid=$!
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+            if grep -q "Local runtime ready" "$proj/out"; then
+              kill "$pid" || true
+              wait "$pid" || true
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$proj/out" "$proj/err" || true
+          kill "$pid" || true
+          exit 1
+      - name: Build the PyPI CLI wheel
+        run: |
+          python3 -m pip install build
+          python3 python/trigora-cli/scripts/vendor_cli.py
+          rm -rf python/trigora-cli/build python/trigora-cli/src/*.egg-info
+          python3 -m build --wheel --outdir dist python/trigora-cli
+      - name: Inspect the CLI wheel
+        run: python3 release/licenses/check_archive.py wheel dist/trigora_cli-*.whl
+      - name: Install the PyPI CLI wheel
+        run: |
+          python3 -m venv /tmp/trigora-cli
+          /tmp/trigora-cli/bin/pip install "$GITHUB_WORKSPACE"/dist/trigora_cli-*.whl
+          /tmp/trigora-cli/bin/python -c "import trigora_cli"
+          /tmp/trigora-cli/bin/trigora --version
+      - name: Package the Cargo crates
+        run: |
+          bash release/smoke/package.sh
+          mkdir -p dist/cargo
+          cp release-candidate/cargo/*.crate dist/cargo/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trigora-0.9.0
+          path: dist/

@@ -27,4 +27,4 @@ trigora = "trigora_cli.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-trigora_cli = ["_vendor/*"]
+trigora_cli = ["_vendor/*", "_licenses/**/*"]

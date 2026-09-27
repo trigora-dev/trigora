@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags: ["v1.0.0"]
+
+jobs:
+  package:
+    uses: ./.github/workflows/package.yml
+
+  publish:
+    needs: package
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: trigora-0.9.0
+          path: dist
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Publish crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          test -n "$CARGO_REGISTRY_TOKEN"
+          cargo publish -p trigora-local
+          cargo publish -p trigora-cli
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - name: Publish npm packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          test -n "$NODE_AUTH_TOKEN"
+          npm publish dist/trigora-*.tgz
+          cd packages/contracts && npm publish
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Publish the CLI wheel
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+        run: |
+          test -n "$TWINE_PASSWORD"
+          python -m pip install twine
+          twine upload dist/trigora_cli-*.whl
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**

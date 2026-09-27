@@ -1,0 +1,17 @@
+[release]
+trigora = "1.0.0"
+tcc_engine = "0.1.0"
+
+[packages]
+typescript_contracts = "1.0.0"
+typescript_sdk = "1.0.0"
+typescript_client = "1.0.0"
+
+python_authoring = "1.0.0"
+python_client = "1.0.0"
+python_cli = "1.0.0"
+
+rust_authoring = "1.0.0"
+rust_client = "1.0.0"
+trigora_local = "1.0.0"
+rust_cli = "1.0.0"

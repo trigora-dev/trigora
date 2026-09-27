@@ -1,0 +1,16 @@
+License Notices
+
+This repository is licensed under the MIT License.
+
+Some distributed Trigora binaries include or link against components from
+TCC Engine.
+
+TCC Engine
+Copyright (c) 2026 Trigora, Inc.
+License: Business Source License 1.1
+
+TCC Engine components are licensed separately and are not relicensed under
+the MIT License applicable to the Trigora codebase.
+
+Full TCC Engine license text:
+licenses/tcc-engine/LICENSE

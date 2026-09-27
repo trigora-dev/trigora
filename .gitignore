@@ -78,13 +78,23 @@ temp/
 .trigora/
 dist-packages/
 *.whl
+*.tgz
+*.crate
+package-lock.json
+/dist/
+/release-candidate/
 /tcc-engine
 /target
 packages/cli/vendor/trigora/
 packages/cli/vendor/trigora-local/
 packages/cli/vendor/tcc-rust-compile/
 packages/cli/helper/ts-adapter.js
+packages/cli/LICENSE
+packages/cli/LICENSE_NOTICES
+packages/cli/THIRD_PARTY_LICENSES
+packages/cli/licenses/
 python/trigora-cli/src/trigora_cli/_vendor/
+python/trigora-cli/src/trigora_cli/_licenses/
 python/**/__pycache__/
 python/**/*.egg-info/
 
