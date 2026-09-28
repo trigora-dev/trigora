@@ -69,7 +69,6 @@ Each repository has three workflows:
 
 Publishing waits until all of the following are true:
 
-- License files contain the final release text.
 - Package versions match [versions.toml](versions.toml).
 - Registry publishing credentials are configured.
 - `package.yml` has been run again from a clean checkout after those updates.
