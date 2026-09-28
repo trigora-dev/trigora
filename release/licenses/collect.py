@@ -68,13 +68,23 @@ def deny(workspace: Path, manifest: Path) -> None:
         if crate in seen:
             continue
         seen.add(crate)
-        sys.stderr.write(f"\nlicense policy violation: {arrow_path(workspace, manifest, crate)}\n")
+        sys.stderr.write(
+            f"\nlicense policy violation: {arrow_path(workspace, manifest, crate)}\n"
+        )
     raise SystemExit(result.returncode or 1)
 
 
 def metadata(workspace: Path, manifest: Path) -> dict:
     result = run(
-        ["cargo", "metadata", "--format-version", "1", "--locked", "--manifest-path", str(manifest)],
+        [
+            "cargo",
+            "metadata",
+            "--format-version",
+            "1",
+            "--locked",
+            "--manifest-path",
+            str(manifest),
+        ],
         workspace,
     )
     if result.returncode != 0:
@@ -92,7 +102,22 @@ def crate_names(package: dict) -> set[str]:
 
 
 def symbol_text(binary: Path) -> str:
-    for cmd in (["nm", str(binary)], ["llvm-nm", str(binary)], ["strings", str(binary)]):
+    commands: list[list[str]] = []
+    sysroot = run(["rustc", "--print", "sysroot"], binary.parent)
+    if sysroot.returncode == 0:
+        root = Path(sysroot.stdout.strip())
+        commands.extend(
+            [str(tool), str(binary)]
+            for tool in sorted(root.glob("lib/rustlib/*/bin/llvm-nm*"))
+        )
+    commands.extend(
+        (
+            ["llvm-nm", str(binary)],
+            ["nm", str(binary)],
+            ["strings", str(binary)],
+        )
+    )
+    for cmd in commands:
         result = run(cmd, binary.parent)
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout
@@ -108,7 +133,9 @@ def linked_names(binary: Path, known: set[str]) -> set[str]:
     for match in re.finditer(r"(?<=_)(\d{1,3})", blob):
         length = int(match.group(1))
         name = blob[match.end() : match.end() + length]
-        if name in by_length.get(length, ()) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name):
+        if name in by_length.get(length, ()) and re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_]*", name
+        ):
             found.add(name)
     return found
 
@@ -182,25 +209,38 @@ def read_notice(root: Path) -> str | None:
 
 
 def sqlite_parts(packages: list[dict]) -> tuple[str, str]:
-    package = next((item for item in packages if item["name"] == "libsqlite3-sys"), None)
+    package = next(
+        (item for item in packages if item["name"] == "libsqlite3-sys"), None
+    )
     if package is None:
-        raise SystemExit("rusqlite is linked with bundled SQLite, but libsqlite3-sys was not found")
+        raise SystemExit(
+            "rusqlite is linked with bundled SQLite, but libsqlite3-sys was not found"
+        )
     root = Path(package["manifest_path"]).parent
     source = root / "sqlite3" / "sqlite3.c"
     header = root / "sqlite3" / "sqlite3.h"
     if not source.is_file():
         found = list(root.rglob("sqlite3.c"))
-        source = next((path for path in found if "sqlcipher" not in path.parts), found[0] if found else source)
+        source = next(
+            (path for path in found if "sqlcipher" not in path.parts),
+            found[0] if found else source,
+        )
     if not header.is_file():
-        headers = [path for path in root.rglob("sqlite3.h") if "sqlcipher" not in path.parts]
+        headers = [
+            path for path in root.rglob("sqlite3.h") if "sqlcipher" not in path.parts
+        ]
         header = headers[0] if headers else header
     version = None
     if header.is_file():
-        match = re.search(r'#define SQLITE_VERSION\s+"([^"]+)"', header.read_text(errors="replace"))
+        match = re.search(
+            r'#define SQLITE_VERSION\s+"([^"]+)"', header.read_text(errors="replace")
+        )
         if match:
             version = match.group(1)
     if version is None or not source.is_file():
-        raise SystemExit("rusqlite is linked with bundled SQLite, but sqlite3 sources were not found")
+        raise SystemExit(
+            "rusqlite is linked with bundled SQLite, but sqlite3 sources were not found"
+        )
     text = source.read_text(errors="replace")
     blessing = ""
     marker = text.lower().find("the author disclaims copyright")
@@ -269,7 +309,9 @@ def write_bundle(
         if notice is not None:
             notices.mkdir(parents=True, exist_ok=True)
             filename = f"{package['name']}-{package['version']}.NOTICE"
-            (notices / filename).write_text(notice if notice.endswith("\n") else notice + "\n")
+            (notices / filename).write_text(
+                notice if notice.endswith("\n") else notice + "\n"
+            )
             lines.append(f"Notice: licenses/third-party/notices/{filename}")
         blocks.append("\n".join(lines))
         for group in groups:
@@ -324,14 +366,22 @@ def main() -> None:
     if not found:
         raise SystemExit("no crate symbols were found in the given binaries")
     excluded = set(args.exclude)
-    selected_names = {package["name"] for package in packages if crate_names(package) & found}
+    selected_names = {
+        package["name"] for package in packages if crate_names(package) & found
+    }
     selected = [
-        package for package in packages if package["name"] in selected_names and package["name"] not in excluded
+        package
+        for package in packages
+        if package["name"] in selected_names and package["name"] not in excluded
     ]
-    links_sqlite = args.sqlite and ("rusqlite" in selected_names or "libsqlite3-sys" in selected_names)
+    links_sqlite = args.sqlite and (
+        "rusqlite" in selected_names or "libsqlite3-sys" in selected_names
+    )
     if links_sqlite:
         selected.extend(
-            package for package in packages if package["name"] == "libsqlite3-sys" and package not in selected
+            package
+            for package in packages
+            if package["name"] == "libsqlite3-sys" and package not in selected
         )
     config = (args.about or Path(__file__).with_name("about.toml")).resolve()
     texts = about_texts(workspace, manifest, config)

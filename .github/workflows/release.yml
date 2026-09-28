@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ["v1.0.0"]
+    tags: ['v1.0.0']
 
 jobs:
   package:
@@ -24,8 +24,36 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           test -n "$CARGO_REGISTRY_TOKEN"
-          cargo publish -p trigora-local
-          cargo publish -p trigora-cli
+          set -euo pipefail
+          publish() {
+            local name="$1"
+            local attempt=1
+            local output status
+            while true; do
+              set +e
+              output=$(cargo publish -p "$name" 2>&1)
+              status=$?
+              set -e
+              printf '%s\n' "$output"
+              if [ "$status" -eq 0 ]; then
+                return 0
+              fi
+              if printf '%s\n' "$output" | grep -Eiq 'already exists|already uploaded'; then
+                return 0
+              fi
+              if ! printf '%s\n' "$output" | grep -Eiq 'failed to select a version|no matching package named'; then
+                return "$status"
+              fi
+              if [ "$attempt" -ge 20 ]; then
+                echo "crates.io did not index a dependency of ${name}" >&2
+                return "$status"
+              fi
+              attempt=$((attempt + 1))
+              sleep 15
+            done
+          }
+          publish trigora-local
+          publish trigora-cli
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -35,11 +63,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           test -n "$NODE_AUTH_TOKEN"
-          npm publish dist/trigora-*.tgz
-          cd packages/contracts && npm publish
+          npm publish dist/trigora-1.0.0.tgz
+          npm publish dist/trigora-contracts-1.0.0.tgz
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: '3.11'
       - name: Publish the CLI wheel
         env:
           TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
