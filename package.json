@@ -28,7 +28,7 @@
   },
   "pnpm": {
     "overrides": {
-      "@tcc-engine/frontend-typescript": "file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz",
+      "@tcc-engine/frontend-typescript": "file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz",
       "@trigora/contracts": "workspace:*"
     }
   },

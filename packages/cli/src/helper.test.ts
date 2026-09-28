@@ -28,7 +28,7 @@ describe('node helper protocol', () => {
     await send(child, { id: 1, op: 'version' });
     const version = await lines.next();
     expect(version.ok).toBe(true);
-    expect(version.compilerVersion).toBe('0.1.0');
+    expect(version.compilerVersion).toBe('26.10.0');
 
     await send(child, {
       id: 2,

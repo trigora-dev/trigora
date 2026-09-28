@@ -18,7 +18,7 @@ mkdir -p "${out}/npm" "${out}/python" "${root}/dist-packages"
   CI=true pnpm install --frozen-lockfile
   pnpm --filter @tcc-engine/frontend-typescript exec npm pack --pack-destination "${root}/dist-packages"
 )
-cp "${root}/dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz" "${out}/npm/"
+cp "${root}/dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz" "${out}/npm/"
 
 (
   cd "${root}/packages/contracts"

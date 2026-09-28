@@ -192,7 +192,7 @@ jobs:
           import fs from 'node:fs';
           const path = 'packages/cli/package.json';
           const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
-          pkg.dependencies['@tcc-engine/frontend-typescript'] = 'file:../../dist/tcc-engine-frontend-typescript-0.1.0.tgz';
+          pkg.dependencies['@tcc-engine/frontend-typescript'] = 'file:../../dist/tcc-engine-frontend-typescript-26.10.0.tgz';
           pkg.dependencies['@trigora/contracts'] = 'file:../../dist/trigora-contracts-1.0.0.tgz';
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
           EOF
@@ -355,7 +355,7 @@ jobs:
           mkdir -p /tmp/trigora-npm
           npm install --prefix /tmp/trigora-npm \
             "$GITHUB_WORKSPACE"/dist/trigora-contracts-1.0.0.tgz \
-            "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-0.1.0.tgz \
+            "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-26.10.0.tgz \
             "$GITHUB_WORKSPACE"/dist/trigora-1.0.0.tgz
           /tmp/trigora-npm/node_modules/.bin/trigora --version
       - name: TypeScript dev reaches ready

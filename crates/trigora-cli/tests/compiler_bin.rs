@@ -9,5 +9,5 @@ fn the_compiler_binary_reports_its_version() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "0.1.0");
+    assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), "26.10.0");
 }

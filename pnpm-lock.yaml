@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 overrides:
-  '@tcc-engine/frontend-typescript': file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz
+  '@tcc-engine/frontend-typescript': file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz
   '@trigora/contracts': workspace:*
 
 importers:
@@ -43,8 +43,8 @@ importers:
   packages/cli:
     dependencies:
       '@tcc-engine/frontend-typescript':
-        specifier: file:../../dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz
-        version: file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz
+        specifier: file:../../dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz
+        version: file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz
       '@trigora/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -575,8 +575,8 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tcc-engine/frontend-typescript@file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz':
-    resolution: {integrity: sha512-/cdYCw1c4e90G5G0BZsnmsMGSf7F4Ml5ZwcboYuqQ694/CSYkBqZ4RpYVEHCVtuOveRpemK0fJLV5vbGcJfmPg==, tarball: file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz}
+  '@tcc-engine/frontend-typescript@file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz':
+    resolution: {integrity: sha512-/cdYCw1c4e90G5G0BZsnmsMGSf7F4Ml5ZwcboYuqQ694/CSYkBqZ4RpYVEHCVtuOveRpemK0fJLV5vbGcJfmPg==, tarball: file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz}
     version: 0.1.0
     engines: {node: '>=22'}
 
@@ -1757,7 +1757,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tcc-engine/frontend-typescript@file:dist-packages/tcc-engine-frontend-typescript-0.1.0.tgz':
+  '@tcc-engine/frontend-typescript@file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz':
     dependencies:
       typescript: 5.9.3
 
