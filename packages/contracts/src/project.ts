@@ -15,6 +15,7 @@ export type ProjectSummary = {
   id: ProjectId;
   name: string;
   slug: string;
+  createdAt: string;
 };
 
 export type ListProjectsResponse = {
@@ -33,3 +34,28 @@ export type CreateProjectResponse = {
 export type GetProjectResponse = {
   project: Project;
 };
+
+export type DeleteProjectRequest = {
+  confirm: string;
+};
+
+export type DeleteProjectResponse = {
+  deletedProjectId: ProjectId;
+  slug: string;
+};
+
+export type ProjectSecret = {
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ListProjectSecretsResponse = {
+  secrets: ProjectSecret[];
+};
+
+export type PutProjectSecretRequest = {
+  value: string;
+};
+
+export type PutProjectSecretResponse = ProjectSecret;
