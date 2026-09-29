@@ -412,6 +412,7 @@ pub extern "C" fn handle(ptr: *mut u8, len: usize) -> *mut u8 {
     let input = unsafe { Vec::from_raw_parts(ptr, len, cap) };
     let response = match serde_json::from_slice::<serde_json::Value>(&input) {
         Ok(request) => {
+            let _secret_env = SecretEnvGuard::apply(&request);
             let key = request.get("key").and_then(serde_json::Value::as_str);
             let payload = request.get("input");
             match (key, payload) {
@@ -428,6 +429,38 @@ pub extern "C" fn handle(ptr: *mut u8, len: usize) -> *mut u8 {
         serde_json::to_vec(&serde_json::json!({ "error": error.to_string() })).unwrap()
     });
     remember_response(bytes)
+}
+
+struct SecretEnvGuard {
+    previous: Vec<(String, Option<String>)>,
+}
+
+impl SecretEnvGuard {
+    fn apply(request: &serde_json::Value) -> Self {
+        let mut previous = Vec::new();
+        if let Some(env) = request.get("secretEnv").and_then(|value| value.as_object()) {
+            for (key, value) in env {
+                let Some(value) = value.as_str() else {
+                    continue;
+                };
+                let prior = std::env::var(key).ok();
+                std::env::set_var(key, value);
+                previous.push((key.clone(), prior));
+            }
+        }
+        Self { previous }
+    }
+}
+
+impl Drop for SecretEnvGuard {
+    fn drop(&mut self) {
+        for (key, prior) in self.previous.drain(..) {
+            match prior {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
 }
 
 fn remember_response(bytes: Vec<u8>) -> *mut u8 {

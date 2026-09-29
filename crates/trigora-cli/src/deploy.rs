@@ -16,6 +16,22 @@ pub fn cloud_endpoint() -> Result<Endpoint, CliError> {
     })
 }
 
+pub fn project_id(endpoint: &Endpoint, project_name: &str) -> Result<String, CliError> {
+    let projects = http::request(endpoint, "GET", "/v1/projects", None)
+        .map_err(|error| cloud_failure(error, "Calling Trigora Cloud"))?;
+    projects
+        .pointer("/projects")
+        .and_then(Json::as_array)
+        .and_then(|projects| {
+            projects.iter().find(|project| {
+                project.get("name").and_then(Json::as_str) == Some(project_name)
+            })
+        })
+        .and_then(|project| project.get("id").and_then(Json::as_str))
+        .map(str::to_string)
+        .ok_or_else(|| CliError::new("Project not found").detail("Project", project_name))
+}
+
 pub fn sync_deployment(
     endpoint: &Endpoint,
     config: &ProjectConfig,
@@ -47,19 +63,7 @@ pub fn sync_deployment(
     if selected.is_empty() {
         return Err(CliError::new("Program not found").detail("Program", only.unwrap_or("")));
     }
-    let projects = http::request(endpoint, "GET", "/v1/projects", None)
-        .map_err(|error| cloud_failure(error, "Calling Trigora Cloud"))?;
-    let project_id = projects
-        .pointer("/projects")
-        .and_then(Json::as_array)
-        .and_then(|projects| {
-            projects.iter().find(|project| {
-                project.get("name").and_then(Json::as_str) == Some(config.project_name.as_str())
-            })
-        })
-        .and_then(|project| project.get("id").and_then(Json::as_str))
-        .ok_or_else(|| CliError::new("Project not found").detail("Project", &config.project_name))?
-        .to_string();
+    let project_id = project_id(endpoint, &config.project_name)?;
 
     let mut deployed = Vec::new();
     for program in &selected {
@@ -245,9 +249,7 @@ fn javascript_worker(effects: &[crate::model::Effect]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",\n");
-    format!(
-        "const handlers = {{\n{entries}\n}};\n\nexport default {{\n  async fetch(request) {{\n    const body = await request.json();\n    const handler = handlers[body.key];\n    if (!handler) {{\n      return Response.json({{ error: \"Unknown effect \" + String(body.key) }}, {{ status: 400 }});\n    }}\n    try {{\n      const result = await handler(body.input);\n      return Response.json({{ result }});\n    }} catch (error) {{\n      const message = error instanceof Error ? error.message : String(error);\n      return Response.json({{ error: message }}, {{ status: 500 }});\n    }}\n  }},\n}};\n"
-    )
+    format!("{EFFECT_LOCK_JS}\nconst handlers = {{\n{entries}\n}};\n\n{JS_EFFECT_FETCH}\n")
 }
 
 fn python_worker(effects: &[crate::model::Effect]) -> String {
@@ -265,7 +267,7 @@ fn python_worker(effects: &[crate::model::Effect]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    format!("import json\nfrom js import Response\n\nhandlers = {{\n{entries}\n}}\n\nasync def on_fetch(request):\n    body = await request.json()\n    key = body.get(\"key\")\n    handler = handlers.get(key)\n    if handler is None:\n        return Response.new(\n            json.dumps({{\"error\": \"Unknown effect \" + str(key)}}),\n            {{\"status\": 400, \"headers\": {{\"content-type\": \"application/json\"}}}},\n        )\n    try:\n        result = handler()\n        return Response.new(\n            json.dumps({{\"result\": result}}),\n            {{\"headers\": {{\"content-type\": \"application/json\"}}}},\n        )\n    except Exception as error:\n        return Response.new(\n            json.dumps({{\"error\": str(error)}}),\n            {{\"status\": 500, \"headers\": {{\"content-type\": \"application/json\"}}}},\n        )\n")
+    format!("{PYTHON_EFFECT_HEADER}\nhandlers = {{\n{entries}\n}}\n\n{PYTHON_EFFECT_FETCH}\n")
 }
 
 fn base64(bytes: &[u8]) -> String {
@@ -295,15 +297,150 @@ fn base64(bytes: &[u8]) -> String {
     out
 }
 
+const EFFECT_LOCK_JS: &str = r#"let effectQueue = Promise.resolve();
+
+function withEffectLock(run) {
+  const result = effectQueue.then(() => run());
+  effectQueue = result.then(
+    () => {},
+    () => {},
+  );
+  return result;
+}
+
+function applySecretEnv(secretEnv) {
+  const previous = [];
+  if (!secretEnv || typeof secretEnv !== "object") {
+    return previous;
+  }
+  for (const [key, value] of Object.entries(secretEnv)) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    previous.push([
+      key,
+      Object.prototype.hasOwnProperty.call(process.env, key) ? process.env[key] : undefined,
+    ]);
+    process.env[key] = value;
+  }
+  return previous;
+}
+
+function restoreSecretEnv(previous) {
+  for (const [key, value] of previous) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}"#;
+
+const JS_EFFECT_FETCH: &str = r#"export default {
+  async fetch(request) {
+    const body = await request.json();
+    const handler = handlers[body.key];
+    if (!handler) {
+      return Response.json({ error: "Unknown effect " + String(body.key) }, { status: 400 });
+    }
+    try {
+      const result = await withEffectLock(async () => {
+        const previous = applySecretEnv(body.secretEnv);
+        try {
+          return await handler(body.input);
+        } finally {
+          restoreSecretEnv(previous);
+        }
+      });
+      return Response.json({ result });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return Response.json({ error: message }, { status: 500 });
+    }
+  },
+};"#;
+
+const PYTHON_EFFECT_HEADER: &str = r#"import asyncio
+import json
+import os
+from js import Response
+
+_effect_lock = None
+
+def effect_lock():
+    global _effect_lock
+    if _effect_lock is None:
+        _effect_lock = asyncio.Lock()
+    return _effect_lock
+
+def apply_secret_env(secret_env):
+    previous = []
+    if not isinstance(secret_env, dict):
+        return previous
+    for key, value in secret_env.items():
+        if not isinstance(key, str) or not isinstance(value, str):
+            continue
+        previous.append((key, os.environ[key] if key in os.environ else None))
+        os.environ[key] = value
+    return previous
+
+def restore_secret_env(previous):
+    for key, value in previous:
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+"#;
+
+const PYTHON_EFFECT_FETCH: &str = r#"async def on_fetch(request):
+    body = await request.json()
+    key = body.get("key")
+    handler = handlers.get(key)
+    if handler is None:
+        return Response.new(
+            json.dumps({"error": "Unknown effect " + str(key)}),
+            {"status": 400, "headers": {"content-type": "application/json"}},
+        )
+    lock = effect_lock()
+    await lock.acquire()
+    try:
+        previous = apply_secret_env(body.get("secretEnv"))
+        try:
+            result = handler()
+        finally:
+            restore_secret_env(previous)
+        return Response.new(
+            json.dumps({"result": result}),
+            {"headers": {"content-type": "application/json"}},
+        )
+    except Exception as error:
+        return Response.new(
+            json.dumps({"error": str(error)}),
+            {"status": 500, "headers": {"content-type": "application/json"}},
+        )
+    finally:
+        lock.release()
+"#;
+
 const RUST_WORKER: &str = r#"import wasmModule from "./effects.wasm";
 
 let ready;
+let effectQueue = Promise.resolve();
 
 function load() {
   if (!ready) {
     ready = WebAssembly.instantiate(wasmModule);
   }
   return ready;
+}
+
+function withEffectLock(run) {
+  const result = effectQueue.then(() => run());
+  effectQueue = result.then(
+    () => {},
+    () => {},
+  );
+  return result;
 }
 
 export default {
@@ -317,14 +454,25 @@ export default {
     if (typeof body?.key !== "string" || !Object.hasOwn(body, "input")) {
       return Response.json({ error: "effect request requires key and input" }, { status: 400 });
     }
-    const instance = await load();
-    const { alloc, handle, out_len: outLen, memory } = instance.exports;
-    const payload = new TextEncoder().encode(JSON.stringify({ key: body.key, input: body.input }));
-    const ptr = alloc(payload.byteLength);
-    new Uint8Array(memory.buffer, ptr, payload.byteLength).set(payload);
-    const outPtr = handle(ptr, payload.byteLength);
-    const response = JSON.parse(new TextDecoder().decode(new Uint8Array(memory.buffer, outPtr, outLen())));
-    return Response.json(response, { status: response.error ? 400 : 200 });
+    try {
+      const response = await withEffectLock(async () => {
+        const instance = await load();
+        const { alloc, handle, out_len: outLen, memory } = instance.exports;
+        const payload = new TextEncoder().encode(JSON.stringify({
+          key: body.key,
+          input: body.input,
+          secretEnv: body.secretEnv && typeof body.secretEnv === "object" ? body.secretEnv : {},
+        }));
+        const ptr = alloc(payload.byteLength);
+        new Uint8Array(memory.buffer, ptr, payload.byteLength).set(payload);
+        const outPtr = handle(ptr, payload.byteLength);
+        return JSON.parse(new TextDecoder().decode(new Uint8Array(memory.buffer, outPtr, outLen())));
+      });
+      return Response.json(response, { status: response.error ? 400 : 200 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return Response.json({ error: message }, { status: 500 });
+    }
   },
 };
 "#;

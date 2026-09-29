@@ -43,6 +43,9 @@ pub enum Invocation {
         remote: bool,
     },
     Whoami,
+    Secrets {
+        action: crate::secrets::SecretsAction,
+    },
 }
 
 #[derive(Parser)]
@@ -120,6 +123,11 @@ enum Command {
     },
     /// Show the authenticated workspace and API token
     Whoami,
+    /// Manage project secrets on Trigora Cloud
+    Secrets {
+        #[command(subcommand)]
+        action: SecretsCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -130,6 +138,16 @@ enum ExecutionsCommand {
         #[arg(long)]
         remote: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum SecretsCommand {
+    /// List secret names
+    List,
+    /// Set a secret. The value is read from a prompt or stdin.
+    Set { name: String },
+    /// Delete a secret
+    Delete { name: String },
 }
 
 pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
@@ -209,6 +227,13 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
         }),
         Command::Cancel { execution, remote } => Ok(Invocation::Cancel { execution, remote }),
         Command::Whoami => Ok(Invocation::Whoami),
+        Command::Secrets { action } => Ok(Invocation::Secrets {
+            action: match action {
+                SecretsCommand::List => crate::secrets::SecretsAction::List,
+                SecretsCommand::Set { name } => crate::secrets::SecretsAction::Set { name },
+                SecretsCommand::Delete { name } => crate::secrets::SecretsAction::Delete { name },
+            },
+        }),
     }
 }
 

@@ -58,6 +58,25 @@ fn remote_flag_has_three_executions_shapes() {
     ));
     assert!(parse_invocation(&arg(&["deploy", "--remote"])).is_err());
     assert!(parse_invocation(&arg(&["whoami", "--remote"])).is_err());
+    assert!(matches!(
+        parse_invocation(&arg(&["secrets", "list"])).unwrap(),
+        Invocation::Secrets {
+            action: crate::secrets::SecretsAction::List
+        }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["secrets", "set", "OPENAI_API_KEY"])).unwrap(),
+        Invocation::Secrets {
+            action: crate::secrets::SecretsAction::Set { .. }
+        }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["secrets", "delete", "OPENAI_API_KEY"])).unwrap(),
+        Invocation::Secrets {
+            action: crate::secrets::SecretsAction::Delete { .. }
+        }
+    ));
+    assert!(parse_invocation(&arg(&["secrets", "--remote"])).is_err());
 }
 
 #[test]

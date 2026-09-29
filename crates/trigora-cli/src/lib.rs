@@ -14,6 +14,7 @@ mod output;
 mod paths;
 mod python;
 mod rust_harness;
+mod secrets;
 mod versions;
 
 pub use cli::{parse_invocation, Invocation};
@@ -60,6 +61,7 @@ pub fn dispatch(args: &[String]) -> Result<(), CliError> {
         } => commands::send(&execution, &event, payload.as_deref(), remote),
         Invocation::Cancel { execution, remote } => commands::cancel(&execution, remote),
         Invocation::Whoami => commands::whoami(),
+        Invocation::Secrets { action } => secrets::secrets(action),
     }
 }
 
