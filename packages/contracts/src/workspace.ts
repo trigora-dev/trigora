@@ -155,3 +155,66 @@ export type CreateBillingCheckoutResponse = {
 export type CreateBillingPortalResponse = {
   url: string;
 };
+
+export type WorkspaceMemberRole = 'owner' | 'admin' | 'member';
+
+export type WorkspaceMember = {
+  createdAt: string;
+  email: string;
+  name: string;
+  role: WorkspaceMemberRole;
+  userId: string;
+};
+
+export type WorkspaceInvite = {
+  createdAt: string;
+  email: string;
+  expiresAt: string;
+  id: string;
+  role: WorkspaceMemberRole;
+};
+
+export type ListWorkspaceMembersResponse = {
+  invites: WorkspaceInvite[];
+  members: WorkspaceMember[];
+};
+
+export type CreateWorkspaceInviteRequest = {
+  email: string;
+  role: WorkspaceMemberRole;
+};
+
+export type WorkspaceInviteResponse = {
+  emailSent: boolean;
+  invite: WorkspaceInvite;
+  inviteUrl: string;
+};
+
+export type UpdateWorkspaceMemberRoleRequest = {
+  role: WorkspaceMemberRole;
+};
+
+export type AcceptWorkspaceInviteRequest = {
+  token: string;
+};
+
+export type AcceptWorkspaceInviteResponse = {
+  workspaceSlug: string;
+};
+
+export type WorkspaceInvitePreviewStatus = 'pending' | 'expired' | 'accepted';
+
+export type PreviewWorkspaceInviteRequest = {
+  token: string;
+};
+
+export type PreviewWorkspaceInviteResponse = {
+  email: string;
+  role: WorkspaceMemberRole;
+  status: WorkspaceInvitePreviewStatus;
+  workspaceName: string;
+};
+
+export type InviteReturnPathResponse = {
+  path: string | null;
+};
