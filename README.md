@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://trigora.dev">
-    <img src="https://trigora.dev/banner.png?v=2" alt="Trigora — durable execution without history replay." width="100%" />
+    <img src="https://trigora.dev/trigora-banner.png" alt="Trigora — durable execution without history replay." width="100%" />
   </a>
 </p>
 
@@ -9,6 +9,18 @@
   <a href="https://www.npmjs.com/package/trigora"><img src="https://img.shields.io/npm/dm/trigora.svg" alt="npm downloads" /></a>
   <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://github.com/trigora-dev/trigora/stargazers"><img src="https://img.shields.io/github/stars/trigora-dev/trigora" alt="GitHub stars" /></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/trigora-dev/trigora-typescript"><b>TypeScript</b></a>
+  ·
+  <a href="https://github.com/trigora-dev/trigora-python"><b>Python</b></a>
+  ·
+  <a href="https://github.com/trigora-dev/trigora-rust"><b>Rust</b></a>
+  ·
+  <a href="https://github.com/trigora-dev/tcc-engine"><b>TCC Engine</b></a>
+  ·
+  <a href="https://cloud.trigora.dev"><b>Cloud</b></a>
 </p>
 
 # Trigora
@@ -176,10 +188,10 @@ The public research covers:
 
 Trigora is built by **Trigora, Inc.**
 
-For general inquiries: [info@trigora.dev](mailto:info@trigora.dev)
-For product questions and support: [support@trigora.dev](mailto:support@trigora.dev)  
-For commercial terms: [sales@trigora.dev](mailto:sales@trigora.dev)  
-For security reports: [security@trigora.dev](mailto:security@trigora.dev)
+- For general inquiries: [info@trigora.dev](mailto:info@trigora.dev)
+- For product questions and support: [support@trigora.dev](mailto:support@trigora.dev)  
+- For commercial terms: [sales@trigora.dev](mailto:sales@trigora.dev)  
+- For security reports: [security@trigora.dev](mailto:security@trigora.dev)
 
 ## License
 
