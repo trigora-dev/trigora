@@ -17,11 +17,13 @@ jobs:
         include:
           - os: ubuntu-24.04
             slot: linux-x64
-            platform: linux_x86_64
+            # PyPI rejects linux_* tags. Ubuntu 24.04 ships glibc 2.39.
+            platform: manylinux_2_39_x86_64
             dev: false
           - os: ubuntu-24.04-arm
             slot: linux-arm64
-            platform: linux_aarch64
+            # PyPI rejects linux_* tags. Ubuntu 24.04 ships glibc 2.39.
+            platform: manylinux_2_39_aarch64
             dev: false
           - os: macos-14
             slot: darwin-arm64
@@ -472,7 +474,7 @@ jobs:
       - name: Install the Linux CLI wheel
         run: |
           python3 -m venv /tmp/trigora-cli
-          /tmp/trigora-cli/bin/pip install "$GITHUB_WORKSPACE"/dist/trigora_cli-*-linux_x86_64.whl
+          /tmp/trigora-cli/bin/pip install "$GITHUB_WORKSPACE"/dist/trigora_cli-*-manylinux_2_39_x86_64.whl
           /tmp/trigora-cli/bin/python -c "import trigora_cli"
           /tmp/trigora-cli/bin/trigora --version
       - name: Package the Cargo crates
