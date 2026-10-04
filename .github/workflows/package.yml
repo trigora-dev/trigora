@@ -394,6 +394,8 @@ jobs:
           npm install
           npm run build
           npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
       - name: Assemble the npm package
         run: |
           for slot in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64; do
