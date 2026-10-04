@@ -11,7 +11,7 @@ Trigora `1.0.0` and TCC Engine `26.10.2` are one release set. Package versions i
 | TCC Engine | 26.10.2 | `v26.10.2` |
 | Trigora | 1.0.0 | `v1.0.0` |
 
-Tags are exact. `v26.10.2` is only the TCC Engine repository. `v1.0.0` is only the Trigora repositories. `26.10.1` stays on the registries. `26.10.2` adds optional SQLite-host tracing for `trigora bench` and `trigora verify`. It does not change the host protocol, artifact format, language semantics, or continuation semantics. Tag the engine before Trigora `v1.0.0`. Do not point Trigora CI at `v26.10.2` until that tag exists.
+Tags are exact. `v26.10.2` is only the TCC Engine repository. `v1.0.0` is only the Trigora repositories. `26.10.1` stays on the registries. `26.10.2` is published and adds optional SQLite-host tracing for `trigora bench` and `trigora verify`. It does not change the host protocol, artifact format, language semantics, or continuation semantics. Trigora CI checks out `v26.10.2`. Tag Trigora `v1.0.0` only after `package.yml` is green on that checkout.
 
 TCC Engine uses CalVer `YY.MM.MICRO`. `YY` and `MM` identify the release month. `MICRO` is a monotonically increasing release counter within that month; it is not a SemVer patch-only field. Releases within the same year maintain backward compatibility across supported public package APIs, so ordinary npm caret and Cargo version ranges on `26.x` stay safe. Breaking package API changes may occur when the year component changes. Wire, artifact, and language compatibility are versioned independently (`host_protocol_version`, `engine_format_version`, and the language-semantics versions).
 

@@ -581,7 +581,7 @@ packages:
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
   '@tcc-engine/frontend-typescript@26.10.2':
-    resolution: {integrity: sha512-U+rfg0+6kHXmqbtNo8jsZbXVP+Ih7fHhjMSCvzwYFb79mo5/MxWlRbY/fWzf46rxlPBwV+52heGRGbF0wy6V3g==}
+    resolution: {integrity: sha512-kpN+hhTBlTNyyuSDJRtw7eBrK/aU5fhrzK2RoL41FfmM/25RMyxBRxQEQTljR6m5PrPkagfosZVxevzD1CC5NQ==}
     engines: {node: '>=22'}
 
   '@turbo/darwin-64@2.9.5':
