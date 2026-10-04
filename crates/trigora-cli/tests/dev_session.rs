@@ -1,3 +1,5 @@
+#![cfg(unix)]
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
@@ -7,9 +9,13 @@ use std::time::{Duration, Instant};
 
 static SESSION: Mutex<()> = Mutex::new(());
 
+fn session() -> std::sync::MutexGuard<'static, ()> {
+    SESSION.lock().unwrap_or_else(|poison| poison.into_inner())
+}
+
 #[test]
 fn dev_starts_reloads_and_reaps_children() {
-    let _session = SESSION.lock().expect("session");
+    let _session = session();
     let cli = PathBuf::from(env!("CARGO_BIN_EXE_trigora"));
     let debug = cli.parent().expect("debug dir");
     let local = debug.join(if cfg!(windows) {
@@ -66,12 +72,21 @@ fn dev_starts_reloads_and_reaps_children() {
         .spawn()
         .expect("spawn trigora dev");
     let stdout = child.stdout.take().expect("stdout");
+    let stderr = child.stderr.take().expect("stderr");
     let (tx, rx) = std::sync::mpsc::channel();
+    let tx_err = tx.clone();
     std::thread::spawn(move || {
         let reader = BufReader::new(stdout);
         for line in reader.lines() {
             let Ok(line) = line else { break };
             let _ = tx.send(line);
+        }
+    });
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            let Ok(line) = line else { break };
+            let _ = tx_err.send(line);
         }
     });
     let mut lines = Vec::new();
@@ -83,7 +98,7 @@ fn dev_starts_reloads_and_reaps_children() {
                 runtime_port = port
                     .split_whitespace()
                     .next()
-                    .and_then(|value| value.parse().ok());
+                    .and_then(|value| value.trim_end_matches('.').parse().ok());
             }
             lines.push(line);
             if lines
@@ -93,6 +108,12 @@ fn dev_starts_reloads_and_reaps_children() {
             {
                 break;
             }
+        }
+        if child.try_wait().ok().flatten().is_some() {
+            while let Ok(line) = rx.try_recv() {
+                lines.push(line);
+            }
+            break;
         }
     }
     let joined = lines.join("\n");
@@ -114,29 +135,19 @@ fn dev_starts_reloads_and_reaps_children() {
         }
     }
     assert!(reloaded, "dev did not reload:\n{}", lines.join("\n"));
-    let listing = Command::new("ps")
-        .args(["-ax", "-o", "command="])
-        .output()
-        .expect("ps");
-    let commands = String::from_utf8_lossy(&listing.stdout);
+    let commands = process_list();
     let helpers = commands
         .lines()
         .filter(|line| line.contains(&helper.display().to_string()))
         .count();
     assert_eq!(helpers, 1, "expected one Node helper:\n{commands}");
-    unsafe {
-        libc::kill(child.id() as i32, libc::SIGTERM);
-    }
+    terminate(&mut child);
     let status = child.wait().expect("wait");
     assert!(status.success(), "dev exit status {status}");
     let port = runtime_port.expect("port");
     let closed = TcpStream::connect(("127.0.0.1", port)).is_err();
     assert!(closed, "trigora-local is still listening on {port}");
-    let listing = Command::new("ps")
-        .args(["-ax", "-o", "command="])
-        .output()
-        .expect("ps");
-    let commands = String::from_utf8_lossy(&listing.stdout);
+    let commands = process_list();
     assert!(
         !commands.contains(&local.display().to_string()),
         "trigora-local was not reaped"
@@ -150,7 +161,7 @@ fn dev_starts_reloads_and_reaps_children() {
 
 #[test]
 fn python_dev_reaches_ready_without_node() {
-    let _session = SESSION.lock().expect("session");
+    let _session = session();
     let (cli, local) = binaries();
     let root = std::env::temp_dir().join(format!("trigora-py-dev-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -190,7 +201,7 @@ fn python_dev_reaches_ready_without_node() {
 
 #[test]
 fn rust_dev_reaches_ready_without_node() {
-    let _session = SESSION.lock().expect("session");
+    let _session = session();
     let (cli, local) = binaries();
     let root = std::env::temp_dir().join(format!("trigora-rs-dev-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
@@ -229,7 +240,7 @@ fn rust_dev_reaches_ready_without_node() {
 
 #[test]
 fn typescript_dev_runs_an_effect_then_an_event() {
-    let _session = SESSION.lock().expect("session");
+    let _session = session();
     let (cli, local) = binaries();
     let helper =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../packages/cli/helper/node-helper.js");
@@ -387,12 +398,21 @@ fn rust_compiler(root: &std::path::Path) -> PathBuf {
     let release = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../tcc-engine/target/release/tcc-rust-compile");
     if release.is_file() {
-        return release;
+        let version = Command::new(&release)
+            .arg("--version")
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
+            .unwrap_or_default();
+        if version == "26.10.1" {
+            return release;
+        }
     }
     let stub = root.join("tcc-rust-compile");
     std::fs::write(
         &stub,
-        "#!/bin/sh\nprintf '%s\\n' '{\"envelope\":{\"artifact_hash\":\"abc\",\"frontend_version\":\"26.10.0\"},\"program\":{\"entry\":0,\"functions\":[{\"id\":0,\"name\":\"main\"}]}}'\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf '%s\\n' '26.10.1'; exit 0; fi\nprintf '%s\\n' '{\"envelope\":{\"artifact_hash\":\"abc\",\"frontend_version\":\"26.10.1\"},\"program\":{\"entry\":0,\"functions\":[{\"id\":0,\"name\":\"main\"}]}}'\n",
     )
     .unwrap();
     #[cfg(unix)]
@@ -475,20 +495,28 @@ fn run_until_ready(
     (child, lines.join("\n"), port.unwrap_or(0))
 }
 
-fn stop(child: &mut std::process::Child, port: u16, local: &std::path::Path) {
+fn process_list() -> String {
+    let listing = Command::new("ps")
+        .args(["-ax", "-o", "args="])
+        .output()
+        .expect("ps");
+    String::from_utf8_lossy(&listing.stdout).into_owned()
+}
+
+fn terminate(child: &mut std::process::Child) {
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);
     }
+}
+
+fn stop(child: &mut std::process::Child, port: u16, local: &std::path::Path) {
+    terminate(child);
     let status = child.wait().expect("wait");
     assert!(status.success(), "dev exit status {status}");
     if port != 0 {
         assert!(TcpStream::connect(("127.0.0.1", port)).is_err());
     }
-    let listing = Command::new("ps")
-        .args(["-ax", "-o", "command="])
-        .output()
-        .expect("ps");
-    let commands = String::from_utf8_lossy(&listing.stdout);
+    let commands = process_list();
     assert!(!commands.contains(&local.display().to_string()));
     assert!(!commands.contains("node-helper.js"));
 }

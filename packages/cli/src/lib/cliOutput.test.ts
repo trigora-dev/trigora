@@ -3,16 +3,27 @@ import { CliDisplayError, printSuccessSummary, renderCliError } from './cliOutpu
 
 const originalConsoleError = console.error;
 const originalConsoleLog = console.log;
+const errorSpy = vi.fn();
+const logSpy = vi.fn();
 
 beforeEach(() => {
-  console.error = vi.fn();
-  console.log = vi.fn();
+  errorSpy.mockReset();
+  logSpy.mockReset();
+  console.error = errorSpy;
+  console.log = logSpy;
 });
 
 afterEach(() => {
   console.error = originalConsoleError;
   console.log = originalConsoleLog;
 });
+
+function plain(spy: ReturnType<typeof vi.fn>): string {
+  return spy.mock.calls
+    .map((call) => String(call[0] ?? ''))
+    .join('\n')
+    .replace(/\u001b\[[0-9;]*m/g, '');
+}
 
 describe('cliOutput', () => {
   it('renders structured error blocks', () => {
@@ -27,14 +38,11 @@ describe('cliOutput', () => {
       }),
     );
 
-    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/✖ Deployment failed/));
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/Step\s+Uploading deployment package/),
-    );
-    expect(console.error).toHaveBeenCalledWith(
-      expect.stringMatching(/Reason\s+Network request timed out/),
-    );
-    expect(console.error).toHaveBeenCalledWith(expect.stringMatching(/Try again in a moment/));
+    const text = plain(errorSpy);
+    expect(text).toMatch(/✖ Deployment failed/);
+    expect(text).toMatch(/Step\s+Uploading deployment package/);
+    expect(text).toMatch(/Reason\s+Network request timed out/);
+    expect(text).toMatch(/Try again in a moment/);
   });
 
   it('renders structured success summaries', () => {
@@ -53,11 +61,12 @@ describe('cliOutput', () => {
       'Ready to receive events',
     );
 
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/✔ Deployment complete/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Program\s+hello/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Version\s+v1/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Program ID/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/prg_example/));
-    expect(console.log).toHaveBeenCalledWith(expect.stringMatching(/Ready to receive events/));
+    const text = plain(logSpy);
+    expect(text).toMatch(/✔ Deployment complete/);
+    expect(text).toMatch(/Program\s+hello/);
+    expect(text).toMatch(/Version\s+v1/);
+    expect(text).toMatch(/Program ID/);
+    expect(text).toMatch(/prg_example/);
+    expect(text).toMatch(/Ready to receive events/);
   });
 });

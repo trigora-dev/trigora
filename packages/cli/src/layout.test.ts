@@ -150,7 +150,7 @@ describe('installed package layout', () => {
     });
     expect(status).toBe(0);
     await expect(connect(port)).rejects.toThrow();
-    const processes = spawnSyncText('ps', ['-ax', '-o', 'command=']);
+    const processes = spawnSyncText('ps', ['-ax', '-o', 'args=']);
     expect(processes).not.toContain(path.join(packageRoot, 'vendor', 'trigora-local'));
     expect(processes).not.toContain(path.join(packageRoot, 'helper', 'node-helper.js'));
     fs.rmSync(root, { recursive: true, force: true });

@@ -36,15 +36,16 @@ jobs:
             platform: win_amd64
             dev: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: trigora-dev/tcc-engine
+          ref: v26.10.1
           path: tcc-engine
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install license tools
@@ -57,7 +58,16 @@ jobs:
         if: matrix.slot == 'linux-x64'
         run: python release/licenses/collect.py --deny-only --manifest Cargo.toml
       - name: Build the three CLI binaries
-        run: cargo build --release -p trigora-cli
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            # Git bash and cargo.exe disagree about a cygwin-style target dir.
+            unset CARGO_TARGET_DIR
+            for name in trigora trigora-local tcc-rust-compile; do
+              cargo rustc --release -p trigora-cli --bin "$name" -- -C "link-arg=/MAP:target/release/${name}.map"
+            done
+          else
+            cargo build --release -p trigora-cli
+          fi
       - name: Check binary versions
         run: |
           ext=""
@@ -71,7 +81,10 @@ jobs:
             set -e
             printf '%s\n' "$output"
             test "$status" -eq 0
-            printf '%s\n' "$output" | grep -q '1.0.0'
+            case "$output" in
+              *1.0.0*) ;;
+              *) exit 1 ;;
+            esac
           done
       - name: Record checksums
         run: |
@@ -103,6 +116,20 @@ jobs:
             ext=".exe"
           fi
           wheel="$(mktemp -d)"
+          bins=(
+            --bin "target/release/trigora${ext}"
+            --bin "target/release/trigora-local${ext}"
+          )
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            for name in trigora trigora-local; do
+              map="target/release/${name}.map"
+              if [ ! -f "$map" ]; then
+                echo "linker map was not written for ${name}" >&2
+                exit 1
+              fi
+              bins+=(--bin "$map")
+            done
+          fi
           python release/licenses/collect.py \
             --skip-deny \
             --manifest Cargo.toml \
@@ -110,8 +137,7 @@ jobs:
             --exclude trigora-cli \
             --exclude trigora-local \
             --out "$wheel" \
-            --bin "target/release/trigora${ext}" \
-            --bin "target/release/trigora-local${ext}"
+            "${bins[@]}"
           dest=python/trigora-cli/src/trigora_cli/_licenses
           rm -rf "$dest"
           mkdir -p "$dest/licenses/tcc-engine"
@@ -145,13 +171,21 @@ jobs:
           python release/licenses/check_archive.py wheel "${wheels[0]}"
       - name: Install the platform wheel
         run: |
-          python -m venv /tmp/trigora-cli
-          if [ -x /tmp/trigora-cli/bin/pip ]; then
-            pip=/tmp/trigora-cli/bin/pip
-            trigora=/tmp/trigora-cli/bin/trigora
+          # Git bash /tmp is the RUNNER~1 short path. A venv created there
+          # embeds that path in the Windows launcher, which then cannot start.
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            venv="$(cygpath -u "$RUNNER_TEMP")/trigora-cli"
           else
-            pip=/tmp/trigora-cli/Scripts/pip.exe
-            trigora=/tmp/trigora-cli/Scripts/trigora.exe
+            venv="$(mktemp -d)"
+          fi
+          rm -rf "$venv"
+          python -m venv "$venv"
+          if [ -x "$venv/bin/pip" ]; then
+            pip="$venv/bin/pip"
+            trigora="$venv/bin/trigora"
+          else
+            pip="$venv/Scripts/pip.exe"
+            trigora="$venv/Scripts/trigora.exe"
           fi
           "$pip" install dist/trigora_cli-*-${{ matrix.platform }}.whl
           set +e
@@ -160,12 +194,20 @@ jobs:
           set -e
           printf '%s\n' "$output"
           test "$status" -eq 0
-          printf '%s\n' "$output" | grep -q '1.0.0'
+          case "$output" in
+            *1.0.0*) ;;
+            *) exit 1 ;;
+          esac
+      - uses: pnpm/action-setup@v5
+        if: matrix.dev
+        with:
+          version: 10.33.0
       - name: Set up Node
         if: matrix.dev
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
+          package-manager-cache: false
       - name: TypeScript dev reaches ready
         if: matrix.dev
         run: |
@@ -190,7 +232,7 @@ jobs:
           import fs from 'node:fs';
           const path = 'packages/cli/package.json';
           const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
-          pkg.dependencies['@tcc-engine/frontend-typescript'] = 'file:../../dist/tcc-engine-frontend-typescript-26.10.0.tgz';
+          pkg.dependencies['@tcc-engine/frontend-typescript'] = 'file:../../dist/tcc-engine-frontend-typescript-26.10.1.tgz';
           pkg.dependencies['@trigora/contracts'] = 'file:../../dist/trigora-contracts-1.0.0.tgz';
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
           EOF
@@ -209,54 +251,88 @@ jobs:
             NODE_PATH="$GITHUB_WORKSPACE/packages/cli/node_modules" \
             "$GITHUB_WORKSPACE/target/release/trigora${ext}" dev >"$proj/out" 2>"$proj/err" &
           pid=$!
+          stop_dev() {
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              taskkill //F //T //PID "$1" >/dev/null 2>&1 || true
+            else
+              kill "$1" || true
+              wait "$1" || true
+            fi
+          }
           for _ in $(seq 1 30); do
             if grep -q "Local runtime ready" "$proj/out"; then
-              kill "$pid" || true
-              wait "$pid" || true
+              stop_dev "$pid"
               exit 0
             fi
             sleep 2
           done
           cat "$proj/out" "$proj/err" || true
-          kill "$pid" || true
+          stop_dev "$pid"
           exit 1
-      - uses: actions/upload-artifact@v4
+      - name: Upload binaries
+        id: upload-binaries
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
         with:
           name: binaries-${{ matrix.slot }}
           path: dist/${{ matrix.slot }}/
-      - uses: actions/upload-artifact@v4
+      - name: Wait before retrying the binary upload
+        if: steps.upload-binaries.outcome == 'failure'
+        run: sleep 20
+      - name: Retry binary upload
+        if: steps.upload-binaries.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: binaries-${{ matrix.slot }}
+          path: dist/${{ matrix.slot }}/
+          overwrite: true
+      - name: Upload the wheel
+        id: upload-wheel
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
         with:
           name: wheels-${{ matrix.slot }}
           path: dist/trigora_cli-*-${{ matrix.platform }}.whl
+      - name: Wait before retrying the wheel upload
+        if: steps.upload-wheel.outcome == 'failure'
+        run: sleep 20
+      - name: Retry wheel upload
+        if: steps.upload-wheel.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: wheels-${{ matrix.slot }}
+          path: dist/trigora_cli-*-${{ matrix.platform }}.whl
+          overwrite: true
 
   package:
     needs: native
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: trigora-dev/tcc-engine
+          ref: v26.10.1
           path: tcc-engine
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.33.0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - name: Install cargo-about
         run: cargo install cargo-about --version 0.6.6 --locked
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: binaries-*
           path: native
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: wheels-*
           path: wheels
@@ -337,6 +413,7 @@ jobs:
         run: |
           python3 release/licenses/check_archive.py npm dist/trigora-1.0.0.tgz
           archive=dist/trigora-1.0.0.tgz
+          files="$(tar -tzf "$archive")"
           for path in \
             package/vendor/trigora/linux-x64/trigora \
             package/vendor/trigora/linux-arm64/trigora \
@@ -346,14 +423,17 @@ jobs:
             package/vendor/trigora-local/win32-x64/trigora-local.exe \
             package/vendor/tcc-rust-compile/darwin-arm64/tcc-rust-compile
           do
-            tar -tzf "$archive" | grep -qx "$path"
+            if ! printf '%s\n' "$files" | grep -Fx -- "$path" >/dev/null; then
+              echo "missing $path" >&2
+              exit 1
+            fi
           done
       - name: Install the npm tarball
         run: |
           mkdir -p /tmp/trigora-npm
           npm install --prefix /tmp/trigora-npm \
             "$GITHUB_WORKSPACE"/dist/trigora-contracts-1.0.0.tgz \
-            "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-26.10.0.tgz \
+            "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-26.10.1.tgz \
             "$GITHUB_WORKSPACE"/dist/trigora-1.0.0.tgz
           /tmp/trigora-npm/node_modules/.bin/trigora --version
       - name: TypeScript dev reaches ready
@@ -398,7 +478,20 @@ jobs:
           bash release/smoke/package.sh
           mkdir -p dist/cargo
           cp release-candidate/cargo/*.crate dist/cargo/
-      - uses: actions/upload-artifact@v4
+      - name: Upload the package
+        id: upload-package
+        continue-on-error: true
+        uses: actions/upload-artifact@v6
         with:
           name: trigora-1.0.0
           path: dist/
+      - name: Wait before retrying the package upload
+        if: steps.upload-package.outcome == 'failure'
+        run: sleep 20
+      - name: Retry package upload
+        if: steps.upload-package.outcome == 'failure'
+        uses: actions/upload-artifact@v6
+        with:
+          name: trigora-1.0.0
+          path: dist/
+          overwrite: true

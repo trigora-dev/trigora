@@ -174,11 +174,11 @@ fn package_json(name: &str) -> String {
 }
 
 fn pyproject(name: &str) -> String {
-    format!("[project]\nname = \"{name}\"\nversion = \"0.1.0\"\nrequires-python = \">=3.9\"\ndependencies = [\"trigora\"]\n")
+    format!("[project]\nname = \"{name}\"\nversion = \"1.0.0\"\nrequires-python = \">=3.9\"\ndependencies = [\"trigora\"]\n")
 }
 
 fn cargo(name: &str) -> String {
-    format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n# Unpublished: trigora = {{ path = \"../trigora-rust/crates/trigora\" }}\ntrigora = \"1.0.0\"\n")
+    format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[dependencies]\n# Unpublished: trigora = {{ path = \"../trigora-rust/crates/trigora\" }}\ntrigora = \"1.0.0\"\n")
 }
 
 pub fn parse_language(language: &str) -> Result<String, CliError> {

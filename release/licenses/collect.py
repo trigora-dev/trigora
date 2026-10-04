@@ -22,7 +22,14 @@ NOTICE_FILES = ("NOTICE", "NOTICE.md", "NOTICE.txt")
 
 
 def run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, cwd=cwd, text=True, capture_output=True)
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        capture_output=True,
+    )
 
 
 def arrow_path(workspace: Path, manifest: Path, crate: str) -> str:
@@ -103,8 +110,11 @@ def crate_names(package: dict) -> set[str]:
 
 def symbol_text(binary: Path) -> str:
     commands: list[list[str]] = []
-    sysroot = run(["rustc", "--print", "sysroot"], binary.parent)
-    if sysroot.returncode == 0:
+    try:
+        sysroot = run(["rustc", "--print", "sysroot"], binary.parent)
+    except OSError:
+        sysroot = None
+    if sysroot is not None and sysroot.returncode == 0:
         root = Path(sysroot.stdout.strip())
         commands.extend(
             [str(tool), str(binary)]
@@ -117,11 +127,25 @@ def symbol_text(binary: Path) -> str:
             ["strings", str(binary)],
         )
     )
+    # link.exe drops the Rust symbol table that ELF and Mach-O retain. The
+    # Windows package job passes the linker map, which is plain text.
+    chunks: list[str] = []
+    try:
+        blob = binary.read_bytes().decode("latin-1")
+    except OSError:
+        blob = ""
+    if blob.strip():
+        chunks.append(blob)
     for cmd in commands:
-        result = run(cmd, binary.parent)
+        try:
+            result = run(cmd, binary.parent)
+        except OSError:
+            continue
         if result.returncode == 0 and result.stdout.strip():
-            return result.stdout
-    raise SystemExit(f"could not read symbols from {binary}")
+            chunks.append(result.stdout)
+    if not chunks:
+        raise SystemExit(f"could not read symbols from {binary}")
+    return "\n".join(chunks)
 
 
 def linked_names(binary: Path, known: set[str]) -> set[str]:
@@ -194,7 +218,7 @@ def project_busl(workspace: Path) -> str:
     for path in candidates:
         if not path.is_file():
             continue
-        text = path.read_text(errors="replace")
+        text = path.read_text(encoding="utf-8", errors="replace")
         if "Business Source License" in text[:1200]:
             return text
     return ""
@@ -204,7 +228,7 @@ def read_notice(root: Path) -> str | None:
     for name in NOTICE_FILES:
         path = root / name
         if path.is_file():
-            return path.read_text(errors="replace")
+            return path.read_text(encoding="utf-8", errors="replace")
     return None
 
 
@@ -233,7 +257,8 @@ def sqlite_parts(packages: list[dict]) -> tuple[str, str]:
     version = None
     if header.is_file():
         match = re.search(
-            r'#define SQLITE_VERSION\s+"([^"]+)"', header.read_text(errors="replace")
+            r'#define SQLITE_VERSION\s+"([^"]+)"',
+            header.read_text(encoding="utf-8", errors="replace"),
         )
         if match:
             version = match.group(1)
@@ -241,7 +266,7 @@ def sqlite_parts(packages: list[dict]) -> tuple[str, str]:
         raise SystemExit(
             "rusqlite is linked with bundled SQLite, but sqlite3 sources were not found"
         )
-    text = source.read_text(errors="replace")
+    text = source.read_text(encoding="utf-8", errors="replace")
     blessing = ""
     marker = text.lower().find("the author disclaims copyright")
     if marker < 0:
@@ -310,7 +335,8 @@ def write_bundle(
             notices.mkdir(parents=True, exist_ok=True)
             filename = f"{package['name']}-{package['version']}.NOTICE"
             (notices / filename).write_text(
-                notice if notice.endswith("\n") else notice + "\n"
+                notice if notice.endswith("\n") else notice + "\n",
+                encoding="utf-8",
             )
             lines.append(f"Notice: licenses/third-party/notices/{filename}")
         blocks.append("\n".join(lines))
@@ -324,15 +350,18 @@ def write_bundle(
         raise SystemExit("missing license text for " + "; ".join(missing))
     for ident, text in sorted(used.items()):
         filename = ident.replace("/", "-").replace(" ", "-") + ".txt"
-        (third / filename).write_text(text if text.endswith("\n") else text + "\n")
+        (third / filename).write_text(
+            text if text.endswith("\n") else text + "\n",
+            encoding="utf-8",
+        )
     body = "\n\n".join(blocks) + "\n"
     if include_sqlite:
         manifest, blessing = sqlite_parts(packages)
-        (third / "SQLite.txt").write_text(blessing)
+        (third / "SQLite.txt").write_text(blessing, encoding="utf-8")
         body += "\n" + manifest
     if not blocks and not include_sqlite:
         body = "No third-party crates are statically linked into this artifact.\n"
-    (out / "THIRD_PARTY_LICENSES").write_text(body)
+    (out / "THIRD_PARTY_LICENSES").write_text(body, encoding="utf-8")
 
 
 def main() -> None:
@@ -340,7 +369,7 @@ def main() -> None:
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--bin", action="append", default=[])
     parser.add_argument("--exclude", action="append", default=[])
-    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
     parser.add_argument("--sqlite", action="store_true")
     parser.add_argument("--skip-deny", action="store_true")
     parser.add_argument("--deny-only", action="store_true")
@@ -351,6 +380,8 @@ def main() -> None:
     if args.deny_only:
         deny(workspace, manifest)
         return
+    if args.out is None:
+        raise SystemExit("--out is required")
     if not args.bin:
         raise SystemExit("pass at least one --bin")
     if not args.skip_deny:

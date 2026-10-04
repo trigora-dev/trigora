@@ -44,6 +44,11 @@ fn serve() -> Result<Listeners, String> {
                 );
                 return Err(String::new());
             }
+            "--version" | "-V" => {
+                println!("trigora-local {}", env!("CARGO_PKG_VERSION"));
+                let _ = io::stdout().flush();
+                return Err(String::new());
+            }
             other => return Err(format!("unknown argument `{other}`")),
         }
     }

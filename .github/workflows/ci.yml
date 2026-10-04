@@ -9,29 +9,24 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
         with:
           repository: trigora-dev/tcc-engine
+          ref: v26.10.1
           path: tcc-engine
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v5
         with:
           version: 10.33.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
-      - name: pack engine frontends
-        working-directory: tcc-engine
-        run: |
-          pnpm install
-          pnpm pack:js
-          mkdir -p "$GITHUB_WORKSPACE/dist-packages"
-          cp dist-packages/*.tgz "$GITHUB_WORKSPACE/dist-packages/" || true
-          cp dist-packages/*.whl "$GITHUB_WORKSPACE/dist-packages/" || true
       - run: pnpm install
+      - name: build node helper
+        run: node packages/cli/scripts/build-adapter.mjs
       - name: test local runtime
         run: cargo test -p trigora-local
       - name: test cli
@@ -55,8 +50,8 @@ jobs:
   python-cli:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - run: pip install ruff setuptools wheel
@@ -64,3 +59,28 @@ jobs:
       - run: ruff format --check python/trigora-cli
       - run: PYTHONPATH=src python3 tests/test_cli.py
         working-directory: python/trigora-cli
+
+  cli-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: trigora-dev/tcc-engine
+          ref: v26.10.1
+          path: tcc-engine
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Expose python3
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP "python3-shim"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Set-Content -Path (Join-Path $dir "python3.cmd") -Value "@echo off`r`npython %*"
+          Add-Content -Path $env:GITHUB_PATH -Value $dir
+      - name: Check the CLI and its tests
+        run: cargo check -p trigora-cli --all-targets
+      - name: Test the CLI
+        run: cargo test -p trigora-cli

@@ -16,8 +16,13 @@ jobs:
       id-token: write
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: trigora-dev/tcc-engine
+          ref: v26.10.1
+          path: tcc-engine
+      - uses: actions/download-artifact@v7
         with:
           name: trigora-1.0.0
           path: dist
@@ -57,14 +62,34 @@ jobs:
           }
           publish trigora-local
           publish trigora-cli
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
       - name: Publish npm packages
         run: |
-          npm publish dist/trigora-1.0.0.tgz
-          npm publish dist/trigora-contracts-1.0.0.tgz
+          set -euo pipefail
+          publish() {
+            local pkg="$1"
+            local output status
+            # A path with a slash and no leading ./ is a GitHub repo spec to npm.
+            test -f "$pkg"
+            set +e
+            output=$(npm publish "./$pkg" 2>&1)
+            status=$?
+            set -e
+            printf '%s\n' "$output"
+            if [ "$status" -eq 0 ]; then
+              return 0
+            fi
+            if printf '%s\n' "$output" | grep -Eiq 'previously published|EPUBLISHCONFLICT'; then
+              return 0
+            fi
+            return "$status"
+          }
+          publish dist/trigora-contracts-1.0.0.tgz
+          publish dist/trigora-1.0.0.tgz
       - name: Stage the CLI wheel
         run: |
           mkdir -p wheelhouse
@@ -74,6 +99,7 @@ jobs:
         with:
           packages-dir: wheelhouse/
           attestations: false
+          skip-existing: true
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:

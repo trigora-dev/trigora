@@ -31,7 +31,13 @@ find "${root}/target/package" -name 'trigora-*.crate' -exec cp {} "${out}/cargo/
 mkdir -p "${out}/cargo/manifests"
 shopt -s nullglob
 for crate in "${out}/cargo/"*.crate; do
-  toml="$(tar -tzf "$crate" | grep -E '/Cargo.toml$' | head -n 1)"
+  files="$(tar -tzf "$crate")"
+  toml="$(printf '%s\n' "$files" | grep -E '/Cargo.toml$')"
+  toml="${toml%%$'\n'*}"
+  if [ -z "$toml" ]; then
+    echo "Cargo.toml missing from ${crate}" >&2
+    exit 1
+  fi
   dest="${out}/cargo/manifests/$(basename "$crate" .crate).toml"
   tar -xOf "$crate" "$toml" >"$dest"
   if grep -E 'path[[:space:]]*=[[:space:]]*"\.\.' "$dest"; then

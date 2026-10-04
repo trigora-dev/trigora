@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -30,7 +31,12 @@ def main() -> None:
     local = _packaged("trigora-local")
     if local is not None:
         env.setdefault("TRIGORA_LOCAL_BIN", str(local))
-    os.execvpe(str(binary), [str(binary), *sys.argv[1:]], env)
+    command = [str(binary), *sys.argv[1:]]
+    # Windows has no exec that replaces this interpreter. The console-script
+    # launcher stays alive and forwards the native binary's status.
+    if os.name == "nt":
+        raise SystemExit(subprocess.run(command, env=env, check=False).returncode)
+    os.execvpe(command[0], command, env)
 
 
 if __name__ == "__main__":

@@ -56,6 +56,6 @@ describe('Python compiler pin', () => {
     const { compilePythonProgram } = await import('./compiler');
     await expect(
       compilePythonProgram('async def approval():\n    return 1\n', 'approval.py'),
-    ).rejects.toThrow(/Python compiler 0\.1\.0-rc\.1/);
+    ).rejects.toThrow(/Python compiler 26\.10\.1/);
   });
 });

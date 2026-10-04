@@ -1,7 +1,7 @@
 /// Bundled frontend versions. Adapters report what they loaded; the CLI compares.
-pub const TYPESCRIPT_FRONTEND: &str = "26.10.0";
-pub const PYTHON_FRONTEND: &str = "26.10.0";
-pub const RUST_FRONTEND: &str = "26.10.0";
+pub const TYPESCRIPT_FRONTEND: &str = "26.10.1";
+pub const PYTHON_FRONTEND: &str = "26.10.1";
+pub const RUST_FRONTEND: &str = "26.10.1";
 
 pub fn expected(adapter_id: &str) -> Option<&'static str> {
     match adapter_id {

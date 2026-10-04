@@ -3,6 +3,10 @@ use crate::error::CliError;
 pub fn render_error(error: &CliError) {
     eprintln!();
     eprintln!("✖ {}", error.title);
+    if let Some(message) = &error.message {
+        eprintln!();
+        eprintln!("{message}");
+    }
     if !error.details.is_empty() || error.hint.is_some() {
         eprintln!();
     }

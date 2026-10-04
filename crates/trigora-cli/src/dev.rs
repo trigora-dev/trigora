@@ -219,6 +219,7 @@ fn print_ready(config: &ProjectConfig, programs: &[Program], host: &str, port: u
     }
     println!();
     println!("  Start executions with `@trigora/client` while this process is running. Kill and restart this process to resume waiting executions.");
+    let _ = std::io::stdout().flush();
     let _ = config;
 }
 
@@ -315,6 +316,7 @@ fn reload(
             );
             println!();
             println!("Programs changed. Reloaded {names}.");
+            let _ = std::io::stdout().flush();
         }
         Err(error) => {
             eprintln!();
@@ -500,8 +502,13 @@ fn terminate(child: &mut Child) {
     if child.try_wait().ok().flatten().is_some() {
         return;
     }
+    #[cfg(unix)]
     unsafe {
         libc::kill(child.id() as i32, libc::SIGTERM);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
     }
     let _ = child.wait();
 }

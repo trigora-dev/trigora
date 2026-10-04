@@ -28,7 +28,6 @@
   },
   "pnpm": {
     "overrides": {
-      "@tcc-engine/frontend-typescript": "file:dist-packages/tcc-engine-frontend-typescript-26.10.0.tgz",
       "@trigora/contracts": "workspace:*"
     }
   },
@@ -39,7 +38,7 @@
     "typecheck": "turbo run typecheck",
     "clean": "turbo run clean",
     "format": "prettier --write .",
-    "test": "turbo run test",
+    "test": "turbo run build --filter=@trigora/contracts && turbo run test",
     "test:watch": "turbo run test -- --watch"
   },
   "devDependencies": {

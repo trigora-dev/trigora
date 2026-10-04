@@ -1,7 +1,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde_json::{json, Value as Json};
 
@@ -15,6 +15,7 @@ struct HelperIo {
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<std::process::ChildStdout>,
+    stderr: Arc<Mutex<String>>,
     next: u64,
 }
 
@@ -28,7 +29,7 @@ impl Helper {
             .arg(path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| {
                 CliError::plain(format!(
@@ -37,11 +38,33 @@ impl Helper {
             })?;
         let stdin = child.stdin.take().expect("stdin");
         let stdout = BufReader::new(child.stdout.take().expect("stdout"));
+        let stderr = Arc::new(Mutex::new(String::new()));
+        let captured = Arc::clone(&stderr);
+        let pipe = child.stderr.take().expect("stderr");
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(pipe);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                match reader.read_line(&mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) => {
+                        let mut log = captured.lock().expect("helper stderr");
+                        log.push_str(&line);
+                        if log.len() > 4_000 {
+                            let extra = log.len() - 4_000;
+                            log.drain(..extra);
+                        }
+                    }
+                }
+            }
+        });
         Ok(Self {
             inner: Mutex::new(HelperIo {
                 child,
                 stdin,
                 stdout,
+                stderr,
                 next: 0,
             }),
         })
@@ -59,8 +82,17 @@ impl Helper {
             .stdout
             .read_line(&mut line)
             .map_err(|error| CliError::plain(error.to_string()))?;
-        serde_json::from_str(line.trim())
-            .map_err(|error| CliError::plain(format!("Node helper returned invalid JSON: {error}")))
+        serde_json::from_str(line.trim()).map_err(|error| {
+            let extra = inner.stderr.lock().expect("helper stderr").clone();
+            let extra = extra.trim();
+            if extra.is_empty() {
+                CliError::plain(format!("Node helper returned invalid JSON: {error}"))
+            } else {
+                CliError::plain(format!(
+                    "Node helper returned invalid JSON: {error}\n{extra}"
+                ))
+            }
+        })
     }
 
     pub fn shutdown(&self) {
@@ -466,21 +498,31 @@ mod tests {
         let root =
             std::env::temp_dir().join(format!("trigora-reject-{}", crate::paths::random_token()));
         std::fs::create_dir_all(root.join("src")).unwrap();
-        let compiler = root.join("fail-compile");
-        std::fs::write(&compiler, "#!/bin/sh\nexit 1\n").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(&compiler).unwrap().permissions();
-            permissions.set_mode(0o755);
-            std::fs::set_permissions(&compiler, permissions).unwrap();
-        }
+        let compiler = failing_compiler(&root);
         let source = "use trigora::effect;\npub async fn main() -> Result<String, String> {\n    effect(\"charge\", || 1);\n    Ok(String::from(\"ok\"))\n}\n";
         let error =
             compile_rust(source, "src/program.rs", "program", &root, &compiler).unwrap_err();
         assert_eq!(error.title, "Compilation failed");
         assert!(!root.join(".trigora").join("effects").exists());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    fn failing_compiler(root: &std::path::Path) -> std::path::PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let compiler = root.join("fail-compile");
+        std::fs::write(&compiler, "#!/bin/sh\nexit 1\n").unwrap();
+        let mut permissions = std::fs::metadata(&compiler).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&compiler, permissions).unwrap();
+        compiler
+    }
+
+    #[cfg(windows)]
+    fn failing_compiler(root: &std::path::Path) -> std::path::PathBuf {
+        let compiler = root.join("fail-compile.cmd");
+        std::fs::write(&compiler, "@echo off\r\nexit /b 1\r\n").unwrap();
+        compiler
     }
 }
 
