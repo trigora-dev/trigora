@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const MISSING = 'The local runtime binary is missing. Reinstall trigora.';
+const MISSING = 'The local runtime is missing. Reinstall the CLI with `npm install -g trigora`.';
 
 export function resolveLocalBinary(): string {
   const override = process.env.TRIGORA_LOCAL_BIN?.trim();

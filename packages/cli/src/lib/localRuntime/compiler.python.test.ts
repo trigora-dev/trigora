@@ -2,6 +2,8 @@ import { EventEmitter } from 'node:events';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PACKAGE_VERSION } from '@tcc-engine/frontend-typescript';
+
 import { CliDisplayError } from '../cliOutput';
 
 const spawn = vi.fn();
@@ -56,6 +58,6 @@ describe('Python compiler pin', () => {
     const { compilePythonProgram } = await import('./compiler');
     await expect(
       compilePythonProgram('async def approval():\n    return 1\n', 'approval.py'),
-    ).rejects.toThrow(/Python compiler 26\.10\.1/);
+    ).rejects.toThrow(`Python compiler ${PACKAGE_VERSION}`);
   });
 });

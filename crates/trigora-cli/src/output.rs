@@ -25,24 +25,36 @@ pub fn render_error(error: &CliError) {
     }
 }
 
-pub fn programs_table(programs: &[(String, String, String)]) -> String {
+pub fn programs_table(programs: &[(String, String)], remote: bool) -> String {
     if programs.is_empty() {
-        return "\nNo programs loaded. Is `trigora dev` running against this project?\n"
-            .to_string();
+        let next = if remote {
+            "Deploy this project with `trigora deploy`."
+        } else {
+            "Start the local runtime with `trigora dev`, then try again."
+        };
+        return format!("\nNo programs.\n\n{next}\n");
     }
-    rows(
-        &programs
+    let mut records = vec![vec!["Program".to_string(), "Language".to_string()]];
+    records.extend(
+        programs
             .iter()
-            .map(|(id, language, file)| vec![id.clone(), language.clone(), file.clone()])
-            .collect::<Vec<_>>(),
-    )
+            .map(|(name, language)| vec![name.clone(), language.clone()]),
+    );
+    rows(&records)
 }
 
 pub fn executions_table(rows_in: &[Vec<String>]) -> String {
     if rows_in.is_empty() {
-        return "\nNo executions found.\n".to_string();
+        return "\nNo executions.\n".to_string();
     }
-    rows(rows_in)
+    let mut records = vec![vec![
+        "Execution".to_string(),
+        "Program".to_string(),
+        "Status".to_string(),
+        "Waiting".to_string(),
+    ]];
+    records.extend(rows_in.iter().cloned());
+    rows(&records)
 }
 
 fn rows(records: &[Vec<String>]) -> String {

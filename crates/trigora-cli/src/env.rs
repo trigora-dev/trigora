@@ -68,5 +68,5 @@ pub fn cloud_url() -> String {
 pub fn token_missing(title: &str) -> CliError {
     CliError::new(title)
         .detail("Reason", "TRIGORA_TOKEN is not set.")
-        .hint("Set your API token and try again.")
+        .hint("Set TRIGORA_TOKEN. Create a token at https://cloud.trigora.dev.")
 }

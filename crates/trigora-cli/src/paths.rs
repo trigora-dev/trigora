@@ -18,7 +18,8 @@ pub fn tools() -> Result<Tools, CliError> {
 }
 
 pub fn local_runtime_from(exe: &Path) -> Result<PathBuf, CliError> {
-    const MISSING: &str = "The local runtime binary is missing. Reinstall trigora.";
+    const MISSING: &str =
+        "The local runtime is missing. Reinstall the CLI with `npm install -g trigora`.";
     if std::env::var_os("TRIGORA_LOCAL_BIN").is_some() {
         return std::env::var("TRIGORA_LOCAL_BIN")
             .ok()
@@ -91,20 +92,6 @@ pub fn random_token() -> String {
     let mut bytes = [0u8; 24];
     getrandom::getrandom(&mut bytes).expect("random");
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-pub fn workspace_hash(programs: &[crate::model::Program]) -> String {
-    use sha2::{Digest, Sha256};
-    let mut hash = Sha256::new();
-    let mut ordered = programs.to_vec();
-    ordered.sort_by(|left, right| left.id.cmp(&right.id));
-    for program in ordered {
-        hash.update(program.id.as_bytes());
-        hash.update([0]);
-        hash.update(program.artifact_hash.as_bytes());
-        hash.update([0]);
-    }
-    format!("{:x}", hash.finalize())
 }
 
 pub fn temp_file(name: &str, contents: &str) -> std::io::Result<PathBuf> {

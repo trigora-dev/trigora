@@ -146,7 +146,11 @@ impl TypeScriptAdapter {
         self.helper_path
             .as_deref()
             .filter(|path| path.is_file())
-            .ok_or_else(|| CliError::plain("The Node helper is missing. Reinstall trigora."))
+            .ok_or_else(|| {
+                CliError::plain(
+                    "The TypeScript compiler is missing. Reinstall the CLI with `npm install -g trigora`.",
+                )
+            })
     }
 
     fn helper(&self) -> Result<std::sync::MutexGuard<'_, Option<Helper>>, CliError> {
@@ -474,7 +478,7 @@ impl LanguageAdapter for RustAdapter {
 fn missing_rust_compiler() -> CliError {
     CliError::new("Rust compiler unavailable")
         .detail("Reason", "The Rust compiler binary was not found.")
-        .hint("Reinstall trigora. The Rust compiler is included with the CLI.")
+        .hint("Reinstall the CLI with `npm install -g trigora`. The Rust compiler is included.")
 }
 
 fn extension(relative: &str) -> &str {

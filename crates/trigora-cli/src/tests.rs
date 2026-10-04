@@ -88,6 +88,10 @@ fn remote_flag_has_three_executions_shapes() {
         parse_invocation(&arg(&["cancel", "exec_1", "--remote"])).unwrap(),
         Invocation::Cancel { remote: true, .. }
     ));
+    assert!(matches!(
+        parse_invocation(&arg(&["result", "exec_1", "--remote"])).unwrap(),
+        Invocation::Result { remote: true, .. }
+    ));
     assert!(parse_invocation(&arg(&["deploy", "--remote"])).is_err());
     assert!(parse_invocation(&arg(&["whoami", "--remote"])).is_err());
     assert!(matches!(

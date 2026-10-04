@@ -306,10 +306,10 @@ pub fn render(report: &Report, verify: bool) -> String {
             ));
             lines.push(row("Missing effects", &format_int(faults.missing_effects)));
             lines.push(row(
-                "Provider invocations",
+                "Effect calls",
                 &format_int(faults.provider_invocations),
             ));
-            lines.push(row("Journal hits", &format_int(faults.journal_hits)));
+            lines.push(row("Reused effects", &format_int(faults.journal_hits)));
             lines.push(row("Median recovery", &format_ms(faults.recovery_ms.p50)));
             lines.push(row("p95 recovery", &format_ms(faults.recovery_ms.p95)));
             lines.push(row("p99 recovery", &format_ms(faults.recovery_ms.p99)));
@@ -372,11 +372,11 @@ pub fn render(report: &Report, verify: bool) -> String {
         lines.push(String::new());
         lines.push("Effects".to_string());
         lines.push(row(
-            "Provider invocations",
+            "Effect calls",
             &format_int(report.baseline.provider_invocations),
         ));
         lines.push(row(
-            "Journal hits",
+            "Reused effects",
             &format_int(report.baseline.journal_hits),
         ));
         lines.push(row(
@@ -420,15 +420,15 @@ fn verify_verdict(faults: &FaultInjection) -> String {
         && faults.missing_effects == 0
     {
         if faults.mode == "all" {
-            "✓ Recovery verified at every durable boundary".to_string()
+            "✔ Recovery verified at every checkpoint".to_string()
         } else {
             format!(
-                "✓ Recovery verified at {} sampled durable boundaries",
+                "✔ Recovery verified at {} sampled checkpoints",
                 format_int(faults.fault_points_tested)
             )
         }
     } else {
-        "✗ Recovery check failed".to_string()
+        "✖ Recovery check failed".to_string()
     }
 }
 
@@ -446,7 +446,7 @@ fn inject(
     };
     if indexes.is_empty() {
         return Err(CliError::plain(
-            "This program committed no durable checkpoint to recover from.",
+            "This program has no checkpoint to recover from.",
         ));
     }
     let baseline_providers = provider_keys(baseline_events);

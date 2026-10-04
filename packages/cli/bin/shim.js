@@ -15,7 +15,7 @@ function vendor(name) {
 const binary =
   process.env.TRIGORA_BIN || path.join(root, 'vendor', 'trigora', platform, `trigora${extension}`);
 if (!fs.existsSync(binary)) {
-  console.error('The trigora binary is missing. Reinstall trigora.');
+  console.error('The trigora binary is missing. Reinstall the CLI with `npm install -g trigora`.');
   process.exit(1);
 }
 

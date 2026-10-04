@@ -296,7 +296,7 @@ export async function compileRustProgram(
         { label: 'File', value: filename },
         { label: 'Reason', value: 'The Rust compiler binary was not found.' },
       ],
-      hint: 'Reinstall trigora. The Rust compiler is included with the CLI.',
+      hint: 'Reinstall the CLI with `npm install -g trigora`. The Rust compiler is included.',
     });
   }
   const file = path.join(options.rootDir, `.trigora-compile-${options.programId}.rs`);

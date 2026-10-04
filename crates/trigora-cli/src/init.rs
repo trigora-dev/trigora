@@ -94,9 +94,10 @@ pub(crate) fn init_at(
     println!("Next steps");
     println!("  1. trigora dev");
     if example {
-        println!("  2. start program, then send the greeted event");
+        println!("  2. trigora start program");
+        println!("  3. trigora send <execution> greeted --payload '\"Omar\"'");
     } else {
-        println!("  2. add a program entry under src/");
+        println!("  2. Add a program under src/");
     }
     Ok(())
 }

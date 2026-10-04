@@ -61,6 +61,7 @@ pub fn dispatch(args: &[String]) -> Result<(), CliError> {
             remote,
         } => commands::send(&execution, &event, payload.as_deref(), remote),
         Invocation::Cancel { execution, remote } => commands::cancel(&execution, remote),
+        Invocation::Result { execution, remote } => commands::result(&execution, remote),
         Invocation::Bench {
             program,
             input,

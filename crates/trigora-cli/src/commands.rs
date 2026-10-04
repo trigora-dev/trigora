@@ -52,18 +52,14 @@ pub fn programs(remote: bool) -> Result<(), CliError> {
                     .to_string(),
                 program
                     .get("language")
+                    .or_else(|| program.pointer("/currentVersion/language"))
                     .and_then(Json::as_str)
                     .unwrap_or("unknown")
-                    .to_string(),
-                program
-                    .get("currentVersionId")
-                    .and_then(Json::as_str)
-                    .unwrap_or("")
                     .to_string(),
             )
         })
         .collect::<Vec<_>>();
-    print!("{}", programs_table(&table));
+    print!("{}", programs_table(&table, remote));
     Ok(())
 }
 
@@ -186,6 +182,35 @@ pub fn cancel(execution: &str, remote: bool) -> Result<(), CliError> {
         "{}",
         execution_record(&record_fields(fetched.get("execution").unwrap_or(&fetched)))
     );
+    Ok(())
+}
+
+pub fn result(execution: &str, remote: bool) -> Result<(), CliError> {
+    let endpoint = endpoint(remote)?;
+    let body = call(
+        &endpoint,
+        "GET",
+        &format!("/v1/executions/{}/result", encode(execution)),
+        None,
+    )?;
+    let record = body.get("result").unwrap_or(&body);
+    let mut fields = vec![(
+        "Status".to_string(),
+        record
+            .get("status")
+            .and_then(Json::as_str)
+            .unwrap_or("")
+            .to_string(),
+    )];
+    if let Some(value) = record.get("result") {
+        if !value.is_null() {
+            fields.push(("Result".to_string(), value.to_string()));
+        }
+    }
+    if let Some(message) = record.pointer("/error/message").and_then(Json::as_str) {
+        fields.push(("Error".to_string(), message.to_string()));
+    }
+    print!("{}", execution_record(&fields));
     Ok(())
 }
 
@@ -364,10 +389,15 @@ pub(crate) fn read_json(
             Json::Null
         });
     };
-    parse_json(value).map_err(|error| CliError::new(title).detail("Reason", error))
+    let kind = if title.to_ascii_lowercase().contains("payload") {
+        "payload"
+    } else {
+        "input"
+    };
+    parse_json(value, kind).map_err(|error| CliError::new(title).detail("Reason", error))
 }
 
-fn parse_json(value: &str) -> Result<Json, String> {
+fn parse_json(value: &str, kind: &str) -> Result<Json, String> {
     let trimmed = value.trim();
     if trimmed.starts_with('{')
         || trimmed.starts_with('[')
@@ -376,11 +406,11 @@ fn parse_json(value: &str) -> Result<Json, String> {
         || trimmed.starts_with('-') && trimmed.chars().nth(1).is_some_and(|ch| ch.is_ascii_digit())
         || trimmed.starts_with(|ch: char| ch.is_ascii_digit())
     {
-        return serde_json::from_str(trimmed).map_err(|_| format!("Invalid JSON: {value}"));
+        return serde_json::from_str(trimmed).map_err(|_| "Invalid JSON.".to_string());
     }
     let raw = fs::read_to_string(Path::new(trimmed))
-        .map_err(|error| format!("Failed to read payload file \"{trimmed}\": {error}"))?;
-    serde_json::from_str(&raw).map_err(|_| format!("Invalid JSON in payload file \"{trimmed}\"."))
+        .map_err(|error| format!("Could not read {kind} file \"{trimmed}\": {error}"))?;
+    serde_json::from_str(&raw).map_err(|_| format!("\"{trimmed}\" is not valid JSON."))
 }
 
 fn encode(value: &str) -> String {

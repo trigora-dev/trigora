@@ -199,26 +199,18 @@ fn print_ready(config: &ProjectConfig, programs: &[Program], host: &str, port: u
         .map(|program| program.id.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    let hash = paths::workspace_hash(programs);
-    let compiler = programs
-        .first()
-        .map(|program| program.compiler_version.as_str())
-        .unwrap_or("tcc-engine");
     println!();
     println!("✔ Local runtime ready");
     println!();
     println!("  Programs  {names}");
     println!("  Runtime   http://{host}:{port}");
-    println!("  Artifact  {}", &hash[..hash.len().min(12)]);
-    println!("  Compiler  {compiler}");
     if restored > 0 {
         let plural = if restored == 1 { "" } else { "s" };
-        println!("  Restored  {restored} suspended execution{plural}");
-        println!();
-        println!("✔ restored {restored} suspended execution{plural}");
+        println!("  Restored  {restored} waiting execution{plural}");
     }
     println!();
-    println!("  Start executions with `@trigora/client` while this process is running. Kill and restart this process to resume waiting executions.");
+    println!("  Start a program with `trigora start <program>` while this process is running.");
+    println!("  Stop it and run `trigora dev` again to resume waiting executions.");
     let _ = std::io::stdout().flush();
     let _ = config;
 }

@@ -56,7 +56,7 @@ pub fn request(
             let message = if endpoint.cloud {
                 format!("Could not reach Trigora Cloud at {url}. {reason}")
             } else {
-                format!("Could not reach the local Trigora runtime at {url}. Is `trigora dev` running? {reason}")
+                format!("Could not reach the local runtime at {url}. {reason}")
             };
             Err(ApiFailure {
                 status: 0,
@@ -78,32 +78,23 @@ impl PipeOk for Json {
 }
 
 pub fn runtime_failure(error: ApiFailure) -> CliError {
-    let hint = (error.status == 0).then(|| "Start `trigora dev` and try again.".to_string());
-    let mut failure = CliError::new("Runtime request failed")
-        .detail("Reason", error.message.clone())
-        .message(error.message);
-    if let Some(hint) = hint {
-        failure = failure.hint(hint);
+    let mut failure = CliError::new("Runtime request failed").message(error.message);
+    if error.status == 0 {
+        failure = failure.hint("Start `trigora dev` and try again.");
     }
     failure
 }
 
 pub fn cloud_failure(error: ApiFailure, step: &str) -> CliError {
     if error.code.as_deref() == Some("unauthorized") || error.code.as_deref() == Some("forbidden") {
-        return CliError::new("Request failed")
-            .detail("Step", step)
-            .detail("Reason", "API token is invalid or no longer active.")
-            .hint("Check your API token and try again.")
-            .message("API token is invalid or no longer active.");
+        return CliError::new("Not authenticated")
+            .message("TRIGORA_TOKEN is invalid or no longer active.")
+            .hint("Set TRIGORA_TOKEN. Create a token at https://cloud.trigora.dev.");
     }
     if error.status == 0 {
-        return CliError::new("Request failed")
-            .detail("Step", step)
-            .detail("Reason", "Network request failed.")
-            .message("Network request failed.");
+        return CliError::new("Request failed").message(error.message);
     }
     CliError::new("Request failed")
         .detail("Step", step)
-        .detail("Reason", error.message.clone())
         .message(error.message)
 }

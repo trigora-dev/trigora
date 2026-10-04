@@ -42,6 +42,10 @@ pub enum Invocation {
         execution: String,
         remote: bool,
     },
+    Result {
+        execution: String,
+        remote: bool,
+    },
     Bench {
         program: String,
         input: Option<String>,
@@ -67,7 +71,9 @@ pub enum Invocation {
 #[command(
     name = "trigora",
     version = "1.0.0",
-    about = "Local durable execution runtime"
+    about = "Durable execution for TypeScript, Python, and Rust",
+    arg_required_else_help = true,
+    after_help = "Local commands use `trigora dev`. `deploy`, `whoami`, and `secrets` use Trigora Cloud.\nAdd `--remote` to programs, executions, start, send, result, and cancel to use Trigora Cloud."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -76,100 +82,131 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Initialize a new Trigora project
+    /// Create a project in the current directory
     Init {
+        /// Overwrite files that already exist
         #[arg(short, long)]
         force: bool,
+        /// `typescript`, `python`, or `rust`. Prompts when omitted.
         #[arg(long)]
         language: Option<String>,
+        /// Project name. Defaults to the directory name.
         #[arg(long)]
         name: Option<String>,
+        /// Create the example program
         #[arg(long)]
         example: bool,
+        /// Skip the example program
         #[arg(long = "no-example")]
         no_example: bool,
     },
-    /// Start the local durable execution runtime
+    /// Run programs on the local runtime
     Dev {
+        /// Address to listen on. Defaults to 127.0.0.1.
         #[arg(long)]
         host: Option<String>,
+        /// Port to listen on. Defaults to 3477.
         #[arg(long)]
         port: Option<String>,
     },
-    /// Compile programs locally and deploy them to Trigora Cloud
+    /// Deploy this project to Trigora Cloud
     Deploy {
+        /// Deploy one program. Defaults to every discovered program.
         #[arg(long)]
         program: Option<String>,
     },
     /// List programs
     Programs {
+        /// Use Trigora Cloud instead of the local runtime
         #[arg(long)]
         remote: bool,
     },
     /// List executions
     Executions {
+        /// Use Trigora Cloud instead of the local runtime
         #[arg(long, global = true)]
         remote: bool,
         #[command(subcommand)]
         action: Option<ExecutionsCommand>,
     },
-    /// Start a program execution
+    /// Start a program
     Start {
+        /// Program name
         program: String,
+        /// JSON value or a path to a JSON file. Defaults to {}.
         #[arg(long)]
         input: Option<String>,
+        /// Use Trigora Cloud instead of the local runtime
         #[arg(long)]
         remote: bool,
     },
     /// Send an event to a waiting execution
     Send {
+        /// Execution id
         execution: String,
+        /// Event name
         event: String,
+        /// JSON value or a path to a JSON file. Defaults to {}.
         #[arg(long)]
         payload: Option<String>,
+        /// Use Trigora Cloud instead of the local runtime
         #[arg(long)]
         remote: bool,
     },
     /// Cancel an execution
     Cancel {
+        /// Execution id
         execution: String,
+        /// Use Trigora Cloud instead of the local runtime
         #[arg(long)]
         remote: bool,
     },
-    /// Measure a local program: checkpoints, continuation size, and restore
+    /// Show an execution result
+    Result {
+        /// Execution id
+        execution: String,
+        /// Use Trigora Cloud instead of the local runtime
+        #[arg(long)]
+        remote: bool,
+    },
+    /// Measure one healthy local run
     Bench {
+        /// Program name
         program: String,
+        /// JSON value or a path to a JSON file. Defaults to {}.
         #[arg(long)]
         input: Option<String>,
-        /// `live` records real handlers once. Any other value is a fixtures file.
+        /// `live`, or a JSON file of effect results
         #[arg(long)]
         effects: Option<String>,
-        /// Event name to payload, or to an array of payloads.
+        /// JSON file mapping each event name to a payload, or to an array of payloads
         #[arg(long)]
         events: Option<String>,
-        /// Write the schema-1 report to this path.
+        /// Write the JSON report to this file
         #[arg(long)]
         out: Option<String>,
     },
-    /// Crash after durable checkpoints and check that recovery matches
+    /// Check that a local program recovers after a checkpoint
     Verify {
+        /// Program name
         program: String,
+        /// JSON value or a path to a JSON file. Defaults to {}.
         #[arg(long)]
         input: Option<String>,
-        /// `sample` (default) or `all`.
+        /// `sample` (default) checks a spread of checkpoints. `all` checks every checkpoint.
         #[arg(long, value_enum, default_value_t = crate::bench::Faults::Sample)]
         faults: crate::bench::Faults,
-        /// `live` records real handlers once. Any other value is a fixtures file.
+        /// `live`, or a JSON file of effect results
         #[arg(long)]
         effects: Option<String>,
-        /// Event name to payload, or to an array of payloads.
+        /// JSON file mapping each event name to a payload, or to an array of payloads
         #[arg(long)]
         events: Option<String>,
-        /// Write the schema-1 report to this path.
+        /// Write the JSON report to this file
         #[arg(long)]
         out: Option<String>,
     },
-    /// Show the authenticated workspace and API token
+    /// Show the signed-in Trigora Cloud workspace
     Whoami,
     /// Manage project secrets on Trigora Cloud
     Secrets {
@@ -180,9 +217,11 @@ enum Command {
 
 #[derive(Subcommand)]
 enum ExecutionsCommand {
-    /// Inspect an execution
+    /// Show an execution
     Inspect {
+        /// Execution id
         execution: String,
+        /// Use Trigora Cloud instead of the local runtime
         #[arg(long)]
         remote: bool,
     },
@@ -202,13 +241,18 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
     let mut full = vec!["trigora".to_string()];
     full.extend(args.iter().cloned());
     let cli = Cli::try_parse_from(full).map_err(|error| {
-        if error.kind() == clap::error::ErrorKind::DisplayHelp
-            || error.kind() == clap::error::ErrorKind::DisplayVersion
-        {
-            eprint!("{error}");
+        if matches!(
+            error.kind(),
+            clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
+        ) {
+            print!("{error}");
             std::process::exit(0);
         }
-        CliError::plain(error.to_string())
+        if error.kind() == clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand {
+            print!("{error}");
+            std::process::exit(2);
+        }
+        CliError::usage(error.to_string())
     })?;
     match cli.command {
         Command::Init {
@@ -274,6 +318,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
             remote,
         }),
         Command::Cancel { execution, remote } => Ok(Invocation::Cancel { execution, remote }),
+        Command::Result { execution, remote } => Ok(Invocation::Result { execution, remote }),
         Command::Bench {
             program,
             input,

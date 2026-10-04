@@ -4,6 +4,8 @@ pub struct CliError {
     pub message: Option<String>,
     pub details: Vec<(String, String)>,
     pub hint: Option<String>,
+    pub code: i32,
+    pub raw: bool,
 }
 
 impl CliError {
@@ -13,11 +15,25 @@ impl CliError {
             message: None,
             details: Vec::new(),
             hint: None,
+            code: 1,
+            raw: false,
         }
     }
 
     pub fn plain(reason: impl Into<String>) -> Self {
         Self::new("Command failed").detail("Reason", reason)
+    }
+
+    /// A usage error already formatted by the argument parser. Print it unchanged.
+    pub fn usage(text: impl Into<String>) -> Self {
+        Self {
+            title: String::new(),
+            message: Some(text.into()),
+            details: Vec::new(),
+            hint: None,
+            code: 2,
+            raw: true,
+        }
     }
 
     pub fn detail(mut self, label: impl Into<String>, value: impl Into<String>) -> Self {

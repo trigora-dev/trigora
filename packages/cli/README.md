@@ -6,7 +6,8 @@ CLI runtime commands target the local runtime by default. Add `--remote` to targ
 
 - `trigora init` scaffolds `trigora.toml` and a starter program entry
 - `trigora dev` compiles discovered programs with the TCC TypeScript, Python, or Rust frontend and runs them on a SQLite-backed local host
-- `trigora programs` / `trigora executions` / `trigora start` / `trigora send` / `trigora cancel` talk to that local runtime, or to Cloud with `--remote`
+- `trigora programs` / `trigora executions` / `trigora start` / `trigora send` / `trigora result` / `trigora cancel` talk to that local runtime, or to Cloud with `--remote`
+- `trigora bench` measures one healthy local run. `trigora verify` checks recovery after checkpoints. Both stay on the local runtime.
 - `trigora deploy` compiles locally, uploads programs, and replaces the project's triggers to match `trigora.toml`
 
 Requires **Node 22** and `--experimental-sqlite` (the published `trigora` binary sets this flag). `TRIGORA_TOKEN` authenticates Cloud commands. It does not change which host a runtime command uses.
@@ -48,6 +49,7 @@ trigora start program
 trigora executions
 trigora executions inspect <id>
 trigora send <id> greeted --payload '"Omar"'
+trigora result <id>
 trigora cancel <id>
 ```
 

@@ -33,7 +33,7 @@ impl Helper {
             .spawn()
             .map_err(|error| {
                 CliError::plain(format!(
-                    "The Node helper is missing. Reinstall trigora. {error}"
+                    "The TypeScript compiler is missing. Reinstall the CLI with `npm install -g trigora`. {error}"
                 ))
             })?;
         let stdin = child.stdin.take().expect("stdin");
@@ -86,10 +86,12 @@ impl Helper {
             let extra = inner.stderr.lock().expect("helper stderr").clone();
             let extra = extra.trim();
             if extra.is_empty() {
-                CliError::plain(format!("Node helper returned invalid JSON: {error}"))
+                CliError::plain(format!(
+                    "The TypeScript compiler returned invalid JSON: {error}"
+                ))
             } else {
                 CliError::plain(format!(
-                    "Node helper returned invalid JSON: {error}\n{extra}"
+                    "The TypeScript compiler returned invalid JSON: {error}\n{extra}"
                 ))
             }
         })
@@ -253,7 +255,7 @@ pub(crate) fn compile_rust(
             CliError::new("Rust compiler unavailable")
                 .detail("File", filename)
                 .detail("Reason", error.to_string())
-                .hint("Reinstall trigora. The Rust compiler is included with the CLI.")
+                .hint("Reinstall the CLI with `npm install -g trigora`. The Rust compiler is included.")
         })?;
     let _ = std::fs::remove_file(file);
     if !output.status.success() {
