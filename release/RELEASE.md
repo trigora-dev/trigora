@@ -64,7 +64,7 @@ npm `trigora`, PyPI `trigora-cli`, and PyPI `tcc-engine` are built for:
 Each repository has three workflows:
 
 - `ci.yml` runs tests and lint on pull requests and on `main`. It does not publish.
-- `package.yml` builds release artifacts, runs the clean-install smoke, and uploads the artifacts. Run it with a manual dispatch, or let it run on `main`. It does not publish.
+- `package.yml` builds release artifacts, runs the clean-install smoke, and uploads the artifacts. It runs from a manual dispatch or from `release.yml`. It does not run on push to `main`, and it does not publish.
 - `release.yml` runs the same package workflow, then publishes and creates the GitHub Release. It runs only for an exact release tag and requires the protected release environment.
 
 ## Before publishing
@@ -72,7 +72,7 @@ Each repository has three workflows:
 Publishing waits until all of the following are true:
 
 - Package versions match [versions.toml](versions.toml).
-- Registry publishing credentials are configured.
+- Trusted publishers for PyPI, and for npm packages that already exist, match `release.yml` and the `release` environment. First-time npm packages and crates.io crates still have a short-lived token in that environment.
 - `package.yml` has been run again from a clean checkout after those updates.
 - The clean-install smoke tests passed on those artifacts.
 

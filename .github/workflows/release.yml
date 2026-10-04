@@ -12,6 +12,9 @@ jobs:
     needs: package
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      id-token: write
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -56,26 +59,21 @@ jobs:
           publish trigora-cli
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
       - name: Publish npm packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          test -n "$NODE_AUTH_TOKEN"
           npm publish dist/trigora-1.0.0.tgz
           npm publish dist/trigora-contracts-1.0.0.tgz
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      - name: Publish the CLI wheel
-        env:
-          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+      - name: Stage the CLI wheel
         run: |
-          test -n "$TWINE_PASSWORD"
-          python -m pip install twine
-          twine upload dist/trigora_cli-*.whl
+          mkdir -p wheelhouse
+          cp dist/trigora_cli-*.whl wheelhouse/
+      - name: Publish the CLI wheel
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: wheelhouse/
+          attestations: false
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
