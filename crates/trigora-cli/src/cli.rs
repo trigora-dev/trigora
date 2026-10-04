@@ -42,6 +42,21 @@ pub enum Invocation {
         execution: String,
         remote: bool,
     },
+    Bench {
+        program: String,
+        input: Option<String>,
+        effects: Option<String>,
+        events: Option<String>,
+        out: Option<String>,
+    },
+    Verify {
+        program: String,
+        input: Option<String>,
+        faults: crate::bench::Faults,
+        effects: Option<String>,
+        events: Option<String>,
+        out: Option<String>,
+    },
     Whoami,
     Secrets {
         action: crate::secrets::SecretsAction,
@@ -120,6 +135,39 @@ enum Command {
         execution: String,
         #[arg(long)]
         remote: bool,
+    },
+    /// Measure a local program: checkpoints, continuation size, and restore
+    Bench {
+        program: String,
+        #[arg(long)]
+        input: Option<String>,
+        /// `live` records real handlers once. Any other value is a fixtures file.
+        #[arg(long)]
+        effects: Option<String>,
+        /// Event name to payload, or to an array of payloads.
+        #[arg(long)]
+        events: Option<String>,
+        /// Write the schema-1 report to this path.
+        #[arg(long)]
+        out: Option<String>,
+    },
+    /// Crash after durable checkpoints and check that recovery matches
+    Verify {
+        program: String,
+        #[arg(long)]
+        input: Option<String>,
+        /// `sample` (default) or `all`.
+        #[arg(long, value_enum, default_value_t = crate::bench::Faults::Sample)]
+        faults: crate::bench::Faults,
+        /// `live` records real handlers once. Any other value is a fixtures file.
+        #[arg(long)]
+        effects: Option<String>,
+        /// Event name to payload, or to an array of payloads.
+        #[arg(long)]
+        events: Option<String>,
+        /// Write the schema-1 report to this path.
+        #[arg(long)]
+        out: Option<String>,
     },
     /// Show the authenticated workspace and API token
     Whoami,
@@ -226,6 +274,34 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
             remote,
         }),
         Command::Cancel { execution, remote } => Ok(Invocation::Cancel { execution, remote }),
+        Command::Bench {
+            program,
+            input,
+            effects,
+            events,
+            out,
+        } => Ok(Invocation::Bench {
+            program,
+            input,
+            effects,
+            events,
+            out,
+        }),
+        Command::Verify {
+            program,
+            input,
+            faults,
+            effects,
+            events,
+            out,
+        } => Ok(Invocation::Verify {
+            program,
+            input,
+            faults,
+            effects,
+            events,
+            out,
+        }),
         Command::Whoami => Ok(Invocation::Whoami),
         Command::Secrets { action } => Ok(Invocation::Secrets {
             action: match action {

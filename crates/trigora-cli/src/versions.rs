@@ -1,7 +1,8 @@
 /// Bundled frontend versions. Adapters report what they loaded; the CLI compares.
-pub const TYPESCRIPT_FRONTEND: &str = "26.10.1";
-pub const PYTHON_FRONTEND: &str = "26.10.1";
-pub const RUST_FRONTEND: &str = "26.10.1";
+pub const TCC_ENGINE: &str = "26.10.2";
+pub const TYPESCRIPT_FRONTEND: &str = TCC_ENGINE;
+pub const PYTHON_FRONTEND: &str = TCC_ENGINE;
+pub const RUST_FRONTEND: &str = TCC_ENGINE;
 
 pub fn expected(adapter_id: &str) -> Option<&'static str> {
     match adapter_id {

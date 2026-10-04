@@ -2,22 +2,22 @@
 
 This document describes the maintainer release process.
 
-Trigora `1.0.0` and TCC Engine `26.10.1` are one release set. Package versions in each repository match [versions.toml](versions.toml) before a tag is created. Trigora code is MIT. TCC Engine components are BUSL-1.1 and stay under that license when a Trigora binary links them.
+Trigora `1.0.0` and TCC Engine `26.10.2` are one release set. Package versions in each repository match [versions.toml](versions.toml) before a tag is created. Trigora code is MIT. TCC Engine components are BUSL-1.1 and stay under that license when a Trigora binary links them.
 
 ## Versions
 
 | Set | Version | Tag |
 | --- | --- | --- |
-| TCC Engine | 26.10.1 | `v26.10.1` |
+| TCC Engine | 26.10.2 | `v26.10.2` |
 | Trigora | 1.0.0 | `v1.0.0` |
 
-Tags are exact. `v26.10.1` is only the TCC Engine repository. `v1.0.0` is only the Trigora repositories.
+Tags are exact. `v26.10.2` is only the TCC Engine repository. `v1.0.0` is only the Trigora repositories. `26.10.1` stays on the registries. `26.10.2` adds optional SQLite-host tracing for `trigora bench` and `trigora verify`. It does not change the host protocol, artifact format, language semantics, or continuation semantics. Tag the engine before Trigora `v1.0.0`. Do not point Trigora CI at `v26.10.2` until that tag exists.
 
 TCC Engine uses CalVer `YY.MM.MICRO`. `YY` and `MM` identify the release month. `MICRO` is a monotonically increasing release counter within that month; it is not a SemVer patch-only field. Releases within the same year maintain backward compatibility across supported public package APIs, so ordinary npm caret and Cargo version ranges on `26.x` stay safe. Breaking package API changes may occur when the year component changes. Wire, artifact, and language compatibility are versioned independently (`host_protocol_version`, `engine_format_version`, and the language-semantics versions).
 
 ## What ships
 
-TCC Engine `26.10.1`:
+TCC Engine `26.10.2`:
 
 - crates.io: `tcc-ir`, `tcc-state`, `tcc-core`, `tcc-host`, `tcc-host-sqlite`, `tcc-rust-frontend`
 - npm: `@tcc-engine/frontend-typescript`, `@tcc-engine/bindings-javascript`
@@ -37,11 +37,11 @@ Trigora `1.0.0`:
 ## Publish order
 
 1. TCC Engine crates, in dependency order: `tcc-ir`, `tcc-state`, `tcc-core`, `tcc-host`, `tcc-host-sqlite`, `tcc-rust-frontend`.
-2. TCC Engine npm packages and the PyPI `tcc-engine` wheels. Create the `v26.10.1` GitHub Release with those artifacts.
+2. TCC Engine npm packages and the PyPI `tcc-engine` wheels. Create the `v26.10.2` GitHub Release with those artifacts.
 3. `trigora-local`, then `trigora-cli`.
 4. npm `trigora` and PyPI `trigora-cli`, from the same native build, then `@trigora/contracts`.
 5. `@trigora/sdk` and `@trigora/client`.
-6. PyPI `trigora-client`, then PyPI `trigora`. `trigora` depends on `tcc-engine==26.10.1` and `trigora-cli==1.0.0`.
+6. PyPI `trigora-client`, then PyPI `trigora`. `trigora` depends on `tcc-engine==26.10.2` and `trigora-cli==1.0.0`.
 7. crates.io `trigora` and `trigora-client`.
 8. Clean installs from the public registries.
 

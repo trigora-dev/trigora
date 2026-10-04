@@ -1,4 +1,5 @@
 mod adapter;
+mod bench;
 mod cli;
 mod commands;
 mod compile;
@@ -60,6 +61,37 @@ pub fn dispatch(args: &[String]) -> Result<(), CliError> {
             remote,
         } => commands::send(&execution, &event, payload.as_deref(), remote),
         Invocation::Cancel { execution, remote } => commands::cancel(&execution, remote),
+        Invocation::Bench {
+            program,
+            input,
+            effects,
+            events,
+            out,
+        } => bench::launch(
+            bench::Mode::Bench,
+            &program,
+            input.as_deref(),
+            effects.as_deref(),
+            events.as_deref(),
+            None,
+            out.as_deref(),
+        ),
+        Invocation::Verify {
+            program,
+            input,
+            faults,
+            effects,
+            events,
+            out,
+        } => bench::launch(
+            bench::Mode::Verify,
+            &program,
+            input.as_deref(),
+            effects.as_deref(),
+            events.as_deref(),
+            Some(faults),
+            out.as_deref(),
+        ),
         Invocation::Whoami => commands::whoami(),
         Invocation::Secrets { action } => secrets::secrets(action),
     }

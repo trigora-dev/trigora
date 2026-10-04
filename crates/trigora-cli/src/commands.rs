@@ -352,7 +352,11 @@ fn record_fields(execution: &Json) -> Vec<(String, String)> {
     fields
 }
 
-fn read_json(value: Option<&str>, default_object: bool, title: &str) -> Result<Json, CliError> {
+pub(crate) fn read_json(
+    value: Option<&str>,
+    default_object: bool,
+    title: &str,
+) -> Result<Json, CliError> {
     let Some(value) = value else {
         return Ok(if default_object {
             json!({})

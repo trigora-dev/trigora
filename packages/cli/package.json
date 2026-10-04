@@ -47,7 +47,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tcc-engine/frontend-typescript": "26.10.1",
+    "@tcc-engine/frontend-typescript": "26.10.2",
     "@trigora/contracts": "1.0.0",
     "dotenv": "^17.4.1",
     "esbuild": "^0.27.7",

@@ -14,6 +14,38 @@ use crate::parse_invocation;
 
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+#[test]
+fn bench_and_verify_parse_their_flags() {
+    assert!(matches!(
+        parse_invocation(&arg(&["bench", "order-agent"])).unwrap(),
+        Invocation::Bench {
+            effects: None,
+            events: None,
+            out: None,
+            ..
+        }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&[
+            "verify",
+            "order-agent",
+            "--faults",
+            "all",
+            "--effects",
+            "live",
+            "--events",
+            "events.json",
+            "--out",
+            "benchmark.json",
+        ]))
+        .unwrap(),
+        Invocation::Verify {
+            faults: crate::bench::Faults::All,
+            ..
+        }
+    ));
+}
+
 fn arg(values: &[&str]) -> Vec<String> {
     values.iter().map(|value| (*value).to_string()).collect()
 }
@@ -375,9 +407,9 @@ fn sample(id: &str) -> Program {
         frontend_id: "typescript".to_string(),
         semantics_version: "ts.subset.v1".to_string(),
         source: String::new(),
-        artifact_json: r#"{"envelope":{"artifact_hash":"abc","engine_format_version":1,"language_semantics_version":"ts.subset.v1","frontend_id":"typescript","frontend_version":"26.10.1"},"program":{"entry":0,"functions":[{"id":0,"name":"program"}]}}"#.to_string(),
+        artifact_json: r#"{"envelope":{"artifact_hash":"abc","engine_format_version":1,"language_semantics_version":"ts.subset.v1","frontend_id":"typescript","frontend_version":"26.10.2"},"program":{"entry":0,"functions":[{"id":0,"name":"program"}]}}"#.to_string(),
         artifact_hash: "abc".to_string(),
-        compiler_version: "26.10.1".to_string(),
+        compiler_version: "26.10.2".to_string(),
         effects: Vec::<Effect>::new(),
     }
 }

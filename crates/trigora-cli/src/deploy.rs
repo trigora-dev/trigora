@@ -23,9 +23,9 @@ pub fn project_id(endpoint: &Endpoint, project_name: &str) -> Result<String, Cli
         .pointer("/projects")
         .and_then(Json::as_array)
         .and_then(|projects| {
-            projects.iter().find(|project| {
-                project.get("name").and_then(Json::as_str) == Some(project_name)
-            })
+            projects
+                .iter()
+                .find(|project| project.get("name").and_then(Json::as_str) == Some(project_name))
         })
         .and_then(|project| project.get("id").and_then(Json::as_str))
         .map(str::to_string)
