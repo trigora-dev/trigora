@@ -100,7 +100,23 @@ jobs:
           packages-dir: wheelhouse/
           attestations: false
           skip-existing: true
+      - name: Stage unique release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find dist -type f \( -name '*.whl' -o -name '*.tgz' -o -name '*.crate' \) -exec cp {} release-assets/ \;
+          for slot in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64; do
+            test -d "dist/$slot"
+            tar -C "dist/$slot" -czf "release-assets/trigora-1.0.0-${slot}.tar.gz" .
+          done
+          if [ -d dist/notices ]; then
+            tar -C dist/notices -czf release-assets/trigora-1.0.0-notices.tar.gz .
+          fi
+      - name: Replace the partial GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete v1.0.0 --yes --cleanup-tag=false || true
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**
+          files: release-assets/*
