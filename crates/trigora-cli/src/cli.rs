@@ -70,7 +70,7 @@ pub enum Invocation {
 #[derive(Parser)]
 #[command(
     name = "trigora",
-    version = "1.0.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "Durable execution for TypeScript, Python, and Rust",
     arg_required_else_help = true,
     after_help = "Local commands use `trigora dev`. `deploy`, `whoami`, and `secrets` use Trigora Cloud.\nAdd `--remote` to programs, executions, start, send, result, and cancel to use Trigora Cloud."

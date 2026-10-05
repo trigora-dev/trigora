@@ -496,6 +496,7 @@ panic = "abort"
 [dependencies]
 serde_json = "1"
 ${dependencies}
+[workspace]
 `;
 
   return { cargoToml, mainRs, libRs, handlersRs };

@@ -353,7 +353,9 @@ panic = "abort"
 
 [dependencies]
 serde_json = "1"
-{dependencies}"#
+{dependencies}
+[workspace]
+"#
         ),
         main_rs: r#"mod handlers;
 
@@ -900,6 +902,7 @@ pub async fn main(amount: f64) -> Result<String, String> {
         assert_eq!(closures.len(), 1);
         assert_eq!(closures[0].captures[0].ty, "f64");
         let files = harness_sources(&closures, "");
+        assert!(files.cargo_toml.contains("\n[workspace]\n"));
         assert!(files.handlers_rs.contains("require_f64(input, \"amount\")"));
         assert!(files.handlers_rs.contains("format!(\"{amount}\")"));
     }

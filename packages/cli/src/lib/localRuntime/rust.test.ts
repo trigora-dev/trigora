@@ -93,6 +93,7 @@ describe('rust effect harness', () => {
     const sources = rustHarnessSources(effects, '');
     expect(sources.handlersRs).toContain('require_f64(input, "amount")');
     expect(sources.cargoToml).toContain('serde_json = "1"');
+    expect(sources.cargoToml).toContain('\n[workspace]\n');
   });
 
   it('builds the harness and returns the captured value', async () => {
