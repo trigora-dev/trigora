@@ -239,7 +239,7 @@ fn print_group(title: &str, paths: &[PathBuf]) {
     println!();
 }
 
-const ENV_EXAMPLE: &str = "# Local runtime used by the Trigora client while `trigora dev` is running.\nTRIGORA_RUNTIME_URL=http://127.0.0.1:3477\n\n# Cloud API token (optional). When set, CLI commands talk to Trigora Cloud.\n# TRIGORA_TOKEN=\n";
+const ENV_EXAMPLE: &str = "# Local runtime used by the Trigora client while `trigora dev` is running.\nTRIGORA_RUNTIME_URL=http://127.0.0.1:3477\n\n# Cloud API token. Required for `trigora --remote` and for a client with remote set.\n# Setting it does not change the local default.\n# TRIGORA_TOKEN=\n";
 
 const TYPESCRIPT_PROGRAM: &str = "import { effect, waitForEvent } from '@trigora/sdk';\n\nexport default async function program() {\n  const greeting = await effect('greet', () => 'hello');\n  const who = await waitForEvent('greeted');\n\n  return {\n    greeting,\n    from: who,\n  };\n}\n";
 

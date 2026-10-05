@@ -2,7 +2,9 @@
 
 `@trigora/client`, `trigora-client` (import `trigora_client`), and the `trigora-client` crate implement the same `/v1` capabilities. None of them depend on an authoring SDK.
 
-A token selects Trigora Cloud (`TRIGORA_API_BASE_URL` or `https://api.trigora.dev`). Otherwise the client uses `TRIGORA_RUNTIME_URL` or `http://127.0.0.1:3477`.
+Clients are local unless remote is set. An explicit URL wins over remote. `remote` selects Trigora Cloud (`TRIGORA_API_BASE_URL` or `https://api.trigora.dev`). Otherwise the client uses `TRIGORA_RUNTIME_URL` or `http://127.0.0.1:3477`. `TRIGORA_TOKEN` is read only when remote selects Cloud. An explicit token is still sent to an explicit or local URL.
+
+TypeScript uses `createClient({ remote: true })`. Python uses `Client(remote=True)`. Rust uses `ClientOptions { remote: true, .. }`. Cloud without a token fails at construction.
 
 | Capability | TypeScript | Python | Rust |
 | --- | --- | --- | --- |
