@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: trigora-dev/tcc-engine
-          ref: v26.10.2
+          ref: v26.10.3
           path: tcc-engine
       - uses: actions/download-artifact@v7
         with:

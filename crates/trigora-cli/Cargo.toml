@@ -33,12 +33,12 @@ ureq = { version = "2.12", default-features = false, features = ["tls", "json"] 
 # `cargo install trigora-cli` installs trigora, trigora-local, and tcc-rust-compile.
 # version plus path keeps local builds on the checkout and packaged builds on crates.io.
 trigora-local = { version = "1.0.0", path = "../trigora-local" }
-tcc-core = { version = "26.10.2", path = "../../tcc-engine/crates/tcc-core" }
-tcc-host = { version = "26.10.2", path = "../../tcc-engine/crates/tcc-host" }
-tcc-host-sqlite = { version = "26.10.2", path = "../../tcc-engine/crates/tcc-host-sqlite" }
-tcc-ir = { version = "26.10.2", path = "../../tcc-engine/crates/tcc-ir" }
-tcc-rust-frontend = { version = "26.10.2", path = "../../tcc-engine/frontends/rust" }
-tcc-state = { version = "26.10.2", path = "../../tcc-engine/crates/tcc-state" }
+tcc-core = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-core" }
+tcc-host = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-host" }
+tcc-host-sqlite = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-host-sqlite" }
+tcc-ir = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-ir" }
+tcc-rust-frontend = { version = "26.10.3", path = "../../tcc-engine/frontends/rust" }
+tcc-state = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-state" }
 
 [dev-dependencies]
 serde_json = "1"

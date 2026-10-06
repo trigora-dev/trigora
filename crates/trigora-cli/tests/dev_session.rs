@@ -405,14 +405,14 @@ fn rust_compiler(root: &std::path::Path) -> PathBuf {
             .filter(|output| output.status.success())
             .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
             .unwrap_or_default();
-        if version == "26.10.2" {
+        if version == "26.10.3" {
             return release;
         }
     }
     let stub = root.join("tcc-rust-compile");
     std::fs::write(
         &stub,
-        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf '%s\\n' '26.10.2'; exit 0; fi\nprintf '%s\\n' '{\"envelope\":{\"artifact_hash\":\"abc\",\"frontend_version\":\"26.10.2\"},\"program\":{\"entry\":0,\"functions\":[{\"id\":0,\"name\":\"main\"}]}}'\n",
+        "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then printf '%s\\n' '26.10.3'; exit 0; fi\nprintf '%s\\n' '{\"envelope\":{\"artifact_hash\":\"abc\",\"frontend_version\":\"26.10.3\"},\"program\":{\"entry\":0,\"functions\":[{\"id\":0,\"name\":\"main\"}]}}'\n",
     )
     .unwrap();
     #[cfg(unix)]

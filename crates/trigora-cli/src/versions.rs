@@ -1,5 +1,5 @@
 /// Bundled frontend versions. Adapters report what they loaded; the CLI compares.
-pub const TCC_ENGINE: &str = "26.10.2";
+pub const TCC_ENGINE: &str = "26.10.3";
 pub const TYPESCRIPT_FRONTEND: &str = TCC_ENGINE;
 pub const PYTHON_FRONTEND: &str = TCC_ENGINE;
 pub const RUST_FRONTEND: &str = TCC_ENGINE;

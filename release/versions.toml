@@ -1,6 +1,6 @@
 [release]
 trigora = "1.0.0"
-tcc_engine = "26.10.2"
+tcc_engine = "26.10.3"
 
 [packages]
 typescript_contracts = "1.0.0"

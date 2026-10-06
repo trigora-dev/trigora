@@ -42,8 +42,8 @@ importers:
   packages/cli:
     dependencies:
       '@tcc-engine/frontend-typescript':
-        specifier: 26.10.2
-        version: 26.10.2
+        specifier: 26.10.3
+        version: 26.10.3
       '@trigora/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -580,7 +580,7 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@tcc-engine/frontend-typescript@26.10.2':
+  '@tcc-engine/frontend-typescript@26.10.3':
     resolution: {integrity: sha512-kpN+hhTBlTNyyuSDJRtw7eBrK/aU5fhrzK2RoL41FfmM/25RMyxBRxQEQTljR6m5PrPkagfosZVxevzD1CC5NQ==}
     engines: {node: '>=22'}
 
@@ -1761,7 +1761,7 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@tcc-engine/frontend-typescript@26.10.2':
+  '@tcc-engine/frontend-typescript@26.10.3':
     dependencies:
       typescript: 5.9.3
 
