@@ -133,7 +133,7 @@ enum Command {
     Start {
         /// Program name
         program: String,
-        /// JSON value or a path to a JSON file. Defaults to {}.
+        /// JSON value or a path to a JSON file. Omitted input is [].
         #[arg(long)]
         input: Option<String>,
         /// Use Trigora Cloud instead of the local runtime

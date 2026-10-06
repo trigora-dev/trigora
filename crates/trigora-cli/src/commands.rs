@@ -13,15 +13,30 @@ pub fn local_endpoint() -> Endpoint {
         base: env::runtime_url(),
         token: None,
         cloud: false,
+        project_id: None,
     }
 }
 
 pub fn remote_endpoint() -> Result<Endpoint, CliError> {
+    let root = std::env::current_dir().map_err(|error| CliError::plain(error.to_string()))?;
+    remote_project_context(&root)
+}
+
+pub fn remote_project_context(root: &Path) -> Result<Endpoint, CliError> {
     let token = env::api_token().ok_or_else(|| token_missing("Not authenticated"))?;
-    Ok(Endpoint {
+    let config = crate::config::load_config(root)?;
+    let lookup = Endpoint {
         base: env::cloud_url(),
         token: Some(token),
         cloud: true,
+        project_id: None,
+    };
+    let project_id = crate::deploy::project_id(&lookup, &config.project_name)?;
+    Ok(Endpoint {
+        base: lookup.base,
+        token: lookup.token,
+        cloud: true,
+        project_id: Some(project_id),
     })
 }
 
@@ -86,7 +101,7 @@ pub fn inspect(execution: &str, remote: bool) -> Result<(), CliError> {
 }
 
 pub fn start(program: &str, input: Option<&str>, remote: bool) -> Result<(), CliError> {
-    let input = read_json(input, true, "Invalid input")?;
+    let input = start_input(input)?;
     let endpoint = endpoint(remote)?;
     let started = call(
         &endpoint,
@@ -219,6 +234,7 @@ pub fn whoami() -> Result<(), CliError> {
         base: env::cloud_url(),
         token: Some(env::api_token().ok_or_else(|| token_missing("Not authenticated"))?),
         cloud: true,
+        project_id: None,
     };
     let identity = http::request(&endpoint, "GET", "/v1/whoami", None)
         .map_err(|error| http::cloud_failure(error, "Fetching identity"))?;
@@ -303,11 +319,7 @@ fn execution_rows(body: &Json) -> Vec<Vec<String>> {
                     .and_then(Json::as_str)
                     .unwrap_or("")
                     .to_string(),
-                execution
-                    .get("programId")
-                    .and_then(Json::as_str)
-                    .unwrap_or("")
-                    .to_string(),
+                program_label(execution),
                 execution
                     .get("status")
                     .and_then(Json::as_str)
@@ -329,14 +341,7 @@ fn record_fields(execution: &Json) -> Vec<(String, String)> {
                 .unwrap_or("")
                 .to_string(),
         ),
-        (
-            "Program".to_string(),
-            execution
-                .get("programId")
-                .and_then(Json::as_str)
-                .unwrap_or("")
-                .to_string(),
-        ),
+        ("Program".to_string(), program_label(execution)),
         (
             "Status".to_string(),
             execution
@@ -375,6 +380,23 @@ fn record_fields(execution: &Json) -> Vec<(String, String)> {
             .to_string(),
     ));
     fields
+}
+
+fn program_label(execution: &Json) -> String {
+    execution
+        .get("programName")
+        .and_then(Json::as_str)
+        .filter(|name| !name.is_empty())
+        .or_else(|| execution.get("programId").and_then(Json::as_str))
+        .unwrap_or("")
+        .to_string()
+}
+
+pub(crate) fn start_input(value: Option<&str>) -> Result<Json, CliError> {
+    match value {
+        None => Ok(json!([])),
+        Some(value) => read_json(Some(value), false, "Invalid input"),
+    }
 }
 
 pub(crate) fn read_json(

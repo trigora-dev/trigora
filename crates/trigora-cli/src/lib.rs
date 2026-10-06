@@ -99,14 +99,13 @@ pub fn dispatch(args: &[String]) -> Result<(), CliError> {
 }
 
 fn deploy_command(program: Option<String>) -> Result<(), CliError> {
-    let _ = deploy::cloud_endpoint()?;
     let root = current_dir().map_err(|error| CliError::plain(error.to_string()))?;
+    let endpoint = commands::remote_endpoint()?;
     let config = config::load_config(&root)?;
     let tools = paths::tools()?;
     let registry = adapter::Registry::new(&tools);
     let result = (|| {
         let programs = compile::discover(&config.root, &config.programs, &registry)?;
-        let endpoint = deploy::cloud_endpoint()?;
         deploy::sync_deployment(&endpoint, &config, &programs, program.as_deref(), &registry)
     })();
     registry.shutdown();

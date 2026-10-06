@@ -693,32 +693,118 @@ fn captures_in(body: &str) -> Vec<String> {
     let mut found = Vec::new();
     let mut index = 0;
     while index < chars.len() {
+        if chars[index] == '"' {
+            index = scan_string_captures(&chars, index, &local, &mut found);
+            continue;
+        }
+        if let Some(end) = end_of_char_literal(&chars, index) {
+            index = end;
+            continue;
+        }
         let Some(ident) = read_ident(&chars, index) else {
             index += 1;
             continue;
         };
+        let ident_len = ident.chars().count();
         let previous = if index == 0 {
             None
         } else {
             chars.get(index - 1).copied()
         };
-        let after = skip_space(&chars, index + ident.chars().count());
+        let after = skip_space(&chars, index + ident_len);
         let next = chars.get(after).copied();
-        let call = next == Some('(') || next == Some('!');
-        let path = next == Some(':');
-        let field = previous == Some('.');
-        if !field
-            && !call
-            && !path
-            && !KEYWORDS.contains(&ident.as_str())
-            && !local.iter().any(|name| name == &ident)
-            && !found.iter().any(|name| name == &ident)
+        if matches!(ident.as_str(), "b" | "r" | "br" | "c") && matches!(next, Some('"') | Some('#'))
         {
-            found.push(ident.clone());
+            index += ident_len;
+            continue;
         }
-        index += ident.chars().count();
+        consider_capture(&ident, previous, next, &local, &mut found);
+        index += ident_len;
     }
     found
+}
+
+fn consider_capture(
+    ident: &str,
+    previous: Option<char>,
+    next: Option<char>,
+    local: &[String],
+    found: &mut Vec<String>,
+) {
+    let call = next == Some('(') || next == Some('!');
+    let path = next == Some(':');
+    let field = previous == Some('.');
+    if !field
+        && !call
+        && !path
+        && !KEYWORDS.contains(&ident)
+        && !local.iter().any(|name| name == ident)
+        && !found.iter().any(|name| name == ident)
+    {
+        found.push(ident.to_string());
+    }
+}
+
+fn scan_string_captures(
+    chars: &[char],
+    open: usize,
+    local: &[String],
+    found: &mut Vec<String>,
+) -> usize {
+    let mut index = open + 1;
+    while index < chars.len() {
+        if chars[index] == '\\' {
+            index += 2;
+            continue;
+        }
+        if chars[index] == '"' {
+            return index + 1;
+        }
+        if chars[index] == '{' && chars.get(index + 1) == Some(&'{') {
+            index += 2;
+            continue;
+        }
+        if chars[index] == '{' {
+            if let Some(ident) = read_ident(chars, index + 1) {
+                let after = index + 1 + ident.chars().count();
+                if matches!(chars.get(after).copied(), Some('}') | Some(':')) {
+                    consider_capture(&ident, Some('{'), None, local, found);
+                    index = after;
+                    continue;
+                }
+            }
+        }
+        index += 1;
+    }
+    chars.len()
+}
+
+fn end_of_char_literal(chars: &[char], open: usize) -> Option<usize> {
+    if chars.get(open) != Some(&'\'') {
+        return None;
+    }
+    let mut index = open + 1;
+    if chars.get(index) == Some(&'\\') {
+        index += 1;
+        if chars.get(index) == Some(&'u') && chars.get(index + 1) == Some(&'{') {
+            index += 2;
+            while chars.get(index).is_some_and(|char| *char != '}') {
+                index += 1;
+            }
+            index += 1;
+        } else {
+            index += 1;
+        }
+    } else if chars.get(index).is_some_and(|char| *char != '\'') {
+        index += 1;
+    } else {
+        return None;
+    }
+    if chars.get(index) == Some(&'\'') {
+        Some(index + 1)
+    } else {
+        None
+    }
 }
 
 fn declared_in_body(body: &str) -> Vec<String> {
@@ -905,6 +991,16 @@ pub async fn main(amount: f64) -> Result<String, String> {
         assert!(files.cargo_toml.contains("\n[workspace]\n"));
         assert!(files.handlers_rs.contains("require_f64(input, \"amount\")"));
         assert!(files.handlers_rs.contains("format!(\"{amount}\")"));
+    }
+
+    #[test]
+    fn string_literals_are_not_captures() {
+        assert!(captures_in(r#"String::from("hello")"#).is_empty());
+        assert_eq!(
+            captures_in(r#"format!("{amount}")"#),
+            vec!["amount".to_string()]
+        );
+        assert!(captures_in("'h'").is_empty());
     }
 
     #[test]

@@ -232,6 +232,7 @@ fn push_programs(port: u16, token: &str, programs: &[Program]) -> Result<(), Cli
         base: format!("http://127.0.0.1:{port}"),
         token: Some(token.to_string()),
         cloud: false,
+        project_id: None,
     };
     http::request(&endpoint, "POST", "/programs", Some(&body)).map_err(|error| {
         CliError::plain(format!(

@@ -7,6 +7,7 @@ pub struct Endpoint {
     pub base: String,
     pub token: Option<String>,
     pub cloud: bool,
+    pub project_id: Option<String>,
 }
 
 pub struct ApiFailure {
@@ -26,6 +27,9 @@ pub fn request(
     let mut call = agent.request(method, &url);
     if let Some(token) = &endpoint.token {
         call = call.set("Authorization", &format!("Bearer {token}"));
+    }
+    if let Some(project_id) = &endpoint.project_id {
+        call = call.set("X-Trigora-Project-Id", project_id);
     }
     let result = if let Some(body) = body {
         call.set("Content-Type", "application/json")

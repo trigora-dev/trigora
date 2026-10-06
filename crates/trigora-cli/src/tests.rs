@@ -125,9 +125,6 @@ fn local_target_ignores_a_set_token() {
     assert!(endpoint.token.is_none());
     assert_eq!(endpoint.base, "http://127.0.0.1:9");
     std::env::remove_var("TRIGORA_RUNTIME_URL");
-    let remote = commands::endpoint(true);
-    assert!(remote.is_ok());
-    assert!(remote.unwrap().token.is_some());
     std::env::remove_var("TRIGORA_TOKEN");
     assert!(commands::endpoint(true).is_err());
 }
@@ -151,7 +148,7 @@ fn empty_trigger_list_is_put_and_program_filter_does_not_limit_it() {
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let recorded = std::sync::Arc::clone(&seen);
     thread::spawn(move || {
-        for _ in 0..3 {
+        for _ in 0..2 {
             let (mut stream, _) = listener.accept().unwrap();
             let mut buffer = String::new();
             let mut byte = [0u8; 1];
@@ -174,10 +171,6 @@ fn empty_trigger_list_is_put_and_program_filter_does_not_limit_it() {
             if length > 0 {
                 let _ = stream.read_exact(&mut body);
             }
-            recorded.lock().unwrap().push((
-                buffer.lines().next().unwrap_or("").to_string(),
-                String::from_utf8_lossy(&body).to_string(),
-            ));
             let response = if buffer.starts_with("GET /v1/projects") {
                 r#"{"projects":[{"id":"prj_1","name":"demo"}]}"#
             } else if buffer.starts_with("POST /v1/programs/deploy") {
@@ -185,6 +178,10 @@ fn empty_trigger_list_is_put_and_program_filter_does_not_limit_it() {
             } else {
                 r#"{"triggers":[]}"#
             };
+            recorded
+                .lock()
+                .unwrap()
+                .push((buffer, String::from_utf8_lossy(&body).to_string()));
             let payload = format!(
                 "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response}",
                 response.len()
@@ -205,18 +202,26 @@ fn empty_trigger_list_is_put_and_program_filter_does_not_limit_it() {
         base: format!("http://127.0.0.1:{port}"),
         token: Some("token".to_string()),
         cloud: true,
+        project_id: Some("prj_1".to_string()),
     };
     sync_deployment(&endpoint, &config, &programs, Some("report"), &registry()).unwrap();
     let seen = seen.lock().unwrap();
-    assert_eq!(seen.len(), 3);
-    assert!(seen[0].0.starts_with("GET /v1/projects"));
-    assert!(seen[1].0.starts_with("POST /v1/programs/deploy"));
-    assert!(seen[1].1.contains("\"name\":\"report\""));
+    assert_eq!(seen.len(), 2);
+    assert!(seen[0].0.starts_with("POST /v1/programs/deploy"));
+    assert!(seen[0]
+        .0
+        .to_ascii_lowercase()
+        .contains("x-trigora-project-id: prj_1"));
+    assert!(seen[0].1.contains("\"name\":\"report\""));
     assert!(!seen
         .iter()
         .any(|(_, body)| body.contains("\"name\":\"nightly\"")));
-    assert!(seen[2].0.starts_with("PUT /v1/projects/prj_1/triggers"));
-    let put: Json = serde_json::from_str(&seen[2].1).unwrap();
+    assert!(seen[1].0.starts_with("PUT /v1/projects/prj_1/triggers"));
+    assert!(seen[1]
+        .0
+        .to_ascii_lowercase()
+        .contains("x-trigora-project-id: prj_1"));
+    let put: Json = serde_json::from_str(&seen[1].1).unwrap();
     assert_eq!(put["triggers"], json!([]));
 }
 
@@ -227,7 +232,7 @@ fn program_filter_still_puts_every_trigger() {
     let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
     let recorded = std::sync::Arc::clone(&seen);
     thread::spawn(move || {
-        for _ in 0..3 {
+        for _ in 0..2 {
             let (mut stream, _) = listener.accept().unwrap();
             let (start, body) = read_http(&mut stream);
             if start.starts_with("PUT ") {
@@ -260,6 +265,7 @@ fn program_filter_still_puts_every_trigger() {
         base: format!("http://127.0.0.1:{port}"),
         token: Some("token".to_string()),
         cloud: true,
+        project_id: Some("prj_1".to_string()),
     };
     sync_deployment(&endpoint, &config, &programs, Some("report"), &registry()).unwrap();
     let body = seen.lock().unwrap().clone();
@@ -326,7 +332,7 @@ fn failed_trigger_put_stays_incomplete() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     thread::spawn(move || {
-        for _ in 0..3 {
+        for _ in 0..2 {
             let (mut stream, _) = listener.accept().unwrap();
             let (start, _body) = read_http(&mut stream);
             let (status, response) = if start.starts_with("PUT ") {
@@ -355,6 +361,7 @@ fn failed_trigger_put_stays_incomplete() {
         base: format!("http://127.0.0.1:{port}"),
         token: Some("token".to_string()),
         cloud: true,
+        project_id: Some("prj_1".to_string()),
     };
     let error =
         sync_deployment(&endpoint, &config, &[sample("report")], None, &registry()).unwrap_err();
@@ -385,6 +392,89 @@ fn read_http(stream: &mut std::net::TcpStream) -> (String, String) {
         let _ = reader.read_exact(&mut body);
     }
     (start, String::from_utf8_lossy(&body).into_owned())
+}
+
+#[test]
+fn omitted_start_input_is_an_empty_argument_list() {
+    assert_eq!(commands::start_input(None).unwrap(), json!([]));
+    assert_eq!(commands::start_input(Some("{}")).unwrap(), json!({}));
+    assert_eq!(
+        commands::start_input(Some("[1, true]")).unwrap(),
+        json!([1, true])
+    );
+    assert_eq!(commands::start_input(Some("null")).unwrap(), Json::Null);
+}
+
+#[test]
+fn remote_context_attaches_one_project_header() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let recorded = std::sync::Arc::clone(&seen);
+    thread::spawn(move || {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut headers = String::new();
+            let mut byte = [0u8; 1];
+            while stream.read(&mut byte).ok() == Some(1) {
+                headers.push(byte[0] as char);
+                if headers.contains("\r\n\r\n") {
+                    break;
+                }
+            }
+            let length = headers
+                .lines()
+                .find_map(|line| {
+                    line.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|value| value.trim().parse::<usize>().unwrap_or(0))
+                })
+                .unwrap_or(0);
+            if length > 0 {
+                let mut body = vec![0; length];
+                let _ = stream.read_exact(&mut body);
+            }
+            recorded.lock().unwrap().push(headers.clone());
+            let response = if headers.starts_with("GET /v1/projects") {
+                r#"{"projects":[{"id":"prj_9","name":"demo"}]}"#
+            } else {
+                r#"{"programs":[]}"#
+            };
+            let payload = format!(
+                "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{response}",
+                response.len()
+            );
+            let _ = stream.write_all(payload.as_bytes());
+        }
+    });
+    let dir = std::env::temp_dir().join(format!("trigora-context-{port}"));
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::write(
+        dir.join("trigora.toml"),
+        "[project]\nname = \"demo\"\nprograms = [\"src/**/*.ts\"]\n",
+    )
+    .unwrap();
+    let previous_token = std::env::var("TRIGORA_TOKEN").ok();
+    let previous_url = std::env::var("TRIGORA_API_BASE_URL").ok();
+    std::env::set_var("TRIGORA_TOKEN", "secret-token");
+    std::env::set_var("TRIGORA_API_BASE_URL", format!("http://127.0.0.1:{port}"));
+    let endpoint = commands::remote_project_context(&dir).unwrap();
+    assert_eq!(endpoint.project_id.as_deref(), Some("prj_9"));
+    crate::http::request(&endpoint, "GET", "/v1/programs", None)
+        .map_err(|error| error.message)
+        .unwrap();
+    let seen = seen.lock().unwrap();
+    assert!(seen[0].starts_with("GET /v1/projects"));
+    assert!(!seen[0]
+        .to_ascii_lowercase()
+        .contains("x-trigora-project-id"));
+    assert!(seen[1].starts_with("GET /v1/programs"));
+    assert!(seen[1]
+        .to_ascii_lowercase()
+        .contains("x-trigora-project-id: prj_9"));
+    restore("TRIGORA_TOKEN", previous_token);
+    restore("TRIGORA_API_BASE_URL", previous_url);
 }
 
 fn restore(key: &str, value: Option<String>) {

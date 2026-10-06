@@ -84,7 +84,7 @@ jobs:
             printf '%s\n' "$output"
             test "$status" -eq 0
             case "$name:$output" in
-              trigora:*1.0.1*) ;;
+              trigora:*1.0.2*) ;;
               trigora-local:*1.0.0*) ;;
               *) exit 1 ;;
             esac
@@ -198,7 +198,7 @@ jobs:
           printf '%s\n' "$output"
           test "$status" -eq 0
           case "$output" in
-            *1.0.1*) ;;
+            *1.0.2*) ;;
             *) exit 1 ;;
           esac
       - uses: pnpm/action-setup@v5
@@ -416,8 +416,8 @@ jobs:
           cd packages/cli && npm pack --pack-destination "$GITHUB_WORKSPACE/dist"
       - name: Inspect the npm tarball
         run: |
-          python3 release/licenses/check_archive.py npm dist/trigora-1.0.1.tgz
-          archive=dist/trigora-1.0.1.tgz
+          python3 release/licenses/check_archive.py npm dist/trigora-1.0.2.tgz
+          archive=dist/trigora-1.0.2.tgz
           files="$(tar -tzf "$archive")"
           for path in \
             package/vendor/trigora/linux-x64/trigora \
@@ -439,7 +439,7 @@ jobs:
           npm install --prefix /tmp/trigora-npm \
             "$GITHUB_WORKSPACE"/dist/trigora-contracts-1.0.0.tgz \
             "$GITHUB_WORKSPACE"/dist/tcc-engine-frontend-typescript-26.10.2.tgz \
-            "$GITHUB_WORKSPACE"/dist/trigora-1.0.1.tgz
+            "$GITHUB_WORKSPACE"/dist/trigora-1.0.2.tgz
           /tmp/trigora-npm/node_modules/.bin/trigora --version
       - name: TypeScript dev reaches ready
         run: |
@@ -488,7 +488,7 @@ jobs:
         continue-on-error: true
         uses: actions/upload-artifact@v6
         with:
-          name: trigora-1.0.1
+          name: trigora-1.0.2
           path: dist/
       - name: Wait before retrying the package upload
         if: steps.upload-package.outcome == 'failure'
@@ -497,6 +497,6 @@ jobs:
         if: steps.upload-package.outcome == 'failure'
         uses: actions/upload-artifact@v6
         with:
-          name: trigora-1.0.1
+          name: trigora-1.0.2
           path: dist/
           overwrite: true

@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ['v1.0.1']
+    tags: ['v1.0.2']
 
 jobs:
   package:
@@ -24,7 +24,7 @@ jobs:
           path: tcc-engine
       - uses: actions/download-artifact@v7
         with:
-          name: trigora-1.0.1
+          name: trigora-1.0.2
           path: dist
       - uses: dtolnay/rust-toolchain@stable
       - name: Publish crates
@@ -89,7 +89,7 @@ jobs:
             return "$status"
           }
           publish dist/trigora-contracts-1.0.0.tgz
-          publish dist/trigora-1.0.1.tgz
+          publish dist/trigora-1.0.2.tgz
       - name: Stage the CLI wheel
         run: |
           mkdir -p wheelhouse
@@ -107,15 +107,15 @@ jobs:
           find dist -type f \( -name '*.whl' -o -name '*.tgz' -o -name '*.crate' \) -exec cp {} release-assets/ \;
           for slot in linux-x64 linux-arm64 darwin-arm64 darwin-x64 win32-x64; do
             test -d "dist/$slot"
-            tar -C "dist/$slot" -czf "release-assets/trigora-1.0.1-${slot}.tar.gz" .
+            tar -C "dist/$slot" -czf "release-assets/trigora-1.0.2-${slot}.tar.gz" .
           done
           if [ -d dist/notices ]; then
-            tar -C dist/notices -czf release-assets/trigora-1.0.1-notices.tar.gz .
+            tar -C dist/notices -czf release-assets/trigora-1.0.2-notices.tar.gz .
           fi
       - name: Replace the partial GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release delete v1.0.1 --yes --cleanup-tag=false || true
+        run: gh release delete v1.0.2 --yes --cleanup-tag=false || true
       - name: GitHub Release
         uses: softprops/action-gh-release@v2
         with:

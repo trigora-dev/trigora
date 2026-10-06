@@ -223,7 +223,13 @@ trigora dev
 
 `trigora`, `trigora-local`, and `tcc-rust-compile` are on `PATH` after that install. `trigora dev` reaches ready without `TRIGORA_LOCAL_BIN`.
 
-After the registries are published, repeat those installs from the public registries in brand-new directories, including `trigora init` and a Cloud deploy from TypeScript, Python, and Rust.
+## Registry-only release gate
+
+A public release is not validated until this journey passes from the public registries only. Use brand-new directories and virtual environments. Do not use sibling checkouts, local path links, or unpublished artifacts.
+
+TypeScript, Python, and Rust each do `init`, `dev`, `start`, `send`, `result`, `deploy`, then a remote `start` and `result`. TypeScript also runs `bench`, `verify --faults all`, and a kill/restart recovery: start locally, reach a durable wait, kill the runtime, restart, resume, and read the result.
+
+Do not call the stack validated until the effectful init example deploys and runs remotely in all three languages.
 
 ## Artifacts
 

@@ -82,6 +82,8 @@ npm install @trigora/sdk @trigora/client trigora
 pip install trigora trigora-client trigora-cli
 ```
 
+Requires CPython 3.10–3.12 until 3.13 wheels exist.
+
 ### Rust
 
 ```sh

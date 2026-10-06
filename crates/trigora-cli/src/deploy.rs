@@ -13,6 +13,7 @@ pub fn cloud_endpoint() -> Result<Endpoint, CliError> {
         base: env::cloud_url(),
         token: Some(token),
         cloud: true,
+        project_id: None,
     })
 }
 
@@ -63,7 +64,9 @@ pub fn sync_deployment(
     if selected.is_empty() {
         return Err(CliError::new("Program not found").detail("Program", only.unwrap_or("")));
     }
-    let project_id = project_id(endpoint, &config.project_name)?;
+    let project_id = endpoint.project_id.clone().ok_or_else(|| {
+        CliError::new("Project not found").detail("Project", &config.project_name)
+    })?;
 
     let mut deployed = Vec::new();
     for program in &selected {

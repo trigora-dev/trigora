@@ -94,7 +94,8 @@ pub(crate) fn init_at(
     println!("Next steps");
     println!("  1. trigora dev");
     if example {
-        println!("  2. trigora start program");
+        let start_program = example_start_program(&language, &resolved);
+        println!("  2. trigora start {start_program}");
         println!("  3. trigora send <execution> greeted --payload '\"Omar\"'");
     } else {
         println!("  2. Add a program under src/");
@@ -180,6 +181,14 @@ fn pyproject(name: &str) -> String {
 
 fn cargo(name: &str) -> String {
     format!("[package]\nname = \"{name}\"\nversion = \"1.0.0\"\nedition = \"2021\"\n\n[dependencies]\n# Unpublished: trigora = {{ path = \"../trigora-rust/crates/trigora\" }}\ntrigora = \"1.0.0\"\n")
+}
+
+pub(crate) fn example_start_program(language: &str, package_name: &str) -> String {
+    if language == "rust" {
+        package_name.to_string()
+    } else {
+        "program".to_string()
+    }
 }
 
 pub fn parse_language(language: &str) -> Result<String, CliError> {
@@ -273,6 +282,12 @@ mod tests {
         assert!(manifest.contains("path = \"../trigora-rust/crates/trigora\""));
         assert!(program.contains("pub async fn main()"));
         assert!(program.contains("wait_for_event(\"greeted\")"));
+        assert_eq!(
+            example_start_program("rust", "cleanroom-rs"),
+            "cleanroom-rs"
+        );
+        assert_eq!(example_start_program("typescript", "app"), "program");
+        assert_eq!(example_start_program("python", "app"), "program");
 
         let python = temp_project();
         init_at(

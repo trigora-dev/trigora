@@ -2,8 +2,7 @@ use std::io::{IsTerminal, Read, Write};
 
 use serde_json::{json, Value as Json};
 
-use crate::config::load_config;
-use crate::deploy::{self, cloud_endpoint};
+use crate::commands::remote_endpoint;
 use crate::error::CliError;
 use crate::http::{self, cloud_failure};
 
@@ -15,10 +14,11 @@ pub enum SecretsAction {
 }
 
 pub fn secrets(action: SecretsAction) -> Result<(), CliError> {
-    let endpoint = cloud_endpoint()?;
-    let root = std::env::current_dir().map_err(|error| CliError::plain(error.to_string()))?;
-    let config = load_config(&root)?;
-    let project_id = deploy::project_id(&endpoint, &config.project_name)?;
+    let endpoint = remote_endpoint()?;
+    let project_id = endpoint
+        .project_id
+        .clone()
+        .ok_or_else(|| CliError::new("Project not found"))?;
     match action {
         SecretsAction::List => list(&endpoint, &project_id),
         SecretsAction::Set { name } => set(&endpoint, &project_id, &name),

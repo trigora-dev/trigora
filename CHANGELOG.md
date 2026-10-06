@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2
+
+### Fixed
+
+- `trigora start` with no `--input` passes an empty argument list. `--input '{}'` is still one object argument.
+- Rust effect scaffolding no longer treats words inside string and character literals as captures. `String::from("hello")` scaffolds.
+- `trigora init --language rust` tells you to start the Cargo package name.
+- Cloud commands share one project context from `trigora.toml`, including `X-Trigora-Project-Id` on deploy.
+- `trigora inspect` and execution lists print `programName` when the API sends it.
+
 ## 1.0.1
 
 ### Fixed

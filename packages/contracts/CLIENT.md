@@ -17,6 +17,8 @@ TypeScript uses `createClient({ remote: true })`. Python uses `Client(remote=Tru
 | cancel | `handle.cancel` | `handle.cancel` | `handle.cancel` |
 | result | `handle.result()` | `handle.result()` | `handle.result()` |
 
+`start` input is the program's argument list. Omit it, or send `[]`, for a program that takes no arguments. A JSON array is the ordered argument list. Any other JSON value, including `{}` and `null`, is one argument. The Rust client omits a missing input; the local runtime and Cloud treat a missing field as `[]`.
+
 Python uses the standard library. Rust uses `ureq`. The local dev server and Cloud share these routes except `whoami`, which the local dev server does not serve.
 
 CLI runtime commands target the local runtime by default. Add `--remote` to target Trigora Cloud. `trigora deploy` and `trigora whoami` are Cloud-only.
