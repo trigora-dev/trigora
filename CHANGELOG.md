@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.3
+
+### Fixed
+
+- Fix Python effect workers on Trigora Cloud by correctly reading JSON request payloads returned by the Workers runtime.
+
 ## 1.0.2
 
 ### Fixed

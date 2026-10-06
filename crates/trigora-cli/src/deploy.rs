@@ -396,7 +396,7 @@ def restore_secret_env(previous):
 "#;
 
 const PYTHON_EFFECT_FETCH: &str = r#"async def on_fetch(request):
-    body = await request.json()
+    body = json.loads(await request.text())
     key = body.get("key")
     handler = handlers.get(key)
     if handler is None:

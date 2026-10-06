@@ -492,6 +492,36 @@ fn registry() -> crate::adapter::Registry {
     })
 }
 
+#[test]
+fn python_effect_worker_reads_json_text_before_field_access() {
+    let mut program = sample("program");
+    program.effects = vec![Effect {
+        key: "greet".to_string(),
+        handler_id: None,
+        value: None,
+        source: Some("lambda: \"hello\"".to_string()),
+        binary: None,
+    }];
+    let bundle = crate::deploy::python_effect_bundle(&program);
+    let worker = bundle["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .find(|file| file["path"] == "worker.py")
+        .expect("worker.py");
+    let source = worker["contents"].as_str().expect("worker source");
+    let loaded = source
+        .find("body = json.loads(await request.text())")
+        .expect("json text load");
+    let key = source.find("body.get(\"key\")").expect("key");
+    let secret = source.find("body.get(\"secretEnv\")").expect("secretEnv");
+    assert!(source.contains("async def on_fetch(request):"));
+    assert!(source.contains("handler = handlers.get(key)"));
+    assert!(!source.contains("request.json()"));
+    assert!(loaded < key);
+    assert!(loaded < secret);
+}
+
 fn sample(id: &str) -> Program {
     Program {
         id: id.to_string(),
