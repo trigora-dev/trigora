@@ -176,7 +176,7 @@ fn package_json(name: &str) -> String {
 }
 
 fn pyproject(name: &str) -> String {
-    format!("[project]\nname = \"{name}\"\nversion = \"1.0.0\"\nrequires-python = \">=3.9\"\ndependencies = [\"trigora\"]\n")
+    format!("[project]\nname = \"{name}\"\nversion = \"1.0.0\"\nrequires-python = \">=3.10,<3.15\"\ndependencies = [\"trigora\"]\n")
 }
 
 fn cargo(name: &str) -> String {
@@ -304,6 +304,7 @@ mod tests {
         assert!(config.contains("name = \"approval\""));
         assert!(config.contains("programs = [\"src/**/*.py\"]"));
         assert!(manifest.contains("name = \"approval\""));
+        assert!(manifest.contains("requires-python = \">=3.10,<3.15\""));
         assert!(program.contains("@program"));
         assert!(program.contains("async def program()"));
 
