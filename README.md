@@ -27,9 +27,9 @@
 
 **Durable execution without history replay.**
 
-Trigora is a durable execution platform for long-lived AI agents and programs.
+Trigora is a high-performance, lightweight durable execution platform for long-lived AI agents and programs. It recovers by restoring committed program state instead of replaying execution history.
 
-Write normal application logic in **TypeScript, Python, or Rust**. Trigora can suspend execution across events, timers, external effects, and child programs, then recover from committed continuation state after failure without replaying completed execution history.
+Write normal application logic in **TypeScript, Python, or Rust**. Trigora can suspend execution across events, timers, external effects, and child programs, then recover from committed continuation state after failure.
 
 ```ts
 import { effect, waitForEvent } from "@trigora/sdk";
