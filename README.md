@@ -27,9 +27,19 @@
 
 **Durable execution without history replay.**
 
-Trigora is a high-performance, lightweight durable execution platform for long-lived AI agents and programs. It recovers by restoring committed program state instead of replaying execution history.
+Trigora is a high-performance, lightweight durable execution platform for long-lived AI agents and programs. Powered by the TCC Engine, it restores committed program state instead of replaying execution history.
 
-Write normal application logic in **TypeScript, Python, or Rust**. Trigora can suspend execution across events, timers, external effects, and child programs, then recover from committed continuation state after failure.
+⚡ **Ultra-fast recovery** — as fast as 0.06 ms.
+
+🔄 **Zero history replay** — restore and resume directly from committed state.
+
+🚀 **Lightweight by design** — powered by a portable Rust/WASM engine.
+
+💻 **Write normal code** — TypeScript, Python, and Rust.
+
+## See it in action
+
+Write normal application logic. Trigora can suspend execution across events, timers, external effects, and child programs, then recover from committed continuation state after failure.
 
 ```ts
 import { effect, waitForEvent } from "@trigora/sdk";
@@ -43,28 +53,27 @@ export default async function approval() {
 }
 ```
 
-Deploy it once. Start executions from the CLI, an API call, a webhook, or a cron trigger. Let them run for seconds, hours, or days.
+Deploy once. Start executions from the CLI, an API call, a webhook, or a cron trigger. Let them run for seconds, hours, or days.
 
 ## Why Trigora?
 
-Traditional durable workflow systems often reconstruct execution state by replaying prior history.
+Traditional replay-based durable execution systems reconstruct program state by re-executing previously recorded control flow. As execution histories grow, recovery can require replaying an increasingly long sequence of completed work.
 
-Trigora uses **Transparent Continuation Checkpointing (TCC)** instead.
+Trigora takes a different approach. At durable boundaries, **Transparent Continuation Checkpointing (TCC)** commits the program's resumable continuation and the live durable state needed to continue. After an interruption, Trigora restores that committed continuation directly instead of re-executing the completed prefix.
 
-At durable boundaries, TCC commits the program position and the live durable state required to continue. Recovery resumes from that committed continuation rather than re-executing the completed prefix.
+The result is a simple programming model with recovery work tied to the committed continuation, not to the full execution history.
 
-That makes Trigora a natural fit for workloads that:
+Trigora is built for workloads that:
 
 - run long-lived AI agents;
 - call models, tools, APIs, and external systems;
 - wait for humans or external events;
 - sleep for minutes, hours, or days;
 - coordinate durable child executions;
-- branch dynamically;
+- branch dynamically; and
 - need to survive worker or process failure.
 
-[How TCC works →](https://trigora.dev/research)  
-[Read the technical report →](https://trigora.dev/research/whitepaper)
+[How TCC works →](https://trigora.dev/research)
 
 ## Start building
 
@@ -113,7 +122,7 @@ trigora deploy
 
 ## Trigora Cloud
 
-**Trigora Cloud** is the managed production runtime for TCC programs.
+**Trigora Cloud** brings TCC-powered durable execution to production, handling deployment, persistence, recovery, and execution management so you can focus on application logic.
 
 It provides:
 
@@ -123,10 +132,10 @@ It provides:
 - cron and webhook triggers;
 - project secrets;
 - execution inspection and observability;
-- workspace access and API tokens;
+- workspace access and API tokens; and
 - managed persistence and recovery.
 
-Start at **[cloud.trigora.dev](https://cloud.trigora.dev)**.
+**[Start building on Trigora Cloud →](https://cloud.trigora.dev)**
 
 ## Repository map
 
@@ -142,14 +151,7 @@ Trigora is split into focused repositories.
 
 ### This repository
 
-`trigora-dev/trigora` contains the pieces shared across the Trigora ecosystem:
-
-- the `trigora` CLI;
-- the native local runtime used by `trigora dev`;
-- shared public contracts;
-- release coordination for the Trigora SDK ecosystem.
-
-Language-specific authoring APIs live in their respective repositories above.
+`trigora-dev/trigora` contains the Trigora CLI, the native local runtime used by `trigora dev`, shared public contracts, and release coordination. Language-specific authoring APIs and the TCC Engine are maintained in their respective repositories above.
 
 ## TCC Engine
 
@@ -172,10 +174,11 @@ The public research covers:
 - live-state scaling;
 - crash recovery and fresh-process restore;
 - frontend semantics;
-- host responsibilities;
+- host responsibilities; and
 - limitations and failure windows.
 
-**[Technical report →](https://trigora.dev/research/whitepaper)**  
+**[Explore the research →](https://trigora.dev/research)**  
+**[Read the technical report →](https://trigora.dev/research/whitepaper)**
 
 ## Links
 
@@ -184,15 +187,14 @@ The public research covers:
 - **Docs:** [trigora.dev/docs](https://trigora.dev/docs)
 - **Research:** [trigora.dev/research](https://trigora.dev/research)
 - **TCC Engine:** [github.com/trigora-dev/tcc-engine](https://github.com/trigora-dev/tcc-engine)
-- **GitHub:** [github.com/trigora-dev/trigora](https://github.com/trigora-dev/trigora)
 
 ## Company
 
 Trigora is built by **Trigora, Inc.**
 
 - For general inquiries: [info@trigora.dev](mailto:info@trigora.dev)
-- For product questions and support: [support@trigora.dev](mailto:support@trigora.dev)  
-- For commercial terms: [sales@trigora.dev](mailto:sales@trigora.dev)  
+- For product questions and support: [support@trigora.dev](mailto:support@trigora.dev)
+- For commercial terms: [sales@trigora.dev](mailto:sales@trigora.dev)
 - For security reports: [security@trigora.dev](mailto:security@trigora.dev)
 
 ## License
