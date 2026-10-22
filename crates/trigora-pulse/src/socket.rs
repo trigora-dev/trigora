@@ -32,6 +32,22 @@ pub enum Frame {
     },
     #[serde(rename = "registered")]
     Registered,
+    #[serde(rename = "start")]
+    Start {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+    },
+    #[serde(rename = "started")]
+    Started {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+    },
+    #[serde(rename = "startError")]
+    StartError {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+        message: String,
+    },
     #[serde(rename = "effect")]
     Effect {
         #[serde(rename = "executionId")]
@@ -226,16 +242,24 @@ enum Inbound {
     Gone,
 }
 
+pub(crate) enum HostCommand {
+    Start(String),
+}
+
 pub(crate) struct Connection {
     pub artifact_hash: String,
     pub keys: Vec<String>,
     writer: Mutex<UnixStream>,
     pending: Mutex<HashMap<(String, String), std::sync::mpsc::Sender<Inbound>>>,
+    commands: Mutex<Option<std::sync::mpsc::Sender<HostCommand>>>,
     alive: AtomicBool,
 }
 
 impl Connection {
-    pub(crate) fn handshake(mut stream: UnixStream, bearer: &str) -> Result<Arc<Self>> {
+    pub(crate) fn handshake(
+        mut stream: UnixStream,
+        bearer: &str,
+    ) -> Result<(Arc<Self>, UnixStream)> {
         if !peer_allowed(&stream) {
             return Err(Error::new("socket peer was rejected"));
         }
@@ -284,11 +308,34 @@ impl Connection {
             keys,
             writer: Mutex::new(stream),
             pending: Mutex::new(HashMap::new()),
+            commands: Mutex::new(None),
             alive: AtomicBool::new(true),
         });
-        let inbound = Arc::clone(&connection);
+        Ok((connection, reader))
+    }
+
+    pub(crate) fn set_commands(&self, sender: std::sync::mpsc::Sender<HostCommand>) {
+        *self.commands.lock().expect("commands") = Some(sender);
+    }
+
+    pub(crate) fn spawn_reader(self: &Arc<Self>, reader: UnixStream) {
+        let inbound = Arc::clone(self);
         std::thread::spawn(move || inbound.read_loop(reader));
-        Ok(connection)
+    }
+
+    pub(crate) fn reply_start(&self, execution_id: &str, result: Result<()>) {
+        let frame = match result {
+            Ok(()) => Frame::Started {
+                execution_id: execution_id.to_string(),
+            },
+            Err(err) => Frame::StartError {
+                execution_id: execution_id.to_string(),
+                message: err.to_string(),
+            },
+        };
+        if let Ok(mut stream) = self.writer.lock() {
+            let _ = write_frame(&mut *stream, &frame);
+        }
     }
 
     pub(crate) fn alive(&self) -> bool {
@@ -360,6 +407,11 @@ impl Connection {
                     attempt_id,
                     message,
                 }) => self.deliver(execution_id, attempt_id, Inbound::Failed(message)),
+                Ok(Frame::Start { execution_id }) => {
+                    if let Some(sender) = self.commands.lock().expect("commands").as_ref() {
+                        let _ = sender.send(HostCommand::Start(execution_id));
+                    }
+                }
                 Ok(_) => {}
                 Err(_) => {
                     self.fail_all();
@@ -435,6 +487,23 @@ impl Adapter {
             writer: Mutex::new(stream),
             stop: Arc::new(AtomicBool::new(false)),
         })
+    }
+
+    /// `started` means the host registered this id. It does not mean an effect ran.
+    pub fn start(&self, execution_id: &str) -> Result<()> {
+        let mut stream = self.writer.lock().expect("writer");
+        write_frame(
+            &mut *stream,
+            &Frame::Start {
+                execution_id: execution_id.to_string(),
+            },
+        )
+        .map_err(|err| Error::new(err.to_string()))?;
+        match read_frame(&mut *stream).map_err(|err| Error::new(err.to_string()))? {
+            Frame::Started { execution_id: id } if id == execution_id => Ok(()),
+            Frame::StartError { message, .. } => Err(Error::new(message)),
+            other => Err(Error::new(format!("expected started, got {other:?}"))),
+        }
     }
 
     pub fn register(&self, artifact_hash: &str, keys: &[&str]) -> Result<()> {

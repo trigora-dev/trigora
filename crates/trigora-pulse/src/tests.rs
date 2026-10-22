@@ -408,10 +408,12 @@ fn stale_duplicate_and_disconnected_results_do_not_journal_a_success() {
     adapter.serve(|_| Reply::Disconnect).unwrap();
     wait_adapters(&host.runtime, 1);
     host.runtime.start("drop").unwrap();
-    assert!(host
-        .runtime
-        .wait_until(|runtime| runtime.abandoned() == 1, Duration::from_secs(5)));
+    assert!(host.runtime.wait_until(
+        |runtime| runtime.waiting_for_adapter() == 1,
+        Duration::from_secs(5)
+    ));
     assert_eq!(host.runtime.completed(), 0);
+    assert_eq!(host.runtime.abandoned(), 0);
     let view = authority.view("drop").unwrap();
     assert!(view.journal.is_empty());
     assert!(view.continuation.is_none());
@@ -535,9 +537,11 @@ fn two_adapters_for_one_hash_and_a_late_result_after_a_new_owner() {
     authority.advance_clock(1_000).unwrap();
     authority.claim("owned", "B", 1_000).unwrap();
     adapter.disconnect();
-    assert!(host
-        .runtime
-        .wait_until(|runtime| runtime.abandoned() == 1, Duration::from_secs(5)));
+    assert!(host.runtime.wait_until(
+        |runtime| runtime.waiting_for_adapter() == 1,
+        Duration::from_secs(5)
+    ));
+    assert_eq!(host.runtime.abandoned(), 0);
     *gate.0.lock().expect("gate") = true;
     gate.1.notify_all();
     let late = Adapter::connect(&dir).unwrap();
@@ -569,10 +573,12 @@ fn disconnecting_every_adapter_leaves_the_execution_recoverable() {
     adapter.serve(|_| Reply::Disconnect).unwrap();
     wait_adapters(&host.runtime, 1);
     host.runtime.start("exec").unwrap();
-    assert!(host
-        .runtime
-        .wait_until(|runtime| runtime.abandoned() == 1, Duration::from_secs(5)));
+    assert!(host.runtime.wait_until(
+        |runtime| runtime.waiting_for_adapter() == 1,
+        Duration::from_secs(5)
+    ));
     assert_eq!(host.runtime.completed(), 0);
+    assert_eq!(host.runtime.abandoned(), 0);
     assert!(authority.view("exec").unwrap().journal.is_empty());
     drop(adapter);
     drop(host);
@@ -718,4 +724,205 @@ fn resumed_execution_reads_only_the_claimed_continuation() {
     let again = authority.view("exec").unwrap().continuation.unwrap();
     assert_eq!(committed, again);
     assert!(host.runtime.dispatches().is_empty());
+}
+
+#[test]
+fn started_accepts_a_fresh_id_and_rejects_a_reused_one() {
+    let authority = Arc::new(Authority::new());
+    let program = artifact("once", effects(&["work"]));
+    let dir = scratch("start");
+    let host = Host::open("start", authority, program, settings(&dir, "A"));
+    let adapter = Adapter::connect(&dir).unwrap();
+    adapter.register("once", &["work"]).unwrap();
+    adapter.start("exec").unwrap();
+    let err = host.runtime.start("exec").unwrap_err();
+    assert_eq!(err.to_string(), "execution id is already in use");
+    adapter.serve(|_| Reply::Value(one())).unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(5)));
+    let err = host.runtime.start("exec").unwrap_err();
+    assert_eq!(err.to_string(), "execution id is already in use");
+}
+
+#[test]
+fn a_missing_handler_key_is_not_dispatched() {
+    let authority = Arc::new(Authority::new());
+    let program = artifact("once", effects(&["work"]));
+    let dir = scratch("key");
+    let host = Host::open("key", authority, program, settings(&dir, "A"));
+    let adapter = Adapter::connect(&dir).unwrap();
+    adapter.register("once", &["other"]).unwrap();
+    adapter.serve(|_| Reply::Value(one())).unwrap();
+    wait_adapters(&host.runtime, 1);
+    host.runtime.start("exec").unwrap();
+    assert!(host.runtime.wait_until(
+        |runtime| runtime.waiting_for_adapter() == 1,
+        Duration::from_secs(5)
+    ));
+    assert!(host.runtime.dispatches().is_empty());
+    assert_eq!(host.runtime.completed(), 0);
+    assert!(host
+        .runtime
+        .failures()
+        .iter()
+        .any(|(_, message)| message.contains("no adapter registered for effect `work`")));
+}
+
+#[test]
+fn registering_an_adapter_does_not_resume_sleep() {
+    let authority = Arc::new(Authority::new());
+    let program = artifact("sleep", sleep_program());
+    let dir = scratch("sleep-reg");
+    let host = Host::open("sleep-reg", authority, program, settings(&dir, "A"));
+    host.runtime.start("nap").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.suspended() == 1, Duration::from_secs(5)));
+    let adapter = Adapter::connect(&dir).unwrap();
+    adapter.register("sleep", &["work"]).unwrap();
+    wait_adapters(&host.runtime, 1);
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(host.runtime.suspended(), 1);
+    assert_eq!(host.runtime.completed(), 0);
+    assert_eq!(host.runtime.waiting_for_adapter(), 0);
+    drop(adapter);
+}
+
+#[test]
+fn reconnecting_to_the_same_host_retries_only_the_outstanding_effect() {
+    let authority = Arc::new(Authority::new());
+    let program = artifact("two", effects(&["first", "second"]));
+    let dir = scratch("live");
+    let host = Host::open("live", Arc::clone(&authority), program, settings(&dir, "A"));
+    let first_calls = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&first_calls);
+    let adapter = Adapter::connect(&dir).unwrap();
+    adapter.register("two", &["first", "second"]).unwrap();
+    adapter
+        .serve(move |request| {
+            if request.key == "first" {
+                seen.fetch_add(1, Ordering::SeqCst);
+                Reply::Value(one())
+            } else {
+                Reply::Disconnect
+            }
+        })
+        .unwrap();
+    wait_adapters(&host.runtime, 1);
+    host.runtime.start("exec").unwrap();
+    assert!(host.runtime.wait_until(
+        |runtime| runtime.waiting_for_adapter() == 1,
+        Duration::from_secs(5)
+    ));
+    assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+    assert!(authority
+        .view("exec")
+        .unwrap()
+        .journal
+        .contains_key("first"));
+    let stale = host.runtime.dispatches().last().unwrap().attempt_id.clone();
+    drop(adapter);
+
+    let replacement_calls = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = Arc::clone(&replacement_calls);
+    let replacement = Adapter::connect(&dir).unwrap();
+    replacement.register("two", &["first", "second"]).unwrap();
+    replacement.push_result("exec", &stale, &one()).unwrap();
+    replacement
+        .serve(move |request| {
+            seen.lock().expect("calls").push(request.key);
+            Reply::Value(one())
+        })
+        .unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(5)));
+    assert_eq!(
+        replacement_calls.lock().expect("calls").as_slice(),
+        ["second".to_string()]
+    );
+    assert_eq!(first_calls.load(Ordering::SeqCst), 1);
+    let journal = authority.view("exec").unwrap().journal;
+    assert!(journal.contains_key("first"));
+    assert!(journal.contains_key("second"));
+}
+
+#[test]
+fn a_node_handler_is_not_replayed_after_the_host_is_replaced() {
+    let authority = Arc::new(Authority::new());
+    let program = artifact("effect", effects(&["work"]));
+    let dir = scratch("node-host");
+    let host = Host::open(
+        "node-host",
+        Arc::clone(&authority),
+        program.clone(),
+        settings(&dir, "A"),
+    );
+    let peer = NodePeer::spawn(&dir, "effect", &["work"]);
+    wait_adapters(&host.runtime, 1);
+    host.runtime.start("exec").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(5)));
+    assert_eq!(keys_of(&host.runtime), vec!["work".to_string()]);
+    assert!(authority.view("exec").unwrap().journal.contains_key("work"));
+    drop(peer);
+    drop(host);
+
+    authority.advance_clock(60_000).unwrap();
+    let dir = scratch("node-restore");
+    let restored = Host::open(
+        "node-restore",
+        Arc::clone(&authority),
+        program,
+        settings(&dir, "B"),
+    );
+    restored.runtime.resume("exec").unwrap();
+    assert!(restored
+        .runtime
+        .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(5)));
+    assert!(restored.runtime.dispatches().is_empty());
+    let peer = NodePeer::spawn(&dir, "effect", &["work"]);
+    wait_adapters(&restored.runtime, 1);
+    std::thread::sleep(Duration::from_millis(100));
+    assert!(restored.runtime.dispatches().is_empty());
+    assert_eq!(restored.runtime.completed(), 1);
+    assert_eq!(result_number(&authority, "exec"), 1.0);
+    drop(peer);
+}
+
+struct NodePeer {
+    child: std::process::Child,
+}
+
+impl NodePeer {
+    fn spawn(dir: &Path, hash: &str, keys: &[&str]) -> Self {
+        let mut script = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        script.pop();
+        script.pop();
+        script.push("packages");
+        script.push("pulse-node");
+        script.push("src");
+        script.push("peer.mjs");
+        let mut command = std::process::Command::new("node");
+        command.arg(&script).arg(dir).arg(hash);
+        for key in keys {
+            command.arg(key);
+        }
+        let child = command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .spawn()
+            .expect("spawn node adapter");
+        Self { child }
+    }
+}
+
+impl Drop for NodePeer {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
 }

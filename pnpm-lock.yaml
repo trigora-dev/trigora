@@ -39,6 +39,12 @@ importers:
         specifier: ^4.1.3
         version: 4.1.3(@types/node@25.5.2)(@vitest/coverage-v8@4.1.3)(vite@8.0.7(@types/node@25.5.2)(esbuild@0.27.7)(tsx@4.21.0))
 
+  examples/pulse-node:
+    dependencies:
+      '@trigora/pulse-node':
+        specifier: workspace:*
+        version: link:../../packages/pulse-node
+
   packages/cli:
     dependencies:
       '@tcc-engine/frontend-typescript':
@@ -81,6 +87,15 @@ importers:
       typescript:
         specifier: ^6.0.2
         version: 6.0.2
+
+  packages/pulse-node:
+    dependencies:
+      '@tcc-engine/frontend-typescript':
+        specifier: 26.10.3
+        version: 26.10.3
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
 
   tooling/eslint-config: {}
 

@@ -1,0 +1,20 @@
+{
+  "name": "@trigora/pulse-node",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/host.ts"
+  },
+  "description": "Node effect adapter for the Trigora Pulse host. Effect callbacks are synchronous and run on this process's event loop; a slow callback blocks other executions that share this adapter. The Rust host stays responsive. Async callbacks are a follow-up.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --config ../../vitest.config.ts src",
+    "bench": "tsx src/bench.ts"
+  },
+  "dependencies": {
+    "@tcc-engine/frontend-typescript": "26.10.3",
+    "typescript": "^5.9.0"
+  }
+}

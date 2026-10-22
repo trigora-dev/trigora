@@ -12,7 +12,7 @@ use tcc_state::decode_continuation;
 use crate::authority::Authority;
 use crate::drive::{self, Answer, Memory, Step};
 use crate::error::{Error, Result};
-use crate::socket::{Connection, DispatchError, Listener};
+use crate::socket::{Connection, DispatchError, HostCommand, Listener};
 
 #[derive(Debug, Clone)]
 pub struct Dispatch {
@@ -59,6 +59,8 @@ enum Phase {
     Driving,
     WaitingForEffect,
     WaitingForCommit,
+    WaitingForAdapter,
+    Recovering,
     Suspended,
     Completed,
     Abandoned,
@@ -71,6 +73,7 @@ struct Slot {
     answer: Mutex<Option<Answer>>,
     confirm: Mutex<Option<std::result::Result<u64, String>>>,
     attempts: AtomicU32,
+    timeouts: AtomicU32,
 }
 
 struct Backlog {
@@ -177,25 +180,9 @@ impl Runtime {
     }
 
     pub fn start(&self, execution_id: &str) -> Result<()> {
-        self.inner
-            .authority
-            .open(execution_id, &self.inner.owner, self.inner.lease_ms)?;
-        let engine = Engine::start_with_args(
-            self.inner.artifact.clone(),
-            execution_id,
-            &self.inner.caps,
-            &[],
-        )
-        .map_err(|err| Error::new(err.to_string()))?;
-        self.inner.admit(
-            execution_id.to_string(),
-            engine,
-            Memory {
-                journal: BTreeMap::new(),
-                revision: 0,
-                last_effect: None,
-            },
-        );
+        if self.inner.accept_execution(execution_id)? {
+            self.inner.enqueue(execution_id.to_string());
+        }
         Ok(())
     }
 
@@ -270,6 +257,16 @@ impl Runtime {
         self.inner.abandoned.load(Ordering::SeqCst)
     }
 
+    pub fn waiting_for_adapter(&self) -> usize {
+        self.inner
+            .slots
+            .lock()
+            .expect("slots")
+            .values()
+            .filter(|slot| matches!(*slot.phase.lock().expect("phase"), Phase::WaitingForAdapter))
+            .count()
+    }
+
     pub fn inflight(&self) -> usize {
         self.inner.queue.lock().expect("queue").inflight
     }
@@ -322,13 +319,33 @@ fn accept_loop(inner: Arc<Inner>) {
                 let bearer = inner.listener.bearer().to_string();
                 let inner = Arc::clone(&inner);
                 std::thread::spawn(move || {
-                    if let Ok(connection) = Connection::handshake(stream, &bearer) {
-                        inner
-                            .connections
-                            .lock()
-                            .expect("connections")
-                            .push(connection);
-                    }
+                    let Ok((connection, reader)) = Connection::handshake(stream, &bearer) else {
+                        return;
+                    };
+                    let (tx, rx) = std::sync::mpsc::channel();
+                    connection.set_commands(tx);
+                    inner
+                        .connections
+                        .lock()
+                        .expect("connections")
+                        .push(Arc::clone(&connection));
+                    let commands = Arc::clone(&inner);
+                    let writer = Arc::clone(&connection);
+                    std::thread::spawn(move || {
+                        while let Ok(command) = rx.recv() {
+                            let HostCommand::Start(id) = command;
+                            match commands.accept_execution(&id) {
+                                Ok(true) => {
+                                    writer.reply_start(&id, Ok(()));
+                                    commands.enqueue(id);
+                                }
+                                Ok(false) => writer.reply_start(&id, Ok(())),
+                                Err(err) => writer.reply_start(&id, Err(err)),
+                            }
+                        }
+                    });
+                    connection.spawn_reader(reader);
+                    inner.reconcile();
                 });
             }
             Err(_) => break,
@@ -396,6 +413,11 @@ impl Inner {
     }
 
     fn launch(&self, id: String, engine: Engine, memory: Memory) {
+        self.insert_slot(id.clone(), engine, memory);
+        self.enqueue(id);
+    }
+
+    fn insert_slot(&self, id: String, engine: Engine, memory: Memory) {
         let slot = Arc::new(Slot {
             phase: Mutex::new(Phase::Runnable),
             engine: Mutex::new(Some(engine)),
@@ -403,9 +425,9 @@ impl Inner {
             answer: Mutex::new(None),
             confirm: Mutex::new(None),
             attempts: AtomicU32::new(0),
+            timeouts: AtomicU32::new(0),
         });
-        self.slots.lock().expect("slots").insert(id.clone(), slot);
-        self.enqueue(id);
+        self.slots.lock().expect("slots").insert(id, slot);
     }
 
     fn enqueue(&self, id: String) {
@@ -434,10 +456,58 @@ impl Inner {
         self.slots.lock().expect("slots").get(id).cloned()
     }
 
+    fn accept_execution(&self, execution_id: &str) -> Result<bool> {
+        if self.slot(execution_id).is_some() || self.in_backlog(execution_id) {
+            return Err(Error::new("execution id is already in use"));
+        }
+        self.authority
+            .open(execution_id, &self.owner, self.lease_ms)
+            .map_err(|err| {
+                if err.to_string() == "execution already exists" {
+                    Error::new("execution id is already in use")
+                } else {
+                    err
+                }
+            })?;
+        let engine = Engine::start_with_args(self.artifact.clone(), execution_id, &self.caps, &[])
+            .map_err(|err| Error::new(err.to_string()))?;
+        let memory = Memory {
+            journal: BTreeMap::new(),
+            revision: 0,
+            last_effect: None,
+        };
+        {
+            let mut queue = self.queue.lock().expect("queue");
+            if queue.inflight >= self.cap {
+                queue.backlog.push_back(Backlog {
+                    id: execution_id.to_string(),
+                    engine,
+                    memory,
+                });
+                queue.backlogged = true;
+                return Ok(false);
+            }
+            queue.inflight += 1;
+            queue.max_inflight = queue.max_inflight.max(queue.inflight);
+        }
+        self.insert_slot(execution_id.to_string(), engine, memory);
+        Ok(true)
+    }
+
+    fn in_backlog(&self, id: &str) -> bool {
+        self.queue
+            .lock()
+            .expect("queue")
+            .backlog
+            .iter()
+            .any(|item| item.id == id)
+    }
+
     fn finish(self: &Arc<Self>, id: &str, slot: &Arc<Slot>, step: Step) {
         match step {
-            Step::NeedEffect | Step::TimedOut => self.dispatch_effect(id, slot),
-            Step::Disconnected => self.abandon(id, slot),
+            Step::NeedEffect => self.dispatch_effect(id, slot, false),
+            Step::TimedOut => self.dispatch_effect(id, slot, true),
+            Step::Disconnected => self.park_for_adapter(id, slot),
             Step::Commit(commit) => self.begin_commit(id, slot, commit),
             Step::Suspended => self.settle(slot, Phase::Suspended, &self.suspended),
             Step::Finished => self.settle(slot, Phase::Completed, &self.completed),
@@ -448,16 +518,29 @@ impl Inner {
         }
     }
 
-    fn dispatch_effect(self: &Arc<Self>, id: &str, slot: &Arc<Slot>) {
-        let attempt = slot.attempts.fetch_add(1, Ordering::SeqCst) + 1;
-        if attempt > self.max_effect_attempts {
-            self.abandon(id, slot);
-            return;
-        }
+    fn dispatch_effect(self: &Arc<Self>, id: &str, slot: &Arc<Slot>, from_timeout: bool) {
         let Some(last) = slot.memory.lock().expect("memory").last_effect.clone() else {
             self.abandon(id, slot);
             return;
         };
+        if !self.has_adapter(&last.key) {
+            self.note_failure(
+                id,
+                format!("no adapter registered for effect `{}`", last.key),
+            );
+            *slot.phase.lock().expect("phase") = Phase::WaitingForAdapter;
+            return;
+        }
+        if from_timeout {
+            let timeouts = slot.timeouts.fetch_add(1, Ordering::SeqCst) + 1;
+            if timeouts >= self.max_effect_attempts {
+                self.abandon(id, slot);
+                return;
+            }
+        } else {
+            slot.timeouts.store(0, Ordering::SeqCst);
+        }
+        let attempt = slot.attempts.fetch_add(1, Ordering::SeqCst) + 1;
         let attempt_id = format!("{id}:{attempt}");
         *slot.phase.lock().expect("phase") = Phase::WaitingForEffect;
         self.dispatches.lock().expect("dispatches").push(Dispatch {
@@ -587,6 +670,133 @@ impl Inner {
         *slot.engine.lock().expect("engine") = None;
         counter.fetch_add(1, Ordering::SeqCst);
         self.release_inflight();
+    }
+
+    fn has_adapter(&self, key: &str) -> bool {
+        let connections = self.connections.lock().expect("connections");
+        let hash = &self.artifact.envelope.artifact_hash;
+        connections.iter().any(|connection| {
+            connection.alive()
+                && connection.artifact_hash == *hash
+                && connection.keys.iter().any(|known| known == key)
+        })
+    }
+
+    fn reconcile(self: &Arc<Self>) {
+        let ids: Vec<String> = self.slots.lock().expect("slots").keys().cloned().collect();
+        for id in ids {
+            self.reconcile_one(&id);
+        }
+    }
+
+    /// Resume only an execution that is waiting for this adapter's effect key.
+    /// A suspended sleep or event stays suspended. A running engine is left in place.
+    fn reconcile_one(self: &Arc<Self>, id: &str) {
+        let Some(slot) = self.slot(id) else {
+            return;
+        };
+        let key = {
+            let memory = slot.memory.lock().expect("memory");
+            memory.last_effect.as_ref().map(|effect| effect.key.clone())
+        };
+        let Some(key) = key else {
+            return;
+        };
+        if !self.has_adapter(&key) {
+            return;
+        }
+        let restore = {
+            let mut phase = slot.phase.lock().expect("phase");
+            if !matches!(*phase, Phase::WaitingForAdapter) {
+                return;
+            }
+            if slot.engine.lock().expect("engine").is_some() {
+                *phase = Phase::Runnable;
+                false
+            } else {
+                *phase = Phase::Recovering;
+                true
+            }
+        };
+        if restore {
+            self.install_resumed(id, &slot);
+        } else {
+            self.enqueue(id.to_string());
+        }
+    }
+
+    fn install_resumed(self: &Arc<Self>, id: &str, slot: &Slot) {
+        match self.restore_engine(id) {
+            Ok((engine, memory)) => {
+                *slot.engine.lock().expect("engine") = Some(engine);
+                *slot.memory.lock().expect("memory") = memory;
+                *slot.phase.lock().expect("phase") = Phase::Runnable;
+                self.enqueue(id.to_string());
+            }
+            Err(err) => {
+                self.note_failure(id, err.to_string());
+                *slot.phase.lock().expect("phase") = Phase::WaitingForAdapter;
+            }
+        }
+    }
+
+    fn restore_engine(&self, execution_id: &str) -> Result<(Engine, Memory)> {
+        let started = Instant::now();
+        let claimed = self
+            .authority
+            .claim(execution_id, &self.owner, self.lease_ms)?;
+        let engine = if let Some(bytes) = &claimed.continuation {
+            let continuation =
+                decode_continuation(bytes).map_err(|err| Error::new(format!("restore: {err}")))?;
+            if continuation.artifact.hash != self.artifact.envelope.artifact_hash {
+                return Err(Error::new("artifact hash does not match the continuation"));
+            }
+            let mut engine = Engine::resume(self.artifact.clone(), continuation, &self.caps)
+                .map_err(|err| Error::new(err.to_string()))?;
+            if claimed.timer_due {
+                engine
+                    .apply_host_response(HostResponse::TimerFired { branch: None })
+                    .map_err(|err| Error::new(err.to_string()))?;
+            }
+            engine
+        } else {
+            Engine::start_with_args(self.artifact.clone(), execution_id, &self.caps, &[])
+                .map_err(|err| Error::new(err.to_string()))?
+        };
+        self.timings
+            .lock()
+            .expect("timings")
+            .restore
+            .push(started.elapsed());
+        Ok((
+            engine,
+            Memory {
+                journal: claimed.journal,
+                revision: claimed.revision,
+                last_effect: None,
+            },
+        ))
+    }
+
+    fn park_for_adapter(self: &Arc<Self>, id: &str, slot: &Arc<Slot>) {
+        {
+            let mut phase = slot.phase.lock().expect("phase");
+            if matches!(
+                *phase,
+                Phase::Suspended
+                    | Phase::Completed
+                    | Phase::Abandoned
+                    | Phase::WaitingForAdapter
+                    | Phase::Recovering
+            ) {
+                return;
+            }
+            // The engine is still at the outstanding effect, which is the last
+            // committed revision. A late result is ignored because this attempt
+            // is no longer `WaitingForEffect`.
+            *phase = Phase::WaitingForAdapter;
+        }
+        self.reconcile_one(id);
     }
 
     fn note_failure(&self, id: &str, message: String) {
