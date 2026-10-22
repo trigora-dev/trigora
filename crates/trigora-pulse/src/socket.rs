@@ -7,7 +7,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
@@ -226,14 +226,40 @@ pub(crate) fn read_frame(stream: &mut impl Read) -> io::Result<Frame> {
 }
 
 pub(crate) fn write_frame(stream: &mut impl Write, frame: &Frame) -> io::Result<()> {
+    write_frame_timed(stream, frame).map(|_| ())
+}
+
+/// Serialize first, then time only the socket write of the finished frame.
+fn write_frame_timed(stream: &mut impl Write, frame: &Frame) -> io::Result<Duration> {
     let buf =
         serde_json::to_vec(frame).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
     let len = u32::try_from(buf.len())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "frame too large"))?;
+    let started = Instant::now();
     stream.write_all(&len.to_be_bytes())?;
     stream.write_all(&buf)?;
     stream.flush()?;
-    Ok(())
+    Ok(started.elapsed())
+}
+
+fn wait_readable(stream: &UnixStream) -> io::Result<()> {
+    let fd = stream.as_raw_fd();
+    loop {
+        let mut pollfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let rc = unsafe { libc::poll(&mut pollfd, 1, -1) };
+        if rc < 0 {
+            let err = io::Error::last_os_error();
+            if err.kind() == io::ErrorKind::Interrupted {
+                continue;
+            }
+            return Err(err);
+        }
+        return Ok(());
+    }
 }
 
 enum Inbound {
@@ -251,6 +277,7 @@ pub(crate) struct Connection {
     pub keys: Vec<String>,
     writer: Mutex<UnixStream>,
     pending: Mutex<HashMap<(String, String), std::sync::mpsc::Sender<Inbound>>>,
+    reads: Mutex<HashMap<(String, String), Duration>>,
     commands: Mutex<Option<std::sync::mpsc::Sender<HostCommand>>>,
     alive: AtomicBool,
 }
@@ -308,6 +335,7 @@ impl Connection {
             keys,
             writer: Mutex::new(stream),
             pending: Mutex::new(HashMap::new()),
+            reads: Mutex::new(HashMap::new()),
             commands: Mutex::new(None),
             alive: AtomicBool::new(true),
         });
@@ -355,16 +383,16 @@ impl Connection {
         key: &str,
         input: &str,
         timeout: Duration,
-    ) -> std::result::Result<String, DispatchError> {
+    ) -> TransportSample {
         if !self.alive() || !self.keys.iter().any(|known| known == key) {
-            return Err(DispatchError::Unavailable);
+            return TransportSample::failed(DispatchError::Unavailable);
         }
         let (tx, rx) = std::sync::mpsc::channel();
         self.pending
             .lock()
             .expect("pending")
             .insert((execution_id.to_string(), attempt_id.to_string()), tx);
-        let write = write_frame(
+        let write = write_frame_timed(
             &mut *self.writer.lock().expect("writer"),
             &Frame::Effect {
                 execution_id: execution_id.to_string(),
@@ -373,11 +401,12 @@ impl Connection {
                 input: input.to_string(),
             },
         );
-        if write.is_err() {
+        let Ok(socket_write) = write else {
             self.fail_all();
-            return Err(DispatchError::Disconnected);
-        }
-        match rx.recv_timeout(timeout) {
+            return TransportSample::failed(DispatchError::Disconnected);
+        };
+        let sent = Instant::now();
+        let outcome = match rx.recv_timeout(timeout) {
             Ok(Inbound::Value(value)) => Ok(value),
             Ok(Inbound::Failed(message)) => Err(DispatchError::Failed(message)),
             Ok(Inbound::Gone) => Err(DispatchError::Disconnected),
@@ -391,28 +420,46 @@ impl Connection {
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 Err(DispatchError::Disconnected)
             }
+        };
+        let key = (execution_id.to_string(), attempt_id.to_string());
+        let socket_read = self.reads.lock().expect("reads").remove(&key);
+        TransportSample {
+            outcome,
+            socket_write,
+            socket_read: socket_read.unwrap_or_default(),
+            round_trip: sent.elapsed(),
         }
     }
 
     fn read_loop(self: Arc<Self>, mut reader: UnixStream) {
         loop {
+            if wait_readable(&reader).is_err() {
+                self.fail_all();
+                return;
+            }
+            let started = Instant::now();
             match read_frame(&mut reader) {
-                Ok(Frame::EffectResult {
-                    execution_id,
-                    attempt_id,
-                    value,
-                }) => self.deliver(execution_id, attempt_id, Inbound::Value(value)),
-                Ok(Frame::EffectError {
-                    execution_id,
-                    attempt_id,
-                    message,
-                }) => self.deliver(execution_id, attempt_id, Inbound::Failed(message)),
-                Ok(Frame::Start { execution_id }) => {
-                    if let Some(sender) = self.commands.lock().expect("commands").as_ref() {
-                        let _ = sender.send(HostCommand::Start(execution_id));
+                Ok(frame) => {
+                    let read = started.elapsed();
+                    match frame {
+                        Frame::EffectResult {
+                            execution_id,
+                            attempt_id,
+                            value,
+                        } => self.deliver(execution_id, attempt_id, Inbound::Value(value), read),
+                        Frame::EffectError {
+                            execution_id,
+                            attempt_id,
+                            message,
+                        } => self.deliver(execution_id, attempt_id, Inbound::Failed(message), read),
+                        Frame::Start { execution_id } => {
+                            if let Some(sender) = self.commands.lock().expect("commands").as_ref() {
+                                let _ = sender.send(HostCommand::Start(execution_id));
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                Ok(_) => {}
                 Err(_) => {
                     self.fail_all();
                     return;
@@ -421,12 +468,10 @@ impl Connection {
         }
     }
 
-    fn deliver(&self, execution_id: String, attempt_id: String, result: Inbound) {
-        let sender = self
-            .pending
-            .lock()
-            .expect("pending")
-            .remove(&(execution_id, attempt_id));
+    fn deliver(&self, execution_id: String, attempt_id: String, result: Inbound, read: Duration) {
+        let key = (execution_id, attempt_id);
+        self.reads.lock().expect("reads").insert(key.clone(), read);
+        let sender = self.pending.lock().expect("pending").remove(&key);
         if let Some(sender) = sender {
             let _ = sender.send(result);
         }
@@ -446,6 +491,26 @@ pub(crate) enum DispatchError {
     Disconnected,
     Unavailable,
     Failed(String),
+}
+
+/// Socket write is the finished request frame. Socket read starts once the
+/// response's first byte is readable. Round trip includes the callback.
+pub(crate) struct TransportSample {
+    pub outcome: std::result::Result<String, DispatchError>,
+    pub socket_write: Duration,
+    pub socket_read: Duration,
+    pub round_trip: Duration,
+}
+
+impl TransportSample {
+    pub(crate) fn failed(outcome: DispatchError) -> Self {
+        Self {
+            outcome: Err(outcome),
+            socket_write: Duration::ZERO,
+            socket_read: Duration::ZERO,
+            round_trip: Duration::ZERO,
+        }
+    }
 }
 
 /// Test and binary client. Authentication happens before register or dispatch.

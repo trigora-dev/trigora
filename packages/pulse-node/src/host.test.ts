@@ -116,6 +116,102 @@ describe('pulse node adapter', () => {
   });
 });
 
+const oneEffect = `import { effect } from '@trigora/sdk';
+
+export default async function program() {
+  return await effect('work', () => 1);
+}
+`;
+
+describe('async effect callbacks', () => {
+  it('runs another execution while a promise is pending', async () => {
+    let release: (value: number) => void = () => undefined;
+    const seen: string[] = [];
+    const pulse = await Pulse.open({
+      source: oneEffect,
+      bin: pulseBin(),
+      onEffect: (_key, executionId) => seen.push(executionId),
+    });
+    let first = true;
+    pulse.setHandler('work', () => {
+      if (first) {
+        first = false;
+        return new Promise<number>((resolve) => {
+          release = resolve;
+        });
+      }
+      return 1;
+    });
+    try {
+      await pulse.start('slow');
+      await waitFor(() => seen.includes('slow'));
+      await pulse.start('fast');
+      await waitFor(() => seen.includes('fast'));
+      expect(seen).toEqual(['slow', 'fast']);
+      release(1);
+    } finally {
+      await pulse.close();
+    }
+  });
+
+  it('lets a synchronous callback block the other execution', async () => {
+    const seen: number[] = [];
+    const pulse = await Pulse.open({
+      source: oneEffect,
+      bin: pulseBin(),
+      onEffect: () => seen.push(Date.now()),
+    });
+    pulse.setHandler('work', () => {
+      const started = Date.now();
+      while (Date.now() - started < 120) {
+        // A synchronous callback occupies this Node process.
+      }
+      return 1;
+    });
+    try {
+      await pulse.start('first');
+      await pulse.start('second');
+      await waitFor(() => seen.length >= 2);
+      const first = seen[0] ?? 0;
+      const second = seen[1] ?? 0;
+      expect(second - first).toBeGreaterThanOrEqual(100);
+    } finally {
+      await pulse.close();
+    }
+  });
+
+  it('does not journal a promise that resolves after its attempt was replaced', async () => {
+    let release: (value: number) => void = () => undefined;
+    const attempts: string[] = [];
+    const pulse = await Pulse.open({
+      source: oneEffect,
+      bin: pulseBin(),
+      timings: true,
+      effectTimeoutMs: 300,
+      onEffect: (_key, _executionId, attemptId) => attempts.push(attemptId),
+    });
+    let first = true;
+    pulse.setHandler('work', () => {
+      if (first) {
+        first = false;
+        return new Promise<number>((resolve) => {
+          release = resolve;
+        });
+      }
+      return 2;
+    });
+    try {
+      await pulse.start('late');
+      await waitFor(() => attempts.length >= 2);
+      release(1);
+      await waitFor(() => pulse.hostSpans().some((span) => span.attemptId.endsWith(':2')));
+      expect(pulse.hostSpans().some((span) => span.attemptId.endsWith(':1'))).toBe(false);
+    } finally {
+      await pulse.close();
+    }
+  }, 15_000);
+});
+
 async function waitFor(ready: () => boolean): Promise<void> {
   const started = Date.now();
   while (!ready()) {

@@ -12,7 +12,7 @@ use tcc_state::decode_continuation;
 use crate::authority::Authority;
 use crate::drive::{self, Answer, Memory, Step};
 use crate::error::{Error, Result};
-use crate::socket::{Connection, DispatchError, HostCommand, Listener};
+use crate::socket::{Connection, DispatchError, HostCommand, Listener, TransportSample};
 
 #[derive(Debug, Clone)]
 pub struct Dispatch {
@@ -22,10 +22,27 @@ pub struct Dispatch {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct Span {
+    pub execution_id: String,
+    pub attempt_id: String,
+    pub drive: Duration,
+    pub encode_input: Duration,
+    pub schedule: Duration,
+    pub socket_write: Duration,
+    pub socket_read: Duration,
+    pub round_trip: Duration,
+    pub decode_result: Duration,
+    pub journal: Duration,
+    pub continuation: Duration,
+    pub commit: Duration,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Timings {
     pub socket: Vec<Duration>,
     pub commit: Vec<Duration>,
     pub restore: Vec<Duration>,
+    pub spans: Vec<Span>,
 }
 
 pub struct Config {
@@ -66,12 +83,27 @@ enum Phase {
     Abandoned,
 }
 
+#[derive(Default)]
+struct Partial {
+    drive: Duration,
+    encode_input: Duration,
+    schedule: Duration,
+    socket_write: Duration,
+    socket_read: Duration,
+    round_trip: Duration,
+    decode_result: Duration,
+    journal: Duration,
+    continuation: Duration,
+    attempt_id: String,
+}
+
 struct Slot {
     phase: Mutex<Phase>,
     engine: Mutex<Option<Engine>>,
     memory: Mutex<Memory>,
     answer: Mutex<Option<Answer>>,
     confirm: Mutex<Option<std::result::Result<u64, String>>>,
+    partial: Mutex<Partial>,
     attempts: AtomicU32,
     timeouts: AtomicU32,
 }
@@ -115,6 +147,7 @@ struct Inner {
     dispatches: Mutex<Vec<Dispatch>>,
     failures: Mutex<Vec<(String, String)>>,
     timings: Mutex<Timings>,
+    log_timings: bool,
     workers: Mutex<Vec<JoinHandle<()>>>,
     accept: Mutex<Option<JoinHandle<()>>>,
 }
@@ -160,6 +193,7 @@ impl Runtime {
             dispatches: Mutex::new(Vec::new()),
             failures: Mutex::new(Vec::new()),
             timings: Mutex::new(Timings::default()),
+            log_timings: std::env::var("TRIGORA_PULSE_TIMINGS").ok().as_deref() == Some("1"),
             workers: Mutex::new(Vec::new()),
             accept: Mutex::new(None),
         });
@@ -295,6 +329,10 @@ impl Runtime {
         self.inner.timings.lock().expect("timings").clone()
     }
 
+    pub fn clear_timings(&self) {
+        *self.inner.timings.lock().expect("timings") = Timings::default();
+    }
+
     pub fn shutdown(&self) {
         self.inner.shutdown();
     }
@@ -378,14 +416,18 @@ fn worker_loop(inner: Arc<Inner>) {
                 continue;
             };
             let mut memory = slot.memory.lock().expect("memory");
-            drive::turn(drive::Turn {
+            let mut cost = drive::Cost::default();
+            let step = drive::turn(drive::Turn {
                 engine,
                 memory: &mut memory,
                 execution_id: id.clone(),
                 owner_token: inner.owner.clone(),
                 answer,
                 confirm,
-            })
+                cost: &mut cost,
+            });
+            inner.note_cost(&slot, cost);
+            step
         };
         match step {
             Ok(step) => inner.finish(&id, &slot, step),
@@ -424,6 +466,7 @@ impl Inner {
             memory: Mutex::new(memory),
             answer: Mutex::new(None),
             confirm: Mutex::new(None),
+            partial: Mutex::new(Partial::default()),
             attempts: AtomicU32::new(0),
             timeouts: AtomicU32::new(0),
         });
@@ -550,16 +593,12 @@ impl Inner {
         });
         let inner = Arc::clone(self);
         let id = id.to_string();
+        let decided = Instant::now();
+        let slot = Arc::clone(slot);
         std::thread::spawn(move || {
-            let started = Instant::now();
-            let dispatched = inner.hub_dispatch(&id, &attempt_id, &last.key, &last.input);
-            inner
-                .timings
-                .lock()
-                .expect("timings")
-                .socket
-                .push(started.elapsed());
-            let answer = match dispatched {
+            let sample = inner.hub_dispatch(&id, &attempt_id, &last.key, &last.input);
+            inner.note_transport(&slot, &attempt_id, decided, &sample);
+            let answer = match sample.outcome {
                 Ok(value) => Answer::Value(value),
                 Err(DispatchError::Timeout) => Answer::TimedOut,
                 Err(DispatchError::Failed(message)) => Answer::Failed(message),
@@ -577,7 +616,7 @@ impl Inner {
         attempt_id: &str,
         key: &str,
         input: &str,
-    ) -> std::result::Result<String, DispatchError> {
+    ) -> TransportSample {
         let connections = self.connections.lock().expect("connections").clone();
         let hash = &self.artifact.envelope.artifact_hash;
         for connection in connections {
@@ -594,7 +633,7 @@ impl Inner {
                 );
             }
         }
-        Err(DispatchError::Unavailable)
+        TransportSample::failed(DispatchError::Unavailable)
     }
 
     fn deliver_answer(&self, id: String, attempt_id: String, answer: Answer) {
@@ -632,17 +671,97 @@ impl Inner {
         std::thread::spawn(move || {
             let started = Instant::now();
             let result = inner.authority.commit(&commit);
-            inner
-                .timings
-                .lock()
-                .expect("timings")
-                .commit
-                .push(started.elapsed());
-            inner.deliver_confirm(id, result);
+            let commit = started.elapsed();
+            inner.timings.lock().expect("timings").commit.push(commit);
+            inner.deliver_confirm(id, result, commit);
         });
     }
 
-    fn deliver_confirm(&self, id: String, result: Result<crate::authority::CommitResult>) {
+    fn note_cost(&self, slot: &Slot, cost: drive::Cost) {
+        let mut partial = slot.partial.lock().expect("partial");
+        if let Some(drive) = cost.drive {
+            partial.drive = drive;
+        }
+        if let Some(encode_input) = cost.encode_input {
+            partial.encode_input = encode_input;
+        }
+        if let Some(decode_result) = cost.decode_result {
+            partial.decode_result = decode_result;
+        }
+        if let Some(journal) = cost.journal {
+            partial.journal = journal;
+        }
+        if let Some(continuation) = cost.continuation {
+            partial.continuation = continuation;
+        }
+    }
+
+    fn note_transport(
+        &self,
+        slot: &Slot,
+        attempt_id: &str,
+        decided: Instant,
+        sample: &TransportSample,
+    ) {
+        let mut partial = slot.partial.lock().expect("partial");
+        partial.attempt_id = attempt_id.to_string();
+        partial.schedule = decided
+            .elapsed()
+            .saturating_sub(sample.socket_write + sample.round_trip);
+        partial.socket_write = sample.socket_write;
+        partial.socket_read = sample.socket_read;
+        partial.round_trip = sample.round_trip;
+    }
+
+    fn record_span(&self, id: &str, slot: &Slot, commit: Duration) {
+        let partial = std::mem::take(&mut *slot.partial.lock().expect("partial"));
+        if partial.attempt_id.is_empty() {
+            return;
+        }
+        let span = Span {
+            execution_id: id.to_string(),
+            attempt_id: partial.attempt_id,
+            drive: partial.drive,
+            encode_input: partial.encode_input,
+            schedule: partial.schedule,
+            socket_write: partial.socket_write,
+            socket_read: partial.socket_read,
+            round_trip: partial.round_trip,
+            decode_result: partial.decode_result,
+            journal: partial.journal,
+            continuation: partial.continuation,
+            commit,
+        };
+        if self.log_timings {
+            eprintln!(
+                "pulse-span {}",
+                serde_json::json!({
+                    "executionId": span.execution_id,
+                    "attemptId": span.attempt_id,
+                    "driveUs": span.drive.as_micros(),
+                    "encodeInputUs": span.encode_input.as_micros(),
+                    "scheduleUs": span.schedule.as_micros(),
+                    "socketWriteUs": span.socket_write.as_micros(),
+                    "socketReadUs": span.socket_read.as_micros(),
+                    "roundTripUs": span.round_trip.as_micros(),
+                    "decodeResultUs": span.decode_result.as_micros(),
+                    "journalUs": span.journal.as_micros(),
+                    "continuationUs": span.continuation.as_micros(),
+                    "commitUs": span.commit.as_micros(),
+                })
+            );
+        }
+        let mut timings = self.timings.lock().expect("timings");
+        timings.socket.push(span.round_trip);
+        timings.spans.push(span);
+    }
+
+    fn deliver_confirm(
+        &self,
+        id: String,
+        result: Result<crate::authority::CommitResult>,
+        commit: Duration,
+    ) {
         let Some(slot) = self.slot(&id) else {
             return;
         };
@@ -653,6 +772,7 @@ impl Inner {
         match result {
             Ok(done) if done.owner.as_deref() == Some(self.owner.as_str()) => {
                 self.commits_done.fetch_add(1, Ordering::SeqCst);
+                self.record_span(&id, &slot, commit);
                 *slot.confirm.lock().expect("confirm") = Some(Ok(done.revision));
                 *phase = Phase::Runnable;
                 drop(phase);

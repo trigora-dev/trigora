@@ -30,10 +30,11 @@ export function compileProgram(
   source: string,
   filename: string,
   programId: string,
+  options?: { allowPromise?: boolean },
 ): CompiledProgram {
   const artifact = compile(source, { filename });
   const sources = extractTypeScriptEffectSources(source, filename);
-  const handlers = extractTypeScriptEffects(source, filename);
+  const handlers = extractTypeScriptEffects(source, filename, options);
   return {
     artifactJson: JSON.stringify(artifact),
     artifactHash: artifact.envelope.artifact_hash,

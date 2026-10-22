@@ -11,7 +11,7 @@ pub use authority::{
 };
 pub use error::{Error, Result};
 pub use socket::{listen, Adapter, EffectRequest, Frame, Listener, Reply};
-pub use supervisor::{Config, Dispatch, Runtime, Timings};
+pub use supervisor::{Config, Dispatch, Runtime, Span, Timings};
 
 #[cfg(test)]
 mod tests;

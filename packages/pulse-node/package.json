@@ -6,7 +6,7 @@
   "exports": {
     ".": "./src/host.ts"
   },
-  "description": "Node effect adapter for the Trigora Pulse host. Effect callbacks are synchronous and run on this process's event loop; a slow callback blocks other executions that share this adapter. The Rust host stays responsive. Async callbacks are a follow-up.",
+  "description": "Node effect adapter for the Trigora Pulse host. A promise blocks only its execution. A synchronous callback runs on this process's event loop and blocks other executions that share this adapter. The Rust host stays responsive.",
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",

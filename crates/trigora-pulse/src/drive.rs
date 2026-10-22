@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 
 use tcc_core::{EffectStatus, Engine, EngineOutcome, HostRequest, HostResponse};
 use tcc_state::{decode_value, encode_continuation, encode_value, Value};
@@ -37,6 +38,15 @@ pub(crate) enum Step {
     Failed(String),
 }
 
+#[derive(Default)]
+pub(crate) struct Cost {
+    pub drive: Option<Duration>,
+    pub encode_input: Option<Duration>,
+    pub decode_result: Option<Duration>,
+    pub journal: Option<Duration>,
+    pub continuation: Option<Duration>,
+}
+
 pub(crate) struct Turn<'a> {
     pub engine: &'a mut Engine,
     pub memory: &'a mut Memory,
@@ -44,6 +54,7 @@ pub(crate) struct Turn<'a> {
     pub owner_token: String,
     pub answer: Option<Answer>,
     pub confirm: Option<std::result::Result<u64, String>>,
+    pub cost: &'a mut Cost,
 }
 
 pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
@@ -58,6 +69,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
         owner_token,
         answer,
         confirm,
+        cost,
     } = turn;
 
     if let Some(confirm) = confirm {
@@ -82,8 +94,10 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                     .map_err(|err| Error::new(err.to_string()))?;
             }
             Answer::Value(encoded) => {
+                let started = Instant::now();
                 let value = decode_value(encoded.as_bytes())
                     .map_err(|err| Error::new(format!("effect value: {err}")))?;
+                cost.decode_result = Some(started.elapsed());
                 engine
                     .apply_host_response(HostResponse::EffectResult { value })
                     .map_err(|err| Error::new(err.to_string()))?;
@@ -91,6 +105,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
         }
     }
 
+    let drove = Instant::now();
     loop {
         match engine.run_until_host(BUDGET) {
             EngineOutcome::Host(request) => match request {
@@ -99,10 +114,13 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                     idempotency_key: _,
                     input,
                 } => {
+                    cost.drive = Some(drove.elapsed());
+                    let encoding = Instant::now();
                     let encoded = encode_value(&input)
                         .map_err(|err| Error::new(format!("effect input: {err}")))?;
                     let encoded = String::from_utf8(encoded)
                         .map_err(|_| Error::new("effect input is not utf-8"))?;
+                    cost.encode_input = Some(encoding.elapsed());
                     if let Some(row) = memory.journal.get(&key) {
                         if row.input != encoded {
                             return Ok(Step::Failed(format!(
@@ -139,6 +157,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                     if last.key != record.key {
                         return Ok(Step::Failed("effect journal key mismatch".into()));
                     }
+                    let journaling = Instant::now();
                     let result = match &record.result {
                         Some(value) => encode_owned(value)?,
                         None => encode_owned(&Value::Undefined)?,
@@ -158,6 +177,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                             result,
                         },
                     );
+                    cost.journal = Some(journaling.elapsed());
                     engine
                         .apply_host_response(HostResponse::Ack)
                         .map_err(|err| Error::new(err.to_string()))?;
@@ -186,8 +206,10 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                         )));
                     }
                     snapshot.revision = revision;
+                    let encoding = Instant::now();
                     let bytes = encode_continuation(&snapshot)
                         .map_err(|err| Error::new(format!("encode continuation: {err}")))?;
+                    cost.continuation = Some(encoding.elapsed());
                     return Ok(Step::Commit(Commit {
                         execution_id,
                         owner_token,

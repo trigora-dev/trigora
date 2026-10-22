@@ -30,7 +30,7 @@ function collectEffectAliases(sourceFile: ts.SourceFile): Set<string> {
   return aliases;
 }
 
-function compileHandler(source: string): (input?: unknown) => unknown {
+function compileHandler(source: string, allowPromise: boolean): (input?: unknown) => unknown {
   const factory = new Function(`"use strict"; return (${source});`) as () => (
     input?: unknown,
   ) => unknown;
@@ -38,7 +38,7 @@ function compileHandler(source: string): (input?: unknown) => unknown {
 
   return (input?: unknown) => {
     const result = handler(input ?? {});
-    if (result && typeof result === 'object' && 'then' in result) {
+    if (!allowPromise && result && typeof result === 'object' && 'then' in result) {
       throw new Error('Effect callbacks must be synchronous in the local preview.');
     }
     return result;
@@ -48,6 +48,7 @@ function compileHandler(source: string): (input?: unknown) => unknown {
 export function extractTypeScriptEffects(
   source: string,
   filename = 'program.ts',
+  options?: { allowPromise?: boolean },
 ): Record<string, (input?: unknown) => unknown> {
   const sourceFile = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   const aliases = collectEffectAliases(sourceFile);
@@ -63,7 +64,7 @@ export function extractTypeScriptEffects(
     ) {
       const key = node.arguments[0].text;
       const callback = node.arguments[1]!;
-      effects[key] = compileHandler(callback.getText(sourceFile));
+      effects[key] = compileHandler(callback.getText(sourceFile), options?.allowPromise === true);
     }
 
     ts.forEachChild(node, visit);

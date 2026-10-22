@@ -5,7 +5,7 @@ import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { compileProgram, runHandler } from '../../cli/src/tsAdapter.ts';
+import { compileProgram } from '../../cli/src/tsAdapter.ts';
 
 import { fromPlain, toPlain } from './value.ts';
 
@@ -39,15 +39,40 @@ export type PulseOptions = {
   dir?: string;
   /** Replaces the compiled artifact bytes. The envelope hash is what the host loads. */
   artifactJson?: string;
-  /** Called before the synchronous handler. Used to observe dispatch. */
+  /** Ask the host to print one `pulse-span` JSON line per committed effect. */
+  timings?: boolean;
+  effectTimeoutMs?: number;
+  /** Called before the handler. Used to observe dispatch. */
   onEffect?: (key: string, executionId: string, attemptId: string) => void;
 };
 
+export type NodeSpan = {
+  executionId: string;
+  attemptId: string;
+  toPlainUs: number;
+  handlerUs: number;
+  fromPlainUs: number;
+};
+
+export type HostSpan = {
+  executionId: string;
+  attemptId: string;
+  driveUs: number;
+  encodeInputUs: number;
+  scheduleUs: number;
+  socketWriteUs: number;
+  socketReadUs: number;
+  roundTripUs: number;
+  decodeResultUs: number;
+  journalUs: number;
+  continuationUs: number;
+  commitUs: number;
+};
+
 /**
- * Effect callbacks are synchronous, matching the CLI extractor.
- * `runHandler` runs on this process's event loop, so one slow callback blocks
- * every other execution using this adapter. The Rust host does not share that loop.
- * Async JavaScript callbacks are the follow-up after Phase 2.
+ * A promise settles later and blocks only that execution. A synchronous callback
+ * still runs on this process's event loop, so one slow callback blocks every
+ * other execution using this adapter. The Rust host does not share that loop.
  */
 export class Pulse {
   private buffer = Buffer.alloc(0);
@@ -58,6 +83,8 @@ export class Pulse {
   private readonly handlers: Record<string, (input?: unknown) => unknown>;
   private readonly artifactHash: string;
   private readonly onEffect?: PulseOptions['onEffect'];
+  private readStderr: () => string = () => '';
+  readonly nodeSpans: NodeSpan[] = [];
 
   private constructor(
     socket: net.Socket,
@@ -81,6 +108,7 @@ export class Pulse {
       options.source,
       options.filename ?? 'src/program.ts',
       options.programId ?? 'program',
+      { allowPromise: true },
     );
     const artifactJson = options.artifactJson ?? compiled.artifactJson;
     const artifact = JSON.parse(artifactJson) as {
@@ -93,6 +121,13 @@ export class Pulse {
     fs.writeFileSync(artifactPath, artifactJson);
     const child = spawn(options.bin, [dir, artifactPath], {
       stdio: ['ignore', 'ignore', 'pipe'],
+      env: {
+        ...process.env,
+        TRIGORA_PULSE_TIMINGS: options.timings ? '1' : '',
+        ...(options.effectTimeoutMs === undefined
+          ? {}
+          : { TRIGORA_PULSE_EFFECT_TIMEOUT_MS: String(options.effectTimeoutMs) }),
+      },
     });
     let stderr = '';
     child.on('error', (error) => {
@@ -110,6 +145,7 @@ export class Pulse {
       child,
       options.onEffect,
     );
+    pulse.readStderr = () => stderr;
     return pulse;
   }
 
@@ -173,6 +209,31 @@ export class Pulse {
 
   directory(): string {
     return this.dir;
+  }
+
+  pid(): number | undefined {
+    return this.child?.pid;
+  }
+
+  /** Replaces one extracted callback. A returned promise blocks only that execution. */
+  setHandler(key: string, handler: (input?: unknown) => unknown): void {
+    this.handlers[key] = handler;
+  }
+
+  hostSpans(): HostSpan[] {
+    const text = this.readStderr();
+    const lines = text.split('\n');
+    if (!text.endsWith('\n')) {
+      lines.pop();
+    }
+    const spans: HostSpan[] = [];
+    for (const line of lines) {
+      if (!line.startsWith('pulse-span ')) {
+        continue;
+      }
+      spans.push(JSON.parse(line.slice('pulse-span '.length)) as HostSpan);
+    }
+    return spans;
   }
 
   private static async connect(
@@ -288,17 +349,10 @@ export class Pulse {
       });
       return;
     }
+    const plainStarted = performance.now();
+    let plain: unknown;
     try {
-      const value = runHandler(handler, toPlain(frame.input ?? ''));
-      if (!this.socket.writable) {
-        return;
-      }
-      this.send({
-        type: 'effectResult',
-        executionId,
-        attemptId,
-        value: fromPlain(value),
-      });
+      plain = toPlain(frame.input ?? '');
     } catch (error) {
       this.send({
         type: 'effectError',
@@ -306,8 +360,111 @@ export class Pulse {
         attemptId,
         message: error instanceof Error ? error.message : String(error),
       });
+      return;
     }
+    const toPlainUs = (performance.now() - plainStarted) * 1000;
+    const callStarted = performance.now();
+    let returned: unknown;
+    try {
+      returned = handler(plain ?? {});
+    } catch (error) {
+      this.nodeSpans.push({
+        executionId,
+        attemptId,
+        toPlainUs,
+        handlerUs: (performance.now() - callStarted) * 1000,
+        fromPlainUs: 0,
+      });
+      this.send({
+        type: 'effectError',
+        executionId,
+        attemptId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+    if (isPromise(returned)) {
+      void Promise.resolve(returned).then(
+        (value) => {
+          this.finishValue(
+            executionId,
+            attemptId,
+            value,
+            toPlainUs,
+            (performance.now() - callStarted) * 1000,
+          );
+        },
+        (error: unknown) => {
+          this.nodeSpans.push({
+            executionId,
+            attemptId,
+            toPlainUs,
+            handlerUs: (performance.now() - callStarted) * 1000,
+            fromPlainUs: 0,
+          });
+          if (!this.socket.writable) {
+            return;
+          }
+          this.send({
+            type: 'effectError',
+            executionId,
+            attemptId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        },
+      );
+      return;
+    }
+    this.finishValue(
+      executionId,
+      attemptId,
+      returned,
+      toPlainUs,
+      (performance.now() - callStarted) * 1000,
+    );
   }
+
+  private finishValue(
+    executionId: string,
+    attemptId: string,
+    returned: unknown,
+    toPlainUs: number,
+    handlerUs: number,
+  ): void {
+    const normalized =
+      returned === undefined ? null : (JSON.parse(JSON.stringify(returned)) as unknown);
+    const encodeStarted = performance.now();
+    let value = '';
+    try {
+      value = fromPlain(normalized);
+    } catch (error) {
+      this.nodeSpans.push({ executionId, attemptId, toPlainUs, handlerUs, fromPlainUs: 0 });
+      if (this.socket.writable) {
+        this.send({
+          type: 'effectError',
+          executionId,
+          attemptId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+    const fromPlainUs = (performance.now() - encodeStarted) * 1000;
+    this.nodeSpans.push({ executionId, attemptId, toPlainUs, handlerUs, fromPlainUs });
+    if (!this.socket.writable) {
+      return;
+    }
+    this.send({ type: 'effectResult', executionId, attemptId, value });
+  }
+}
+
+function isPromise(value: unknown): value is Promise<unknown> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'then' in value &&
+    typeof value.then === 'function'
+  );
 }
 
 export function repoRoot(): string {
