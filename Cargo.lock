@@ -1178,6 +1178,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "trigora-pulse"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tcc-core",
+ "tcc-host",
+ "tcc-ir",
+ "tcc-state",
+ "uuid",
+]
+
+[[package]]
 name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
