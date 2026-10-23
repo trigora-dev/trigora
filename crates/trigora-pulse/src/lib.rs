@@ -6,6 +6,9 @@ mod error;
 mod socket;
 mod supervisor;
 
+#[cfg(test)]
+mod journal_layout;
+
 pub use authority::{
     Authority, Claimed, Commit, CommitResult, JournalRow, TimerRow, View, WaitRow,
 };

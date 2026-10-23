@@ -308,7 +308,7 @@ fn waits_of(continuation: &Continuation) -> Vec<WaitRow> {
     }
 }
 
-fn commit_identity(
+pub(crate) fn commit_identity(
     revision: u64,
     digest: &str,
     journal: &BTreeMap<String, JournalRow>,
