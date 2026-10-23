@@ -926,3 +926,65 @@ impl Drop for NodePeer {
         let _ = self.child.wait();
     }
 }
+
+#[test]
+fn remote_commit_survives_the_host_and_is_not_replayed() {
+    let server = crate::remote::serve();
+    let authority = Arc::new(Authority::new().with_remote(server.client()));
+    let program = artifact("remote", effects(&["work"]));
+    let dir = scratch("remote");
+    let host = Host::open(
+        "remote",
+        Arc::clone(&authority),
+        program.clone(),
+        settings(&dir, "A"),
+    );
+    let _adapter = host.start_with_adapter("exec", "remote", &["work"]);
+    assert!(
+        host.runtime
+            .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(15)),
+        "abandoned {} failures {:?}",
+        host.runtime.abandoned(),
+        host.runtime.failures()
+    );
+    let committed = authority
+        .view("exec")
+        .expect("view")
+        .continuation
+        .expect("continuation");
+    let report = authority.remote_report().expect("remote report");
+    eprintln!(
+        "remote continuation {} journal {} objects {} validation_us {} compactions {}",
+        report.continuation_bytes,
+        report.journal_bytes,
+        report.objects,
+        report.validation_us,
+        report.compactions
+    );
+    assert!(report.continuation_bytes > 0);
+    assert!(report.objects >= 1);
+    drop(host);
+    let authority = Arc::new(Authority::new().with_remote(server.client()));
+    let dir = scratch("remote-restored");
+    let host = Host::open(
+        "remote-restored",
+        Arc::clone(&authority),
+        program,
+        settings(&dir, "A"),
+    );
+    host.runtime.resume("exec").expect("resume");
+    assert!(
+        host.runtime
+            .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(15)),
+        "restored abandoned {} failures {:?}",
+        host.runtime.abandoned(),
+        host.runtime.failures()
+    );
+    assert!(host.runtime.dispatches().is_empty());
+    let again = authority
+        .view("exec")
+        .expect("view")
+        .continuation
+        .expect("continuation");
+    assert_eq!(committed, again);
+}

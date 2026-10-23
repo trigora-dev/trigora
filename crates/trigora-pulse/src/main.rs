@@ -3,7 +3,7 @@ use std::fs;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use trigora_pulse::{Authority, Config, Runtime};
+use trigora_pulse::{Authority, Config, RemoteClient, Runtime};
 
 mod bench;
 
@@ -41,14 +41,36 @@ fn main() -> ExitCode {
             config.effect_timeout = std::time::Duration::from_millis(ms);
         }
     }
-    let runtime = match Runtime::open(Arc::new(Authority::new()), artifact, config) {
+    let mut authority = Authority::new();
+    if let Ok(url) = env::var("TRIGORA_PULSE_AUTHORITY_URL") {
+        let workspace = match env::var("TRIGORA_PULSE_WORKSPACE_ID") {
+            Ok(workspace) => workspace,
+            Err(_) => {
+                eprintln!("TRIGORA_PULSE_WORKSPACE_ID is required with an authority URL");
+                return ExitCode::from(2);
+            }
+        };
+        let token = match env::var("TRIGORA_PULSE_WORKSPACE_TOKEN") {
+            Ok(token) => token,
+            Err(_) => {
+                eprintln!("TRIGORA_PULSE_WORKSPACE_TOKEN is required with an authority URL");
+                return ExitCode::from(2);
+            }
+        };
+        let bound = env::var("TRIGORA_PULSE_JOURNAL_DELTA_BOUND")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(32);
+        authority = authority.with_remote(RemoteClient::new(url, workspace, token, bound));
+    }
+    let runtime = match Runtime::open(Arc::new(authority), artifact, config) {
         Ok(runtime) => runtime,
         Err(err) => {
             eprintln!("{err}");
             return ExitCode::from(1);
         }
     };
-    // `started` accepts an execution. The in-memory authority dies with this process.
+    // `started` accepts an execution. Without an authority URL, durability dies with this process.
     std::thread::park();
     drop(runtime);
     ExitCode::SUCCESS

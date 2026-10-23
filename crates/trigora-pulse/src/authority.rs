@@ -90,9 +90,12 @@ struct State {
 }
 
 /// In-memory stand-in for the coordination object. It outlives any one host.
+/// A remote client, when set, is the source of truth and this map is only the
+/// local bookkeeping `open` uses before the first commit.
 #[derive(Clone)]
 pub struct Authority {
     inner: Arc<Mutex<State>>,
+    remote: Option<Arc<crate::remote::RemoteClient>>,
 }
 
 impl Authority {
@@ -103,7 +106,17 @@ impl Authority {
                 blobs: BTreeMap::new(),
                 executions: BTreeMap::new(),
             })),
+            remote: None,
         }
+    }
+
+    pub fn with_remote(mut self, remote: crate::remote::RemoteClient) -> Self {
+        self.remote = Some(Arc::new(remote));
+        self
+    }
+
+    pub fn remote_report(&self) -> Option<crate::remote::RemoteReport> {
+        self.remote.as_ref().and_then(|remote| remote.last_report())
     }
 
     pub fn now(&self) -> u64 {
@@ -143,6 +156,13 @@ impl Authority {
     }
 
     pub fn commit(&self, commit: &Commit) -> Result<CommitResult> {
+        if let Some(remote) = &self.remote {
+            return remote.commit(commit);
+        }
+        self.commit_local(commit)
+    }
+
+    fn commit_local(&self, commit: &Commit) -> Result<CommitResult> {
         let next = commit
             .expected_revision
             .checked_add(1)
@@ -218,6 +238,9 @@ impl Authority {
     }
 
     pub fn view(&self, execution_id: &str) -> Result<View> {
+        if let Some(remote) = &self.remote {
+            return remote.view(execution_id);
+        }
         let state = self.lock();
         let record = state
             .executions
@@ -229,6 +252,9 @@ impl Authority {
     /// Take or renew ownership. A live lease held by someone else is rejected.
     /// Does not read a continuation except by returning the committed one.
     pub fn claim(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {
+        if let Some(remote) = &self.remote {
+            return remote.restore(execution_id, owner_token);
+        }
         let mut state = self.lock();
         let clock = state.clock;
         let record = state
@@ -279,7 +305,7 @@ fn snapshot(record: &Record) -> View {
     }
 }
 
-fn timers_of(continuation: &Continuation) -> Vec<TimerRow> {
+pub(crate) fn timers_of(continuation: &Continuation) -> Vec<TimerRow> {
     match &continuation.pending {
         Some(PendingOp::Wait {
             kind: WaitKind::Timer { resume_at_ms },
@@ -291,7 +317,7 @@ fn timers_of(continuation: &Continuation) -> Vec<TimerRow> {
     }
 }
 
-fn waits_of(continuation: &Continuation) -> Vec<WaitRow> {
+pub(crate) fn waits_of(continuation: &Continuation) -> Vec<WaitRow> {
     match &continuation.pending {
         Some(PendingOp::Wait {
             kind:
