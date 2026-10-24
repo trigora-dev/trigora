@@ -1,9 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
+use std::env;
+use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::sync::Mutex;
 use std::thread;
-use std::time::Duration;
+use std::time::SystemTime;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::json;
@@ -492,19 +495,19 @@ impl Endpoint {
         body: &serde_json::Value,
     ) -> Result<T> {
         let bytes = serde_json::to_vec(body).map_err(|err| Error::new(err.to_string()))?;
-        let (_, response) = self.call("POST", path, owner, Some(&bytes), "application/json")?;
-        serde_json::from_slice(&response).map_err(|err| Error::new(err.to_string()))
+        let response = self.call("POST", path, owner, Some(&bytes), "application/json")?;
+        serde_json::from_slice(&response.body).map_err(|err| Error::new(err.to_string()))
     }
 
     fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str, owner: &str) -> Result<T> {
-        let (_, response) = self.call("GET", path, owner, None, "application/json")?;
-        serde_json::from_slice(&response).map_err(|err| Error::new(err.to_string()))
+        let response = self.call("GET", path, owner, None, "application/json")?;
+        serde_json::from_slice(&response.body).map_err(|err| Error::new(err.to_string()))
     }
 
     fn get_bytes(&self, path: &str, owner: &str) -> Result<Vec<u8>> {
         Ok(self
             .call("GET", path, owner, None, "application/octet-stream")?
-            .1)
+            .body)
     }
 
     fn fetch_all(&self, execution: &str, owner: &str, digests: &[String]) -> Result<Vec<Vec<u8>>> {
@@ -550,12 +553,33 @@ impl Endpoint {
         owner: &str,
         body: Option<&[u8]>,
         content_type: &str,
-    ) -> Result<(u16, Vec<u8>)> {
+    ) -> Result<RawHttp> {
+        let response = self.exchange(method, path, owner, body, content_type)?;
+        if !(200..300).contains(&response.status) {
+            let message = String::from_utf8_lossy(&response.body);
+            let message = message.trim();
+            if message.is_empty() {
+                return Err(Error::new(format!("authority status {}", response.status)));
+            }
+            return Err(Error::new(message.to_string()));
+        }
+        Ok(response)
+    }
+
+    fn exchange(
+        &self,
+        method: &str,
+        path: &str,
+        owner: &str,
+        body: Option<&[u8]>,
+        content_type: &str,
+    ) -> Result<RawHttp> {
         if self.port == 0 {
             return Err(Error::new(
                 "the Pulse authority client speaks HTTP/1.1; terminate TLS at the deployment edge",
             ));
         }
+        let started = Instant::now();
         let mut stream = TcpStream::connect((self.host.as_str(), self.port))
             .map_err(|err| Error::new(format!("authority connect: {err}")))?;
         stream
@@ -589,17 +613,220 @@ impl Endpoint {
         stream
             .read_to_end(&mut response)
             .map_err(|err| Error::new(format!("authority read: {err}")))?;
-        let (status, payload) = parse_http(&response)?;
-        if !(200..300).contains(&status) {
-            let message = String::from_utf8_lossy(&payload);
-            let message = message.trim();
-            if message.is_empty() {
-                return Err(Error::new(format!("authority status {status}")));
-            }
-            return Err(Error::new(message.to_string()));
-        }
-        Ok((status, payload))
+        let (status, payload, server_timing) = parse_http(&response)?;
+        Ok(RawHttp {
+            status,
+            body: payload,
+            server_timing,
+            client_ms: started.elapsed().as_secs_f64() * 1000.0,
+        })
     }
+}
+
+struct RawHttp {
+    status: u16,
+    body: Vec<u8>,
+    server_timing: String,
+    client_ms: f64,
+}
+
+pub fn run_remote_measure() -> Result<()> {
+    let url = env::var("TRIGORA_PULSE_AUTHORITY_URL")
+        .map_err(|_| Error::new("TRIGORA_PULSE_AUTHORITY_URL is required"))?;
+    let workspace = env::var("TRIGORA_PULSE_WORKSPACE_ID")
+        .map_err(|_| Error::new("TRIGORA_PULSE_WORKSPACE_ID is required"))?;
+    let token = env::var("TRIGORA_PULSE_WORKSPACE_TOKEN")
+        .map_err(|_| Error::new("TRIGORA_PULSE_WORKSPACE_TOKEN is required"))?;
+    let samples = env::var("TRIGORA_PULSE_SAMPLES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(5usize);
+    let deltas: Vec<usize> = env::var("TRIGORA_PULSE_DELTAS")
+        .unwrap_or_else(|_| "0,8".to_string())
+        .split(',')
+        .filter_map(|part| part.trim().parse().ok())
+        .collect();
+    let keys = env::var("TRIGORA_PULSE_KEYS_FILE").unwrap_or_default();
+    let client = RemoteClient::new(&url, &workspace, &token, 32);
+    let mut runs = Vec::new();
+    for delta in deltas {
+        for sample in 0..samples {
+            runs.push(client.measure_once(&workspace, delta, sample, &keys)?);
+        }
+    }
+    println!(
+        "{}",
+        serde_json::json!({
+            "transport": "remote.rs Endpoint, one TcpStream per request, Connection: close",
+            "pattern": "continuation uploaded on every commit",
+            "runs": runs,
+        })
+    );
+    Ok(())
+}
+
+impl RemoteClient {
+    fn measure_once(
+        &self,
+        workspace: &str,
+        deltas: usize,
+        sample: usize,
+        keys: &str,
+    ) -> Result<serde_json::Value> {
+        let millis = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|err| Error::new(err.to_string()))?
+            .as_millis();
+        let execution = format!("measure-rust-{deltas}-{sample}-{millis}");
+        let continuation = format!("continuation {execution} {}", "x".repeat(200));
+        let continuation_bytes = continuation.into_bytes();
+        let continuation_digest = authority::sha256(&continuation_bytes);
+        let owner = "measure";
+        let mut logical = BTreeMap::new();
+        let mut requests = Vec::new();
+        for index in 0..=deltas {
+            if index > 0 {
+                let key = format!("k{index}");
+                logical.insert(
+                    key.clone(),
+                    JournalRow {
+                        key: key.clone(),
+                        idempotency_key: format!("{execution}:k{index}"),
+                        status: "completed".to_string(),
+                        input: String::new(),
+                        result: index.to_string(),
+                    },
+                );
+            }
+            self.put_observed(
+                &execution,
+                owner,
+                &continuation_digest,
+                &continuation_bytes,
+                workspace,
+                keys,
+                index,
+                "put-continuation",
+                &mut requests,
+            )?;
+            let journal_bytes = if index == 0 {
+                canonical_journal(logical.values())
+            } else {
+                let row = logical.get(&format!("k{index}")).expect("row");
+                canonical_journal(std::iter::once(row))
+            };
+            let digest = authority::sha256(&journal_bytes);
+            self.put_observed(
+                &execution,
+                owner,
+                &digest,
+                &journal_bytes,
+                workspace,
+                keys,
+                index,
+                "put-journal",
+                &mut requests,
+            )?;
+            let identity = authority::commit_identity(
+                (index as u64) + 1,
+                &continuation_digest,
+                &logical,
+                &[],
+                &[],
+            );
+            let body = json!({
+                "ownerToken": owner,
+                "fence": 1,
+                "expectedRevision": index,
+                "continuationDigest": continuation_digest,
+                "identity": identity,
+                "journal": { "kind": if index == 0 { "snapshot" } else { "delta" }, "digest": digest },
+                "timers": [],
+                "waits": [],
+                "leaseMs": 600_000,
+            });
+            let path = format!(
+                "/v1/workspaces/{}/executions/{execution}/commits",
+                self.endpoint.workspace
+            );
+            let bytes = serde_json::to_vec(&body).map_err(|err| Error::new(err.to_string()))?;
+            let response =
+                self.endpoint
+                    .exchange("POST", &path, owner, Some(&bytes), "application/json")?;
+            requests.push(observed(index, "commit", &response));
+            if !(200..300).contains(&response.status) {
+                return Err(Error::new(format!("authority status {}", response.status)));
+            }
+        }
+        Ok(json!({
+            "deltas": deltas,
+            "sample": sample,
+            "execution": execution,
+            "requests": requests,
+        }))
+    }
+
+    fn put_observed(
+        &self,
+        execution: &str,
+        owner: &str,
+        digest: &str,
+        bytes: &[u8],
+        workspace: &str,
+        keys: &str,
+        index: usize,
+        op: &str,
+        requests: &mut Vec<serde_json::Value>,
+    ) -> Result<()> {
+        let path = format!(
+            "/v1/workspaces/{}/executions/{execution}/objects/{digest}",
+            self.endpoint.workspace
+        );
+        let response =
+            self.endpoint
+                .exchange("PUT", &path, owner, Some(bytes), "application/octet-stream")?;
+        requests.push(observed(index, op, &response));
+        if !(200..300).contains(&response.status) {
+            return Err(Error::new(format!("authority status {}", response.status)));
+        }
+        if !keys.is_empty() {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(keys)
+                .map_err(|err| Error::new(err.to_string()))?;
+            writeln!(file, "{workspace}/{execution}/{digest}\t{}", bytes.len())
+                .map_err(|err| Error::new(err.to_string()))?;
+        }
+        Ok(())
+    }
+}
+
+fn observed(index: usize, op: &str, response: &RawHttp) -> serde_json::Value {
+    let authority = metric_ms(&response.server_timing, "worker")
+        .or_else(|| metric_ms(&response.server_timing, "object"));
+    let gap = match authority {
+        Some(ms) => response.client_ms - ms,
+        None => response.client_ms,
+    };
+    json!({
+        "op": op,
+        "index": index,
+        "clientMs": response.client_ms,
+        "gapMs": gap,
+        "status": response.status,
+        "serverTiming": response.server_timing,
+    })
+}
+
+fn metric_ms(header: &str, name: &str) -> Option<f64> {
+    let needle = format!("{name};dur=");
+    let rest = header.split(&needle).nth(1)?;
+    let number: String = rest
+        .chars()
+        .take_while(|char| char.is_ascii_digit() || *char == '.')
+        .collect();
+    number.parse().ok()
 }
 
 fn journal_upload(has_snapshot: bool, deltas: usize, changed: bool, bound: usize) -> Upload {
@@ -711,7 +938,7 @@ fn split_base(base: &str) -> Result<(String, u16)> {
     Ok((host.to_string(), port))
 }
 
-fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
+fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>, String)> {
     let split = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -729,6 +956,7 @@ fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
         .map_err(|_| Error::new("authority response is truncated"))?;
     let mut length = None;
     let mut chunked = false;
+    let mut server_timing = String::new();
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
             if name.eq_ignore_ascii_case("content-length") {
@@ -744,6 +972,9 @@ fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
             {
                 chunked = true;
             }
+            if name.eq_ignore_ascii_case("server-timing") {
+                server_timing = value.trim().to_string();
+            }
         }
     }
     let body = &bytes[split + 4..];
@@ -756,7 +987,7 @@ fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
     } else {
         body.to_vec()
     };
-    Ok((code, body))
+    Ok((code, body, server_timing))
 }
 
 fn decode_chunks(mut bytes: &[u8]) -> Result<Vec<u8>> {
@@ -892,14 +1123,14 @@ impl RemoteClient {
     }
 
     pub(crate) fn test_renewals(&self, execution: &str) -> Result<u64> {
-        let (_, body) = self.endpoint.call(
+        let response = self.endpoint.call(
             "GET",
             &format!("/v1/test/renewals/{execution}"),
             "A",
             None,
             "text/plain",
         )?;
-        String::from_utf8_lossy(&body)
+        String::from_utf8_lossy(&response.body)
             .trim()
             .parse()
             .map_err(|err| Error::new(format!("renewal count: {err}")))
