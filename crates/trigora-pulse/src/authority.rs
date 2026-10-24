@@ -34,6 +34,7 @@ pub struct WaitRow {
 pub struct Commit {
     pub execution_id: String,
     pub owner_token: String,
+    pub fence: u64,
     pub expected_revision: u64,
     pub continuation: Vec<u8>,
     pub journal: BTreeMap<String, JournalRow>,
@@ -45,13 +46,33 @@ pub struct Commit {
 pub struct CommitResult {
     pub revision: u64,
     pub owner: Option<String>,
+    pub fence: u64,
+    pub lease_until: u64,
     pub idempotent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Renewed {
+    pub owner: String,
+    pub fence: u64,
+    pub lease_until: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitQuery {
+    pub accepted: bool,
+    pub revision: u64,
+    pub identity: String,
+    pub owner: Option<String>,
+    pub fence: u64,
+    pub lease_until: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct View {
     pub revision: u64,
     pub owner: Option<String>,
+    pub fence: u64,
     pub lease_until: u64,
     pub continuation: Option<Vec<u8>>,
     pub journal: BTreeMap<String, JournalRow>,
@@ -63,6 +84,8 @@ pub struct View {
 #[derive(Debug, Clone)]
 pub struct Claimed {
     pub revision: u64,
+    pub fence: u64,
+    pub lease_until: u64,
     pub continuation: Option<Vec<u8>>,
     pub journal: BTreeMap<String, JournalRow>,
     pub timers: Vec<TimerRow>,
@@ -73,6 +96,7 @@ pub struct Claimed {
 
 struct Record {
     owner: Option<String>,
+    fence: u64,
     lease_until: u64,
     revision: u64,
     commit_id: Option<String>,
@@ -132,16 +156,31 @@ impl Authority {
         Ok(())
     }
 
-    pub fn open(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<()> {
-        let mut state = self.lock();
-        if state.executions.contains_key(execution_id) {
+    pub fn has_remote(&self) -> bool {
+        self.remote.is_some()
+    }
+
+    pub fn open(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {
+        if self.lock().executions.contains_key(execution_id) {
             return Err(Error::new("execution already exists"));
         }
+        if let Some(remote) = &self.remote {
+            let claimed = remote.claim(execution_id, owner_token, lease_ms)?;
+            self.insert_local(
+                execution_id,
+                owner_token,
+                claimed.fence,
+                claimed.lease_until,
+            )?;
+            return Ok(claimed);
+        }
+        let mut state = self.lock();
         let lease_until = state.clock.saturating_add(lease_ms);
         state.executions.insert(
             execution_id.to_string(),
             Record {
                 owner: Some(owner_token.to_string()),
+                fence: 1,
                 lease_until,
                 revision: 0,
                 commit_id: None,
@@ -152,7 +191,17 @@ impl Authority {
                 status: ContinuationStatus::Runnable,
             },
         );
-        Ok(())
+        Ok(Claimed {
+            revision: 0,
+            fence: 1,
+            lease_until,
+            continuation: None,
+            journal: BTreeMap::new(),
+            timers: Vec::new(),
+            waits: Vec::new(),
+            timer_due: false,
+            status: ContinuationStatus::Runnable,
+        })
     }
 
     pub fn commit(&self, commit: &Commit) -> Result<CommitResult> {
@@ -206,21 +255,23 @@ impl Authority {
         let Some(record) = state.executions.get_mut(&commit.execution_id) else {
             return Err(Error::new("unknown execution"));
         };
+        let lease_open = record.lease_until > clock;
+        if record.owner.as_deref() != Some(commit.owner_token.as_str())
+            || record.fence != commit.fence
+            || !lease_open
+        {
+            return Err(Error::new("stale owner"));
+        }
         if record.revision == next && record.commit_id.as_deref() == Some(identity.as_str()) {
             return Ok(CommitResult {
                 revision: next,
                 owner: record.owner.clone(),
+                fence: record.fence,
+                lease_until: record.lease_until,
                 idempotent: true,
             });
         }
-        if record.revision == next {
-            return Err(Error::new("commit conflict"));
-        }
-        let lease_open = record.lease_until > clock;
-        if record.owner.as_deref() != Some(commit.owner_token.as_str()) || !lease_open {
-            return Err(Error::new("stale owner"));
-        }
-        if record.revision != commit.expected_revision {
+        if record.revision == next || record.revision != commit.expected_revision {
             return Err(Error::new("commit conflict"));
         }
         record.revision = next;
@@ -233,7 +284,62 @@ impl Authority {
         Ok(CommitResult {
             revision: next,
             owner: record.owner.clone(),
+            fence: record.fence,
+            lease_until: record.lease_until,
             idempotent: false,
+        })
+    }
+
+    pub fn renew(
+        &self,
+        execution_id: &str,
+        owner_token: &str,
+        fence: u64,
+        lease_ms: u64,
+    ) -> Result<Renewed> {
+        if let Some(remote) = &self.remote {
+            return remote.renew(execution_id, owner_token, fence, lease_ms);
+        }
+        let mut state = self.lock();
+        let clock = state.clock;
+        let record = state
+            .executions
+            .get_mut(execution_id)
+            .ok_or_else(|| Error::new("unknown execution"))?;
+        if record.owner.as_deref() != Some(owner_token)
+            || record.fence != fence
+            || record.lease_until <= clock
+        {
+            return Err(Error::new("stale owner"));
+        }
+        record.lease_until = clock.saturating_add(lease_ms);
+        Ok(Renewed {
+            owner: owner_token.to_string(),
+            fence: record.fence,
+            lease_until: record.lease_until,
+        })
+    }
+
+    /// Whether this logical commit was accepted. Does not grant authority and
+    /// does not change the record.
+    pub fn query(&self, execution_id: &str, revision: u64, identity: &str) -> Result<CommitQuery> {
+        if let Some(remote) = &self.remote {
+            return remote.reconcile(execution_id, revision, identity);
+        }
+        let state = self.lock();
+        let record = state
+            .executions
+            .get(execution_id)
+            .ok_or_else(|| Error::new("unknown execution"))?;
+        Ok(CommitQuery {
+            accepted: record.revision == revision
+                && record.commit_id.as_deref() == Some(identity)
+                && !identity.is_empty(),
+            revision: record.revision,
+            identity: record.commit_id.clone().unwrap_or_default(),
+            owner: record.owner.clone(),
+            fence: record.fence,
+            lease_until: record.lease_until,
         })
     }
 
@@ -253,7 +359,7 @@ impl Authority {
     /// Does not read a continuation except by returning the committed one.
     pub fn claim(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {
         if let Some(remote) = &self.remote {
-            return remote.restore(execution_id, owner_token);
+            return remote.claim(execution_id, owner_token, lease_ms);
         }
         let mut state = self.lock();
         let clock = state.clock;
@@ -261,17 +367,23 @@ impl Authority {
             .executions
             .get_mut(execution_id)
             .ok_or_else(|| Error::new("unknown execution"))?;
-        if let Some(owner) = record.owner.as_deref() {
-            if owner != owner_token && record.lease_until > clock {
-                return Err(Error::new("execution is owned"));
-            }
+        let same = record.owner.as_deref() == Some(owner_token);
+        let lease_open = record.lease_until > clock;
+        if same && lease_open {
+            record.lease_until = clock.saturating_add(lease_ms);
+        } else if lease_open {
+            return Err(Error::new("execution is owned"));
+        } else {
+            record.owner = Some(owner_token.to_string());
+            record.fence = record.fence.saturating_add(1);
+            record.lease_until = clock.saturating_add(lease_ms);
         }
-        record.owner = Some(owner_token.to_string());
-        record.lease_until = clock.saturating_add(lease_ms);
         let timer_due = record.status == ContinuationStatus::Suspended
             && record.timers.iter().any(|timer| timer.due_at <= clock);
         Ok(Claimed {
             revision: record.revision,
+            fence: record.fence,
+            lease_until: record.lease_until,
             continuation: record.continuation.clone(),
             journal: record.journal.clone(),
             timers: record.timers.clone(),
@@ -279,6 +391,35 @@ impl Authority {
             timer_due,
             status: record.status,
         })
+    }
+
+    fn insert_local(
+        &self,
+        execution_id: &str,
+        owner_token: &str,
+        fence: u64,
+        lease_until: u64,
+    ) -> Result<()> {
+        let mut state = self.lock();
+        if state.executions.contains_key(execution_id) {
+            return Err(Error::new("execution already exists"));
+        }
+        state.executions.insert(
+            execution_id.to_string(),
+            Record {
+                owner: Some(owner_token.to_string()),
+                fence,
+                lease_until,
+                revision: 0,
+                commit_id: None,
+                continuation: None,
+                journal: BTreeMap::new(),
+                timers: Vec::new(),
+                waits: Vec::new(),
+                status: ContinuationStatus::Runnable,
+            },
+        );
+        Ok(())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -296,6 +437,7 @@ fn snapshot(record: &Record) -> View {
     View {
         revision: record.revision,
         owner: record.owner.clone(),
+        fence: record.fence,
         lease_until: record.lease_until,
         continuation: record.continuation.clone(),
         journal: record.journal.clone(),
@@ -411,6 +553,7 @@ mod tests {
         let commit = Commit {
             execution_id: "exec".to_string(),
             owner_token: "A".to_string(),
+            fence: 1,
             expected_revision: 0,
             continuation: continuation("exec", 1, Some(5_000)),
             journal: journal("first", "1"),
@@ -419,15 +562,23 @@ mod tests {
         };
         let applied = authority.commit(&commit).unwrap();
         assert!(!applied.idempotent);
-        assert_eq!(applied.owner.as_deref(), Some("A"));
+        assert_eq!(applied.fence, 1);
+        let again = authority.commit(&commit).unwrap();
+        assert!(again.idempotent);
+        assert_eq!(again.fence, 1);
+        assert_eq!(
+            authority.view("exec").unwrap().lease_until,
+            applied.lease_until
+        );
         authority.advance_clock(1_000).unwrap();
-        authority.claim("exec", "B", 1_000).unwrap();
+        let claimed = authority.claim("exec", "B", 1_000).unwrap();
+        assert_eq!(claimed.fence, 2);
         let lease = authority.view("exec").unwrap().lease_until;
-        let retry = authority.commit(&commit).unwrap();
-        assert!(retry.idempotent);
-        assert_eq!(retry.owner.as_deref(), Some("B"));
+        let err = authority.commit(&commit).unwrap_err();
+        assert_eq!(err.to_string(), "stale owner");
         let view = authority.view("exec").unwrap();
         assert_eq!(view.owner.as_deref(), Some("B"));
+        assert_eq!(view.fence, 2);
         assert_eq!(view.revision, 1);
         assert_eq!(view.lease_until, lease);
         assert_eq!(view.journal["first"].result, "1");
@@ -450,6 +601,7 @@ mod tests {
         let first = Commit {
             execution_id: "exec".to_string(),
             owner_token: "A".to_string(),
+            fence: 1,
             expected_revision: 0,
             continuation: bytes.clone(),
             journal: journal("first", "1"),
@@ -485,6 +637,7 @@ mod tests {
             .commit(&Commit {
                 execution_id: "exec".to_string(),
                 owner_token: "A".to_string(),
+                fence: 1,
                 expected_revision: 0,
                 continuation: continuation("exec", 1, Some(5_000)),
                 journal: BTreeMap::new(),
@@ -499,6 +652,75 @@ mod tests {
         let due = authority.claim("exec", "C", 1_000).unwrap();
         assert!(due.timer_due);
         assert_eq!(due.revision, 1);
+        assert_eq!(due.fence, 3);
         assert!(due.continuation.is_some());
+    }
+
+    #[test]
+    fn an_expired_owner_cannot_commit_before_anyone_else_claims() {
+        let authority = Authority::new();
+        authority.open("exec", "A", 1_000).unwrap();
+        let commit = Commit {
+            execution_id: "exec".to_string(),
+            owner_token: "A".to_string(),
+            fence: 1,
+            expected_revision: 0,
+            continuation: continuation("exec", 1, Some(5_000)),
+            journal: journal("first", "1"),
+            timers: None,
+            waits: None,
+        };
+        authority.commit(&commit).unwrap();
+        let digest = sha256(&commit.continuation);
+        let decoded = decode_continuation(&commit.continuation).unwrap();
+        let identity = commit_identity(
+            1,
+            &digest,
+            &commit.journal,
+            &timers_of(&decoded),
+            &waits_of(&decoded),
+        );
+        authority.advance_clock(1_000).unwrap();
+        let err = authority.commit(&commit).unwrap_err();
+        assert_eq!(err.to_string(), "stale owner");
+        let err = authority.renew("exec", "A", 1, 1_000).unwrap_err();
+        assert_eq!(err.to_string(), "stale owner");
+        let found = authority.query("exec", 1, &identity).unwrap();
+        assert!(found.accepted);
+        assert_eq!(found.fence, 1);
+        assert_eq!(found.owner.as_deref(), Some("A"));
+        let view = authority.view("exec").unwrap();
+        assert_eq!(view.revision, 1);
+        assert_eq!(view.fence, 1);
+        assert_eq!(view.journal["first"].result, "1");
+        let reclaimed = authority.claim("exec", "A", 1_000).unwrap();
+        assert_eq!(reclaimed.fence, 2);
+        assert_eq!(reclaimed.revision, 1);
+        let err = authority.commit(&commit).unwrap_err();
+        assert_eq!(err.to_string(), "stale owner");
+    }
+
+    #[test]
+    fn a_due_timer_does_not_change_the_owner() {
+        let authority = Authority::new();
+        authority.open("exec", "A", 5_000).unwrap();
+        authority
+            .commit(&Commit {
+                execution_id: "exec".to_string(),
+                owner_token: "A".to_string(),
+                fence: 1,
+                expected_revision: 0,
+                continuation: continuation("exec", 1, Some(1_000)),
+                journal: BTreeMap::new(),
+                timers: None,
+                waits: None,
+            })
+            .unwrap();
+        authority.advance_clock(1_000).unwrap();
+        let view = authority.view("exec").unwrap();
+        assert_eq!(view.owner.as_deref(), Some("A"));
+        assert_eq!(view.fence, 1);
+        assert_eq!(view.revision, 1);
+        assert_eq!(view.timers[0].due_at, 1_000);
     }
 }

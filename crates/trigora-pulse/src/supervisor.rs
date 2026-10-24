@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::OnceLock;
+use std::sync::Weak;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -106,12 +108,18 @@ struct Slot {
     partial: Mutex<Partial>,
     attempts: AtomicU32,
     timeouts: AtomicU32,
+    fence: AtomicU64,
+    lease_until: AtomicU64,
+    live: AtomicBool,
+    renewing: AtomicBool,
 }
 
 struct Backlog {
     id: String,
     engine: Engine,
     memory: Memory,
+    fence: u64,
+    lease_until: u64,
 }
 
 struct QueueState {
@@ -150,6 +158,8 @@ struct Inner {
     log_timings: bool,
     workers: Mutex<Vec<JoinHandle<()>>>,
     accept: Mutex<Option<JoinHandle<()>>>,
+    renewers: Mutex<Vec<JoinHandle<()>>>,
+    me: OnceLock<Weak<Inner>>,
 }
 
 pub struct Runtime {
@@ -196,7 +206,10 @@ impl Runtime {
             log_timings: std::env::var("TRIGORA_PULSE_TIMINGS").ok().as_deref() == Some("1"),
             workers: Mutex::new(Vec::new()),
             accept: Mutex::new(None),
+            renewers: Mutex::new(Vec::new()),
+            me: OnceLock::new(),
         });
+        let _ = inner.me.set(Arc::downgrade(&inner));
         let accept_inner = Arc::clone(&inner);
         let accept = std::thread::spawn(move || accept_loop(accept_inner));
         *inner.accept.lock().expect("accept") = Some(accept);
@@ -264,6 +277,8 @@ impl Runtime {
                 revision: claimed.revision,
                 last_effect: None,
             },
+            claimed.fence,
+            claimed.lease_until,
         );
         Ok(())
     }
@@ -399,6 +414,10 @@ fn worker_loop(inner: Arc<Inner>) {
         let Some(slot) = inner.slot(&id) else {
             continue;
         };
+        if !slot.live.load(Ordering::SeqCst) {
+            inner.abandon(&id, &slot);
+            continue;
+        }
         {
             let mut phase = slot.phase.lock().expect("phase");
             if !matches!(*phase, Phase::Runnable) {
@@ -440,26 +459,39 @@ fn worker_loop(inner: Arc<Inner>) {
 }
 
 impl Inner {
-    fn admit(&self, id: String, engine: Engine, memory: Memory) {
+    fn admit(&self, id: String, engine: Engine, memory: Memory, fence: u64, lease_until: u64) {
         {
             let mut queue = self.queue.lock().expect("queue");
             if queue.inflight >= self.cap {
-                queue.backlog.push_back(Backlog { id, engine, memory });
+                queue.backlog.push_back(Backlog {
+                    id,
+                    engine,
+                    memory,
+                    fence,
+                    lease_until,
+                });
                 queue.backlogged = true;
                 return;
             }
             queue.inflight += 1;
             queue.max_inflight = queue.max_inflight.max(queue.inflight);
         }
-        self.launch(id, engine, memory);
+        self.launch(id, engine, memory, fence, lease_until);
     }
 
-    fn launch(&self, id: String, engine: Engine, memory: Memory) {
-        self.insert_slot(id.clone(), engine, memory);
+    fn launch(&self, id: String, engine: Engine, memory: Memory, fence: u64, lease_until: u64) {
+        self.insert_slot(id.clone(), engine, memory, fence, lease_until);
         self.enqueue(id);
     }
 
-    fn insert_slot(&self, id: String, engine: Engine, memory: Memory) {
+    fn insert_slot(
+        &self,
+        id: String,
+        engine: Engine,
+        memory: Memory,
+        fence: u64,
+        lease_until: u64,
+    ) {
         let slot = Arc::new(Slot {
             phase: Mutex::new(Phase::Runnable),
             engine: Mutex::new(Some(engine)),
@@ -469,7 +501,12 @@ impl Inner {
             partial: Mutex::new(Partial::default()),
             attempts: AtomicU32::new(0),
             timeouts: AtomicU32::new(0),
+            fence: AtomicU64::new(fence),
+            lease_until: AtomicU64::new(lease_until),
+            live: AtomicBool::new(true),
+            renewing: AtomicBool::new(false),
         });
+        self.spawn_renewal(&id, &slot);
         self.slots.lock().expect("slots").insert(id, slot);
     }
 
@@ -503,7 +540,8 @@ impl Inner {
         if self.slot(execution_id).is_some() || self.in_backlog(execution_id) {
             return Err(Error::new("execution id is already in use"));
         }
-        self.authority
+        let opened = self
+            .authority
             .open(execution_id, &self.owner, self.lease_ms)
             .map_err(|err| {
                 if err.to_string() == "execution already exists" {
@@ -526,6 +564,8 @@ impl Inner {
                     id: execution_id.to_string(),
                     engine,
                     memory,
+                    fence: opened.fence,
+                    lease_until: opened.lease_until,
                 });
                 queue.backlogged = true;
                 return Ok(false);
@@ -533,7 +573,13 @@ impl Inner {
             queue.inflight += 1;
             queue.max_inflight = queue.max_inflight.max(queue.inflight);
         }
-        self.insert_slot(execution_id.to_string(), engine, memory);
+        self.insert_slot(
+            execution_id.to_string(),
+            engine,
+            memory,
+            opened.fence,
+            opened.lease_until,
+        );
         Ok(true)
     }
 
@@ -640,6 +686,9 @@ impl Inner {
         let Some(slot) = self.slot(&id) else {
             return;
         };
+        if !slot.live.load(Ordering::SeqCst) {
+            return;
+        }
         let mut phase = slot.phase.lock().expect("phase");
         if !matches!(*phase, Phase::WaitingForEffect) {
             return;
@@ -660,11 +709,17 @@ impl Inner {
         slot: &Arc<Slot>,
         commit: crate::authority::Commit,
     ) {
+        if !slot.live.load(Ordering::SeqCst) {
+            self.abandon(id, slot);
+            return;
+        }
         let done = self.commits_done.load(Ordering::SeqCst);
         if self.fault_after_commits.is_some_and(|limit| done >= limit) {
             self.abandon(id, slot);
             return;
         }
+        let mut commit = commit;
+        commit.fence = slot.fence.load(Ordering::SeqCst);
         *slot.phase.lock().expect("phase") = Phase::WaitingForCommit;
         let inner = Arc::clone(self);
         let id = id.to_string();
@@ -770,7 +825,14 @@ impl Inner {
             return;
         }
         match result {
-            Ok(done) if done.owner.as_deref() == Some(self.owner.as_str()) => {
+            Ok(done)
+                if done.owner.as_deref() == Some(self.owner.as_str())
+                    && slot.live.load(Ordering::SeqCst)
+                    && done.fence == slot.fence.load(Ordering::SeqCst) =>
+            {
+                if done.lease_until > 0 {
+                    slot.lease_until.store(done.lease_until, Ordering::SeqCst);
+                }
                 self.commits_done.fetch_add(1, Ordering::SeqCst);
                 self.record_span(&id, &slot, commit);
                 *slot.confirm.lock().expect("confirm") = Some(Ok(done.revision));
@@ -786,6 +848,7 @@ impl Inner {
     }
 
     fn settle(&self, slot: &Slot, phase: Phase, counter: &AtomicUsize) {
+        slot.live.store(false, Ordering::SeqCst);
         *slot.phase.lock().expect("phase") = phase;
         *slot.engine.lock().expect("engine") = None;
         counter.fetch_add(1, Ordering::SeqCst);
@@ -815,6 +878,9 @@ impl Inner {
         let Some(slot) = self.slot(id) else {
             return;
         };
+        if !slot.live.load(Ordering::SeqCst) {
+            return;
+        }
         let key = {
             let memory = slot.memory.lock().expect("memory");
             memory.last_effect.as_ref().map(|effect| effect.key.clone())
@@ -957,7 +1023,13 @@ impl Inner {
             }
         };
         if let Some(item) = next {
-            self.launch(item.id, item.engine, item.memory);
+            self.launch(
+                item.id,
+                item.engine,
+                item.memory,
+                item.fence,
+                item.lease_until,
+            );
         }
     }
 
@@ -982,5 +1054,75 @@ impl Inner {
         for handle in workers {
             let _ = handle.join();
         }
+        let renewers = std::mem::take(&mut *self.renewers.lock().expect("renewers"));
+        for handle in renewers {
+            let _ = handle.join();
+        }
     }
+
+    fn spawn_renewal(&self, id: &str, slot: &Arc<Slot>) {
+        if !self.authority.has_remote() {
+            return;
+        }
+        if slot.renewing.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let Some(inner) = self.me.get().and_then(Weak::upgrade) else {
+            return;
+        };
+        let id = id.to_string();
+        let slot = Arc::clone(slot);
+        let handle = std::thread::spawn(move || inner.renew_loop(id, slot));
+        self.renewers.lock().expect("renewers").push(handle);
+    }
+
+    fn renew_loop(self: &Arc<Self>, id: String, slot: Arc<Slot>) {
+        let mut failures = 0u32;
+        while !self.stop.load(Ordering::SeqCst) && slot.live.load(Ordering::SeqCst) {
+            let until = slot.lease_until.load(Ordering::SeqCst);
+            let margin = (self.lease_ms / 3).max(50);
+            let now = unix_ms();
+            let wake = until.saturating_sub(margin);
+            if until == 0 || now < wake {
+                let pause = if until == 0 {
+                    50
+                } else {
+                    (wake - now).min(200)
+                };
+                std::thread::sleep(Duration::from_millis(pause));
+                continue;
+            }
+            let fence = slot.fence.load(Ordering::SeqCst);
+            match self.authority.renew(&id, &self.owner, fence, self.lease_ms) {
+                Ok(renewed) if renewed.fence == fence => {
+                    failures = 0;
+                    slot.lease_until
+                        .store(renewed.lease_until, Ordering::SeqCst);
+                }
+                Ok(_) => {
+                    slot.live.store(false, Ordering::SeqCst);
+                    self.abandon(&id, &slot);
+                    break;
+                }
+                Err(err) => {
+                    let message = err.to_string();
+                    let fatal = message == "stale owner" || message == "execution is owned";
+                    failures += 1;
+                    if fatal || failures >= 3 {
+                        slot.live.store(false, Ordering::SeqCst);
+                        self.abandon(&id, &slot);
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(50 * u64::from(failures)));
+                }
+            }
+        }
+    }
+}
+
+fn unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }

@@ -42,6 +42,8 @@ struct CacheEntry {
     waits: Vec<WaitRow>,
     status: ContinuationStatus,
     owner: String,
+    fence: u64,
+    lease_until: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -162,6 +164,7 @@ impl RemoteClient {
         };
         let body = json!({
             "ownerToken": commit.owner_token,
+            "fence": commit.fence,
             "expectedRevision": commit.expected_revision,
             "continuationDigest": digest,
             "identity": identity,
@@ -169,14 +172,35 @@ impl RemoteClient {
             "timers": timers.iter().map(|timer| json!({"branch": timer.branch, "dueAt": timer.due_at})).collect::<Vec<_>>(),
             "waits": waits.iter().map(|wait| json!({"waitId": wait.wait_id, "event": wait.event})).collect::<Vec<_>>(),
         });
-        let response: CommitResponse = self.endpoint.post_json(
+        let posted: Result<CommitResponse> = self.endpoint.post_json(
             &format!(
                 "/v1/workspaces/{}/executions/{}/commits",
                 self.endpoint.workspace, commit.execution_id
             ),
             &commit.owner_token,
             &body,
-        )?;
+        );
+        let response = match posted {
+            Ok(response) => response,
+            Err(err) if err.to_string().starts_with("authority ") => {
+                if let Ok(found) = self.reconcile(&commit.execution_id, next, &identity) {
+                    if found.accepted
+                        && found.owner.as_deref() == Some(commit.owner_token.as_str())
+                        && found.fence == commit.fence
+                    {
+                        return Ok(CommitResult {
+                            revision: found.revision,
+                            owner: found.owner,
+                            fence: found.fence,
+                            lease_until: found.lease_until,
+                            idempotent: true,
+                        });
+                    }
+                }
+                return Err(err);
+            }
+            Err(err) => return Err(err),
+        };
         if response.identity != identity || response.revision != next {
             return Err(Error::new("commit conflict"));
         }
@@ -200,17 +224,105 @@ impl RemoteClient {
                 waits,
                 status: continuation.status,
                 owner: response.owner.clone(),
+                fence: response.fence,
+                lease_until: response.lease_until,
             },
         );
         Ok(CommitResult {
             revision: response.revision,
             owner: Some(response.owner),
+            fence: response.fence,
+            lease_until: response.lease_until,
             idempotent: response.idempotent,
         })
     }
 
-    pub fn restore(&self, execution_id: &str, owner: &str) -> Result<Claimed> {
+    pub fn claim(&self, execution_id: &str, owner: &str, lease_ms: u64) -> Result<Claimed> {
         self.remember(owner);
+        let manifest: ManifestResponse = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/claim",
+                self.endpoint.workspace
+            ),
+            owner,
+            &json!({ "leaseMs": lease_ms }),
+        )?;
+        self.claimed(execution_id, owner, manifest)
+    }
+
+    pub fn renew(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        lease_ms: u64,
+    ) -> Result<crate::authority::Renewed> {
+        let renewed: RenewResponse = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/renew",
+                self.endpoint.workspace
+            ),
+            owner,
+            &json!({ "fence": fence, "leaseMs": lease_ms }),
+        )?;
+        Ok(crate::authority::Renewed {
+            owner: renewed.owner,
+            fence: renewed.fence,
+            lease_until: renewed.lease_until,
+        })
+    }
+
+    pub fn reconcile(
+        &self,
+        execution_id: &str,
+        revision: u64,
+        identity: &str,
+    ) -> Result<crate::authority::CommitQuery> {
+        let owner = self
+            .owner_hint
+            .lock()
+            .expect("owner")
+            .clone()
+            .unwrap_or_default();
+        let found: QueryResponse = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/reconcile",
+                self.endpoint.workspace
+            ),
+            &owner,
+            &json!({ "revision": revision, "identity": identity }),
+        )?;
+        Ok(crate::authority::CommitQuery {
+            accepted: found.accepted,
+            revision: found.revision,
+            identity: found.identity,
+            owner: Some(found.owner),
+            fence: found.fence,
+            lease_until: found.lease_until,
+        })
+    }
+
+    fn claimed(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        manifest: ManifestResponse,
+    ) -> Result<Claimed> {
+        let fence = manifest.fence;
+        let lease_until = manifest.lease_until;
+        if manifest.revision == 0 || manifest.continuation_digest.is_empty() {
+            return Ok(Claimed {
+                revision: manifest.revision,
+                fence,
+                lease_until,
+                continuation: None,
+                journal: BTreeMap::new(),
+                timers: Vec::new(),
+                waits: Vec::new(),
+                timer_due: false,
+                status: ContinuationStatus::Runnable,
+            });
+        }
         let entry = self.fetch_entry(execution_id, owner)?;
         let status = entry.status;
         self.cache
@@ -219,6 +331,8 @@ impl RemoteClient {
             .insert(execution_id.to_string(), entry.clone());
         Ok(Claimed {
             revision: entry.revision,
+            fence,
+            lease_until,
             continuation: Some(entry.continuation),
             journal: entry.journal,
             timers: entry.timers,
@@ -239,8 +353,13 @@ impl RemoteClient {
         Ok(View {
             revision: entry.revision,
             owner: Some(entry.owner),
-            lease_until: 0,
-            continuation: Some(entry.continuation),
+            fence: entry.fence,
+            lease_until: entry.lease_until,
+            continuation: if entry.revision == 0 {
+                None
+            } else {
+                Some(entry.continuation)
+            },
             journal: entry.journal,
             timers: entry.timers,
             waits: entry.waits,
@@ -268,6 +387,8 @@ impl RemoteClient {
                 waits: Vec::new(),
                 status: ContinuationStatus::Runnable,
                 owner: owner.to_string(),
+                fence: 1,
+                lease_until: 0,
             }),
             Err(err) => Err(err),
         }
@@ -281,6 +402,21 @@ impl RemoteClient {
             ),
             owner,
         )?;
+        if manifest.revision == 0 || manifest.continuation_digest.is_empty() {
+            return Ok(CacheEntry {
+                journal: BTreeMap::new(),
+                snapshot: None,
+                deltas: 0,
+                revision: 0,
+                continuation: Vec::new(),
+                timers: Vec::new(),
+                waits: Vec::new(),
+                status: ContinuationStatus::Runnable,
+                owner: manifest.owner,
+                fence: manifest.fence,
+                lease_until: manifest.lease_until,
+            });
+        }
         let continuation = self.endpoint.get_bytes(
             &format!(
                 "/v1/workspaces/{}/executions/{execution_id}/objects/{}",
@@ -333,6 +469,8 @@ impl RemoteClient {
             waits,
             status: decoded.status,
             owner: manifest.owner,
+            fence: manifest.fence,
+            lease_until: manifest.lease_until,
         })
     }
 }
@@ -669,6 +807,8 @@ struct WireRow {
 struct CommitResponse {
     revision: u64,
     owner: String,
+    fence: u64,
+    lease_until: u64,
     idempotent: bool,
     identity: String,
     validation_us: u64,
@@ -681,9 +821,30 @@ struct CommitResponse {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct RenewResponse {
+    owner: String,
+    fence: u64,
+    lease_until: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueryResponse {
+    accepted: bool,
+    revision: u64,
+    identity: String,
+    owner: String,
+    fence: u64,
+    lease_until: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ManifestResponse {
     revision: u64,
     owner: String,
+    fence: u64,
+    lease_until: u64,
     identity: String,
     continuation_digest: String,
     snapshot: String,
@@ -721,6 +882,31 @@ impl Drop for TestAuthority {
 }
 
 #[cfg(test)]
+impl RemoteClient {
+    pub(crate) fn test_hook(&self, path: &str, execution: &str) -> Result<()> {
+        let body = serde_json::to_vec(&json!({ "execution": execution }))
+            .map_err(|err| Error::new(err.to_string()))?;
+        self.endpoint
+            .call("POST", path, "A", Some(&body), "application/json")?;
+        Ok(())
+    }
+
+    pub(crate) fn test_renewals(&self, execution: &str) -> Result<u64> {
+        let (_, body) = self.endpoint.call(
+            "GET",
+            &format!("/v1/test/renewals/{execution}"),
+            "A",
+            None,
+            "text/plain",
+        )?;
+        String::from_utf8_lossy(&body)
+            .trim()
+            .parse()
+            .map_err(|err| Error::new(format!("renewal count: {err}")))
+    }
+}
+
+#[cfg(test)]
 impl TestAuthority {
     pub(crate) fn client(&self) -> RemoteClient {
         self.client.fresh()
@@ -738,6 +924,7 @@ pub(crate) fn serve() -> TestAuthority {
     let mut child = Command::new("node")
         .arg("--experimental-strip-types")
         .arg(&script)
+        .env("PULSE_TEST_HOOKS", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

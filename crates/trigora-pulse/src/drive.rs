@@ -213,6 +213,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                     return Ok(Step::Commit(Commit {
                         execution_id,
                         owner_token,
+                        fence: 0,
                         expected_revision: memory.revision,
                         continuation: bytes,
                         journal: memory.journal.clone(),

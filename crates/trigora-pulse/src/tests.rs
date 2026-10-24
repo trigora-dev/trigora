@@ -988,3 +988,103 @@ fn remote_commit_survives_the_host_and_is_not_replayed() {
         .expect("continuation");
     assert_eq!(committed, again);
 }
+
+#[test]
+fn a_held_commit_does_not_stall_another_execution_and_a_late_ack_is_dropped() {
+    let server = crate::remote::serve();
+    let probe = server.client();
+    let authority = Arc::new(Authority::new().with_remote(server.client()));
+    let dir = scratch("held");
+    let mut config = settings(&dir, "A");
+    config.lease_ms = 400;
+    let host = Host::open(
+        "held",
+        Arc::clone(&authority),
+        artifact("pair", effects(&["first", "second"])),
+        config,
+    );
+    probe.test_hook("/v1/test/hold", "slow").expect("hold");
+    let _adapter = host.start_with_adapter("fast", "pair", &["first", "second"]);
+    host.runtime.start("slow").expect("start slow");
+    assert!(
+        host.runtime.wait_until(
+            |runtime| { runtime.completed() == 1 && probe.test_renewals("slow").unwrap_or(0) >= 1 },
+            Duration::from_secs(8),
+        ),
+        "fast completed {} slow renewals {:?} abandoned {} failures {:?}",
+        host.runtime.completed(),
+        probe.test_renewals("slow"),
+        host.runtime.abandoned(),
+        host.runtime.failures()
+    );
+    probe
+        .test_hook("/v1/test/fail-renew", "slow")
+        .expect("fail renew");
+    assert!(
+        host.runtime
+            .wait_until(|runtime| runtime.abandoned() >= 1, Duration::from_secs(5)),
+        "slow was not dropped"
+    );
+    probe
+        .test_hook("/v1/test/release", "slow")
+        .expect("release");
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(host.runtime.completed(), 1);
+    assert_eq!(
+        keys_of(&host.runtime)
+            .iter()
+            .filter(|key| key.as_str() == "second")
+            .count(),
+        1
+    );
+}
+
+#[test]
+fn a_late_callback_does_not_advance_after_ownership_is_lost() {
+    let server = crate::remote::serve();
+    let probe = server.client();
+    let authority = Arc::new(Authority::new().with_remote(server.client()));
+    let dir = scratch("late-callback");
+    let mut config = settings(&dir, "A");
+    config.lease_ms = 400;
+    let host = Host::open(
+        "late-callback",
+        Arc::clone(&authority),
+        artifact("late", effects(&["work"])),
+        config,
+    );
+    let (gate_tx, gate_rx) = std::sync::mpsc::channel();
+    let gate_rx = Arc::new(Mutex::new(gate_rx));
+    let adapter = Adapter::connect(&dir).expect("connect");
+    adapter.register("late", &["work"]).expect("register");
+    let gate = Arc::clone(&gate_rx);
+    adapter
+        .serve(move |_| {
+            let _ = gate.lock().expect("gate").recv();
+            Reply::Value(one())
+        })
+        .expect("serve");
+    wait_adapters(&host.runtime, 1);
+    host.runtime.start("exec").expect("start");
+    assert!(
+        host.runtime.wait_until(
+            |_| probe.test_renewals("exec").unwrap_or(0) >= 1,
+            Duration::from_secs(5),
+        ),
+        "renewal did not run"
+    );
+    probe
+        .test_hook("/v1/test/fail-renew", "exec")
+        .expect("fail renew");
+    assert!(
+        host.runtime
+            .wait_until(|runtime| runtime.abandoned() >= 1, Duration::from_secs(5)),
+        "ownership loss did not stop the execution"
+    );
+    let _ = gate_tx.send(());
+    std::thread::sleep(Duration::from_millis(300));
+    assert_eq!(host.runtime.completed(), 0);
+    let view = authority.view("exec").expect("view");
+    assert_eq!(view.revision, 0);
+    assert!(view.journal.is_empty());
+}
