@@ -1,4 +1,3 @@
-mod measure;
 mod protocol;
 mod sqlite;
 mod transport;
@@ -21,23 +20,12 @@ use protocol::{QueryResponse, RenewResponse};
 use sqlite::CacheEntry;
 use transport::{split_base, Endpoint};
 
-pub use measure::run_remote_measure;
-
 pub(super) const HARD_CONTINUATION_MAX: usize = 16 * 1024 * 1024;
-
-#[derive(Debug, Clone)]
-pub struct RemoteReport {
-    pub validation_us: u64,
-    pub continuation_bytes: u64,
-    pub chunks: u64,
-    pub revision: u64,
-}
 
 pub struct RemoteClient {
     pub(super) endpoint: Endpoint,
     pub(super) max_continuation: usize,
     pub(super) cache: Mutex<HashMap<String, CacheEntry>>,
-    pub(super) report: Mutex<Option<RemoteReport>>,
     pub(super) owner_hint: Mutex<Option<String>>,
 }
 
@@ -64,13 +52,8 @@ impl RemoteClient {
             endpoint: Endpoint::open(host, port, workspace, token),
             max_continuation,
             cache: Mutex::new(HashMap::new()),
-            report: Mutex::new(None),
             owner_hint: Mutex::new(None),
         }
-    }
-
-    pub fn last_report(&self) -> Option<RemoteReport> {
-        self.report.lock().expect("report").clone()
     }
 
     pub fn fresh(&self) -> Self {
@@ -78,7 +61,6 @@ impl RemoteClient {
             endpoint: self.endpoint.clone(),
             max_continuation: self.max_continuation,
             cache: Mutex::new(HashMap::new()),
-            report: Mutex::new(None),
             owner_hint: Mutex::new(None),
         }
     }

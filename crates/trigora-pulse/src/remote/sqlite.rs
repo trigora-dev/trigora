@@ -7,7 +7,7 @@ use super::protocol::{
     checkpoint_frame, manifest_timers, manifest_waits, split_frame, SqliteClaimResponse,
     SqliteCommitResponse, SqliteRestoreHeader, VersionBody,
 };
-use super::{RemoteClient, RemoteReport};
+use super::RemoteClient;
 use crate::authority::{
     self, timers_of, waits_of, Claimed, Commit, CommitResult, JournalRow, TimerRow, WaitRow,
 };
@@ -132,12 +132,6 @@ impl RemoteClient {
         if response.identity != identity || response.revision != next {
             return Err(Error::new("commit conflict"));
         }
-        *self.report.lock().expect("report") = Some(RemoteReport {
-            validation_us: response.validation_us,
-            continuation_bytes: response.continuation_bytes,
-            chunks: response.chunk_count,
-            revision: response.revision,
-        });
         self.cache.lock().expect("cache").insert(
             commit.execution_id.clone(),
             CacheEntry {

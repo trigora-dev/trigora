@@ -486,9 +486,10 @@ async function concurrency(): Promise<void> {
   }
 }
 
-const bin = releaseBin();
+releaseBin();
 machineHeader();
-execFileSync(bin, ['bench'], {
+execFileSync('cargo', ['bench', '-p', 'trigora-pulse', '--bench', 'stage', '--offline'], {
+  cwd: repoRoot(),
   stdio: 'inherit',
   env: { ...process.env, CARGO_TARGET_DIR: path.join(repoRoot(), 'target') },
 });

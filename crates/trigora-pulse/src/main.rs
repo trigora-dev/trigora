@@ -3,33 +3,18 @@ use std::fs;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use trigora_pulse::{run_remote_measure, Authority, Config, RemoteClient, Runtime};
-
-mod bench;
+use trigora_pulse::{Authority, Config, RemoteClient, Runtime};
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1);
-    let Some(first) = args.next() else {
+    let Some(dir) = args.next() else {
         eprintln!("usage: trigora-pulse <directory> <artifact.json>");
         return ExitCode::from(2);
     };
-    if first == "bench" {
-        return bench::run();
-    }
-    if first == "measure-remote" {
-        return match run_remote_measure() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(err) => {
-                eprintln!("{err}");
-                ExitCode::from(1)
-            }
-        };
-    }
     let Some(artifact_path) = args.next() else {
         eprintln!("usage: trigora-pulse <directory> <artifact.json>");
         return ExitCode::from(2);
     };
-    let dir = first;
     let text = match fs::read_to_string(&artifact_path) {
         Ok(text) => text,
         Err(err) => {

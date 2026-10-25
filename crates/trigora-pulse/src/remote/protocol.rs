@@ -22,19 +22,6 @@ pub(super) struct SqliteCommitResponse {
     pub(super) lease_until: u64,
     pub(super) idempotent: bool,
     pub(super) identity: String,
-    pub(super) validation_us: u64,
-    pub(super) continuation_bytes: u64,
-    pub(super) chunk_count: u64,
-    #[serde(default)]
-    pub(super) chunks_written: u64,
-    #[serde(default)]
-    pub(super) rows_read: u64,
-    #[serde(default)]
-    pub(super) rows_written: u64,
-    #[serde(default)]
-    pub(super) bytes_rewritten: u64,
-    #[serde(default)]
-    pub(super) buffered_bytes: u64,
 }
 
 #[derive(Deserialize)]

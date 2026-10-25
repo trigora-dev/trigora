@@ -16,7 +16,7 @@ use tcc_ir::{
 use tcc_state::{encode_continuation, Continuation, Value};
 use trigora_pulse::{Adapter, Authority, Config, JournalRow, Reply, Runtime, Span};
 
-pub fn run() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
     let cpu = cpu_model();
     let cpus = std::thread::available_parallelism()
         .map(|count| count.get())

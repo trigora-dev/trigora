@@ -153,10 +153,6 @@ impl Authority {
         self
     }
 
-    pub fn remote_report(&self) -> Option<crate::remote::RemoteReport> {
-        self.remote.as_ref().and_then(|remote| remote.last_report())
-    }
-
     pub fn now(&self) -> u64 {
         self.lock().clock
     }
