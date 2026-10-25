@@ -44,6 +44,8 @@ fn child_completion(authority: Arc<Authority>) {
     three_join_children_stay_one_each(&authority);
     a_lost_parent_commit_redelivers_one_join_branch(&authority);
     a_detached_race_result_is_ignored(&authority);
+    a_failed_all_join_child_detaches_the_others(&authority);
+    an_all_join_crash_between_deliveries_keeps_the_first_branch(&authority);
 }
 
 fn delivers_a_string(authority: &Arc<Authority>) {
@@ -864,6 +866,203 @@ fn a_detached_race_result_is_ignored(authority: &Arc<Authority>) {
             authority.created_child(child).unwrap().program_name,
             "child"
         );
+    }
+}
+
+fn a_failed_all_join_child_detaches_the_others(authority: &Arc<Authority>) {
+    let (host, children) = suspend_join(authority, "join-fail", false);
+    drop(host);
+    let failed = children[0].1.clone();
+    let dir = scratch("join-fail-child");
+    let child_host = Host::open(
+        "join-fail-child",
+        Arc::clone(authority),
+        program("unused-fail", 0, vec![Instruction::Return]),
+        settings(&dir, "A"),
+    );
+    child_host
+        .runtime
+        .install(program(
+            "fail-child",
+            0,
+            vec![
+                Instruction::LoadConst {
+                    value: ConstValue::String("broke".into()),
+                },
+                Instruction::Throw,
+            ],
+        ))
+        .unwrap();
+    child_host
+        .runtime
+        .start_child(&failed, "fail-child")
+        .unwrap();
+    assert!(child_host.runtime.wait_until(
+        |_| authority.view(&failed).unwrap().status == ContinuationStatus::Failed,
+        Duration::from_secs(5)
+    ));
+    drop(child_host);
+
+    let dir = scratch("join-fail-fault");
+    let mut config = settings(&dir, "A");
+    config.fault_after_commits = Some(1);
+    let fault = Host::open(
+        "join-fail-fault",
+        Arc::clone(authority),
+        join_program("join-fail", 3, false),
+        config,
+    );
+    let _adapter = serve(&fault.dir, "join-fail", &[]);
+    wait_adapters(&fault.runtime, 1);
+    fault.runtime.resume("join-fail").unwrap();
+    assert!(
+        fault
+            .runtime
+            .wait_until(|runtime| runtime.abandoned() == 1, Duration::from_secs(5)),
+        "{:?}",
+        fault.runtime.failures()
+    );
+    assert_eq!(
+        branch_phase(authority, "join-fail", &failed),
+        BranchPhase::Failed
+    );
+    for (_, child) in children.iter().skip(1) {
+        assert_eq!(
+            branch_phase(authority, "join-fail", child),
+            BranchPhase::Detached
+        );
+        assert_eq!(
+            authority.created_child(child).unwrap().program_name,
+            "child"
+        );
+    }
+    drop(fault);
+
+    let dir = scratch("join-fail-parent");
+    let parent = Host::open(
+        "join-fail-parent",
+        Arc::clone(authority),
+        join_program("join-fail", 3, false),
+        settings(&dir, "A"),
+    );
+    let _again = serve(&parent.dir, "join-fail", &[]);
+    wait_adapters(&parent.runtime, 1);
+    parent.runtime.resume("join-fail").unwrap();
+    assert_eq!(
+        failed_text(authority, &parent, "join-fail"),
+        "broke",
+        "{:?}",
+        parent.runtime.failures()
+    );
+    for (_, child) in &children {
+        assert_eq!(
+            authority.created_child(child).unwrap().program_name,
+            "child"
+        );
+    }
+}
+
+fn an_all_join_crash_between_deliveries_keeps_the_first_branch(authority: &Arc<Authority>) {
+    let (host, children) = suspend_join(authority, "join-gap", false);
+    drop(host);
+    finish_numbered(authority, &children[0].1, "gap-0", 4.0);
+    let dir = scratch("join-gap-first");
+    let first = Host::open(
+        "join-gap-first",
+        Arc::clone(authority),
+        join_program("join-gap", 3, false),
+        settings(&dir, "A"),
+    );
+    let _adapter = serve(&first.dir, "join-gap", &[]);
+    wait_adapters(&first.runtime, 1);
+    first.runtime.resume("join-gap").unwrap();
+    assert!(
+        first.runtime.wait_until(
+            |_| {
+                branch_phase(authority, "join-gap", &children[0].1) == BranchPhase::Completed
+                    && branch_phase(authority, "join-gap", &children[1].1)
+                        == BranchPhase::Registered
+                    && first.runtime.failures().is_empty()
+            },
+            Duration::from_secs(5)
+        ),
+        "{:?}",
+        first.runtime.failures()
+    );
+    drop(first);
+    finish_numbered(authority, &children[1].1, "gap-1", 6.0);
+    let dir = scratch("join-gap-second");
+    let second = Host::open(
+        "join-gap-second",
+        Arc::clone(authority),
+        join_program("join-gap", 3, false),
+        settings(&dir, "B"),
+    );
+    let _again = serve(&second.dir, "join-gap", &[]);
+    wait_adapters(&second.runtime, 1);
+    expire(authority, "join-gap");
+    second.runtime.resume("join-gap").unwrap();
+    assert!(
+        second.runtime.wait_until(
+            |_| {
+                branch_phase(authority, "join-gap", &children[0].1) == BranchPhase::Completed
+                    && branch_phase(authority, "join-gap", &children[1].1) == BranchPhase::Completed
+                    && branch_phase(authority, "join-gap", &children[2].1)
+                        == BranchPhase::Registered
+            },
+            Duration::from_secs(5)
+        ),
+        "{:?}",
+        second.runtime.failures()
+    );
+    assert_eq!(child_branches(authority, "join-gap"), children);
+    for (_, child) in &children {
+        assert_eq!(
+            authority.created_child(child).unwrap().program_name,
+            "child"
+        );
+    }
+}
+
+fn finish_numbered(authority: &Arc<Authority>, child: &str, hash: &str, value: f64) {
+    let dir = scratch(hash);
+    let host = Host::open(
+        hash,
+        Arc::clone(authority),
+        program("unused-number", 0, vec![Instruction::Return]),
+        settings(&dir, "A"),
+    );
+    host.runtime
+        .install(program(
+            hash,
+            0,
+            vec![
+                Instruction::LoadConst {
+                    value: ConstValue::Number(value),
+                },
+                Instruction::Return,
+            ],
+        ))
+        .unwrap();
+    host.runtime.start_child(child, hash).unwrap();
+    assert_eq!(finished(authority, &host, child), Value::Number(value));
+}
+
+fn failed_text(authority: &Authority, host: &Host, id: &str) -> String {
+    assert!(
+        host.runtime.wait_until(
+            |_| authority.view(id).unwrap().status == ContinuationStatus::Failed,
+            Duration::from_secs(5)
+        ),
+        "{id} did not fail {:?}",
+        host.runtime.failures()
+    );
+    let bytes = authority.view(id).unwrap().continuation.unwrap();
+    let decoded = decode_continuation(&bytes).unwrap();
+    let raw = decoded.result.clone().unwrap_or(Value::Undefined);
+    match export_value(&decoded.heap, &raw).unwrap() {
+        Value::String(text) => text,
+        other => panic!("failed result {other:?}"),
     }
 }
 
