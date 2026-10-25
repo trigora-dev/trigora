@@ -1,3 +1,4 @@
+mod authority;
 mod common;
 mod concurrency;
 mod effects;
