@@ -302,6 +302,7 @@ impl Inner {
                 *slot.confirm.lock().expect("confirm") = Some(Ok(done.revision));
                 *phase = Phase::Runnable;
                 drop(phase);
+                self.wake_parent_of(&id);
                 self.enqueue(id);
             }
             _ => {

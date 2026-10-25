@@ -6,13 +6,13 @@ use tcc_state::{decode_continuation, ContinuationStatus};
 use super::protocol::{
     checkpoint_frame, manifest_timers, manifest_waits, split_frame, CancelReceiptBody,
     CreatedChildJson, EventJson, EventReceiptBody, IntentJson, SqliteClaimResponse,
-    SqliteCommitResponse, SqliteRestoreHeader, VersionBody,
+    SqliteCommitResponse, SqliteRestoreHeader, StartedChildJson, VersionBody,
 };
 use super::RemoteClient;
 use crate::authority::{
     self, timers_of, waits_of, AcceptedEvent, CancelReceipt, Claimed, Commit, CommitResult,
-    CreatedChild, EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, TimerRow,
-    WaitRow,
+    CreatedChild, EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, StartedChild,
+    TimerRow, WaitRow,
 };
 use crate::error::{Error, Result};
 
@@ -273,6 +273,39 @@ impl RemoteClient {
         })
     }
 
+    pub(super) fn start_created_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<StartedChild> {
+        self.remember(owner);
+        let started: StartedChildJson = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-start",
+                self.endpoint.workspace
+            ),
+            owner,
+            &json!({
+                "leaseMs": lease_ms,
+                "artifactHash": artifact_hash,
+                "handlerKeys": handler_keys,
+            }),
+        )?;
+        Ok(StartedChild {
+            parent_execution_id: started.parent_execution_id,
+            invoke_id: started.invoke_id,
+            program_name: started.program_name,
+            arguments: started.arguments,
+            revision: started.revision,
+            fence: started.fence,
+            lease_until: started.lease_until,
+            initialized: started.initialized,
+        })
+    }
+
     pub(super) fn created_child_sqlite(&self, execution_id: &str) -> Result<CreatedChild> {
         let found: CreatedChildJson = self.endpoint.call_json(
             "GET",
@@ -335,17 +368,31 @@ impl RemoteClient {
         })
     }
 
+    pub(super) fn fetch_child(&self, execution_id: &str, parent_id: &str) -> Result<CacheEntry> {
+        self.fetch_restore(execution_id, "", Some(parent_id))
+    }
+
     pub(super) fn fetch_sqlite(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
-        let response = self.endpoint.call(
-            "GET",
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-restore",
-                self.endpoint.workspace
-            ),
-            owner,
-            None,
-            "application/trigora-checkpoint",
-        )?;
+        self.fetch_restore(execution_id, owner, None)
+    }
+
+    fn fetch_restore(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        parent_id: Option<&str>,
+    ) -> Result<CacheEntry> {
+        let mut path = format!(
+            "/v1/workspaces/{}/executions/{execution_id}/sql-restore",
+            self.endpoint.workspace
+        );
+        if let Some(parent_id) = parent_id {
+            path.push_str("?parent=");
+            path.push_str(&query_encode(parent_id));
+        }
+        let response =
+            self.endpoint
+                .call("GET", &path, owner, None, "application/trigora-checkpoint")?;
         let (header, continuation) = split_frame(&response.body)?;
         let header: SqliteRestoreHeader =
             serde_json::from_slice(header).map_err(|err| Error::new(err.to_string()))?;
@@ -476,6 +523,19 @@ fn changed_rows(
         .filter(|(key, row)| old.get(*key) != Some(*row))
         .map(|(_, row)| row.clone())
         .collect())
+}
+
+fn query_encode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 fn checkpoint_too_large(limit: usize) -> Error {

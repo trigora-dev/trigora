@@ -129,7 +129,7 @@ pub(super) fn apply(
     if is_terminal(continuation.status) {
         record.cancel_requested = false;
     }
-    invoke::consume(&mut record.intent, &continuation);
+    invoke::consume(&mut record.intents, &continuation);
     if record.artifact_hash.is_empty() {
         record.artifact_hash = hash;
         record.handler_keys = keys;

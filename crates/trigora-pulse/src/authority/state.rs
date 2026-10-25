@@ -22,6 +22,7 @@ pub(super) struct StoredIntent {
     pub(super) committed: bool,
 }
 
+#[derive(Clone)]
 pub(super) struct CreatedLink {
     pub(super) parent_execution_id: String,
     pub(super) invoke_id: String,
@@ -45,7 +46,8 @@ pub(super) struct Record {
     pub(super) handler_keys: Vec<String>,
     pub(super) event: Option<StoredEvent>,
     pub(super) cancel_requested: bool,
-    pub(super) intent: Option<StoredIntent>,
+    /// One intent per child id. The key is `child_execution_id`.
+    pub(super) intents: BTreeMap<String, StoredIntent>,
     pub(super) created: Option<CreatedLink>,
 }
 
@@ -66,7 +68,7 @@ impl Record {
             handler_keys: Vec::new(),
             event: None,
             cancel_requested: false,
-            intent: None,
+            intents: BTreeMap::new(),
             created: None,
         }
     }

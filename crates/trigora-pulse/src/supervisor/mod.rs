@@ -4,6 +4,8 @@ mod recovery;
 mod scheduler;
 mod state;
 
+pub(crate) use recovery::apply_child_outcome;
+
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
@@ -152,6 +154,26 @@ impl Runtime {
 
     pub fn dir(&self) -> &Path {
         self.inner.listener.dir()
+    }
+
+    /// Store an artifact that `start_child` may run. The bytes are validated
+    /// before they are kept, the same way `open` validates the first artifact.
+    pub fn install(&self, artifact: Artifact) -> Result<()> {
+        tcc_ir::validate(&artifact, &EngineCaps::current())
+            .map_err(|err| Error::new(format!("artifact: {err}")))?;
+        let hash = artifact.envelope.artifact_hash.clone();
+        self.inner
+            .artifacts
+            .lock()
+            .expect("artifacts")
+            .insert(hash, artifact);
+        Ok(())
+    }
+
+    /// Initialize the created child named by `artifact_hash`, which must already
+    /// be installed. The first continuation is committed before any effect runs.
+    pub fn start_child(&self, execution_id: &str, artifact_hash: &str) -> Result<()> {
+        self.inner.start_created_child(execution_id, artifact_hash)
     }
 
     pub fn start(&self, execution_id: &str) -> Result<()> {

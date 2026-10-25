@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 
 pub use types::{
     AcceptedEvent, CancelReceipt, Claimed, Commit, CommitQuery, CommitResult, CreatedChild,
-    EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, Renewed, TimerRow,
-    VersionPin, View, WaitRow,
+    EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, Renewed, StartedChild,
+    TimerRow, VersionPin, View, WaitRow,
 };
 
 pub(crate) use identity::{canonical_keys, commit_identity, sha256, timers_of, waits_of};
@@ -58,7 +58,7 @@ impl Authority {
 
     pub fn open(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {
         if let Some(record) = self.lock().executions.get(execution_id) {
-            if record.created.is_some() {
+            if record.created.is_some() && record.continuation.is_none() {
                 return Err(Error::new("child is not initialized"));
             }
             return Err(Error::new("execution already exists"));
@@ -122,8 +122,9 @@ impl Authority {
         )
     }
 
-    /// Store one invoke intent. The revision does not move. The same intent is
-    /// idempotent. A different unresolved invoke conflicts.
+    /// Store one invoke intent for a child id. The revision does not move. The
+    /// same child id, program, and arguments are idempotent. A different program
+    /// or argument vector for that child conflicts and leaves the first intent.
     pub fn record_invoke(
         &self,
         execution_id: &str,
@@ -148,6 +149,35 @@ impl Authority {
             return remote.ensure_child(parent_id, offered);
         }
         invoke::ensure(&mut self.lock(), parent_id, offered)
+    }
+
+    /// Admit a created child. The stored arguments are the only ones returned.
+    /// This does not write a continuation and does not delete the child link.
+    pub fn start_created(
+        &self,
+        execution_id: &str,
+        owner_token: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<StartedChild> {
+        if let Some(remote) = &self.remote {
+            return remote.start_created(
+                execution_id,
+                owner_token,
+                lease_ms,
+                artifact_hash,
+                handler_keys,
+            );
+        }
+        invoke::start(
+            &mut self.lock(),
+            execution_id,
+            owner_token,
+            lease_ms,
+            artifact_hash,
+            handler_keys,
+        )
     }
 
     pub fn created_child(&self, execution_id: &str) -> Result<CreatedChild> {
@@ -193,6 +223,19 @@ impl Authority {
             return remote.view(execution_id);
         }
         ownership::view(&self.lock(), execution_id)
+    }
+
+    /// Read a child's committed continuation. The caller is the parent execution,
+    /// not the child's owner, so this does not require the child's lease.
+    pub fn view_child(&self, child_id: &str, parent_id: &str) -> Result<View> {
+        if let Some(remote) = &self.remote {
+            return remote.view_child(child_id, parent_id);
+        }
+        let link = invoke::created(&self.lock(), child_id)?;
+        if link.parent_execution_id != parent_id {
+            return Err(Error::new("invalid owner"));
+        }
+        ownership::view(&self.lock(), child_id)
     }
 
     /// Take or renew ownership. A live lease held by someone else is rejected.

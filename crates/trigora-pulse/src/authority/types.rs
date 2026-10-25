@@ -97,6 +97,20 @@ pub struct InvokeReceipt {
     pub idempotent: bool,
 }
 
+/// Ownership of a created child, plus the arguments its first continuation must bind.
+/// `initialized` is true only after that continuation has been committed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StartedChild {
+    pub parent_execution_id: String,
+    pub invoke_id: String,
+    pub program_name: String,
+    pub arguments: String,
+    pub revision: u64,
+    pub fence: u64,
+    pub lease_until: u64,
+    pub initialized: bool,
+}
+
 /// A child row that exists and has not been initialized with a continuation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CreatedChild {

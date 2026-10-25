@@ -263,6 +263,18 @@ fn terminal_status(status: ContinuationStatus) -> bool {
     )
 }
 
+pub(crate) fn decode_arguments(encoded: &str) -> Result<Vec<Value>> {
+    let parts: Vec<String> =
+        serde_json::from_str(encoded).map_err(|err| Error::new(err.to_string()))?;
+    let mut args = Vec::with_capacity(parts.len());
+    for part in parts {
+        args.push(
+            decode_value(part.as_bytes()).map_err(|err| Error::new(format!("argument: {err}")))?,
+        );
+    }
+    Ok(args)
+}
+
 pub(crate) fn encode_arguments(args: &[Value]) -> Result<String> {
     let mut encoded = Vec::with_capacity(args.len());
     for arg in args {

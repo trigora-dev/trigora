@@ -9,8 +9,8 @@ mod supervisor;
 
 pub use authority::{
     AcceptedEvent, Authority, CancelReceipt, Claimed, Commit, CommitResult, CreatedChild,
-    EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, TimerRow, VersionPin, View,
-    WaitRow,
+    EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, StartedChild, TimerRow,
+    VersionPin, View, WaitRow,
 };
 pub use error::{Error, Result};
 pub use remote::RemoteClient;

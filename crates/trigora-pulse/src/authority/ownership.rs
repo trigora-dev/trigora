@@ -114,7 +114,7 @@ pub(super) fn claim(
         .executions
         .get_mut(execution_id)
         .ok_or_else(|| Error::new("unknown execution"))?;
-    if record.created.is_some() {
+    if record.created.is_some() && record.continuation.is_none() {
         return Err(Error::new("child is not initialized"));
     }
     if !record.artifact_hash.is_empty()
@@ -152,6 +152,6 @@ pub(super) fn claim(
             payload: event.payload.clone(),
         }),
         cancel_requested: record.cancel_requested,
-        intent: invoke::pending(&record.intent),
+        intent: invoke::pending(&record.intents),
     })
 }

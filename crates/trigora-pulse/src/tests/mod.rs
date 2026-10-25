@@ -1,4 +1,5 @@
 mod authority;
+mod children;
 mod common;
 mod concurrency;
 mod effects;

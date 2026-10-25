@@ -91,6 +91,17 @@ impl RemoteClient {
         self.ensure_child_sqlite(parent_id, offered)
     }
 
+    pub fn start_created(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<crate::authority::StartedChild> {
+        self.start_created_sqlite(execution_id, owner, lease_ms, artifact_hash, handler_keys)
+    }
+
     pub fn created_child(&self, execution_id: &str) -> Result<crate::authority::CreatedChild> {
         self.created_child_sqlite(execution_id)
     }
@@ -191,7 +202,14 @@ impl RemoteClient {
             .expect("owner")
             .clone()
             .ok_or_else(|| crate::error::Error::new("unknown owner"))?;
-        let entry = self.fetch_entry(execution_id, &owner)?;
+        self.view_entry(self.fetch_entry(execution_id, &owner)?)
+    }
+
+    pub fn view_child(&self, execution_id: &str, parent_id: &str) -> Result<View> {
+        self.view_entry(self.fetch_child(execution_id, parent_id)?)
+    }
+
+    fn view_entry(&self, entry: CacheEntry) -> Result<View> {
         Ok(View {
             revision: entry.revision,
             owner: Some(entry.owner),

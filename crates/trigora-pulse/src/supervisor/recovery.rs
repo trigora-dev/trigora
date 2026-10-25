@@ -2,12 +2,17 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
+use std::collections::BTreeMap;
+
 use tcc_core::{Engine, HostResponse};
 use tcc_ir::Artifact;
-use tcc_state::{decode_continuation, decode_value, ContinuationStatus, PendingOp, WaitKind};
+use tcc_state::{
+    decode_continuation, decode_value, encode_continuation, export_value, ContinuationStatus,
+    PendingOp, Value, WaitKind,
+};
 
-use crate::authority::{canonical_keys, Claimed};
-use crate::drive::Memory;
+use crate::authority::{canonical_keys, Claimed, Commit};
+use crate::drive::{self, Memory};
 use crate::error::{Error, Result};
 
 use super::state::{version_wait, Phase, Slot};
@@ -139,6 +144,7 @@ impl Inner {
             let mut engine = Engine::resume(artifact, continuation, &self.caps)
                 .map_err(|err| Error::new(err.to_string()))?;
             wake_claimed(&mut engine, &claimed)?;
+            deliver_pending_child(&self.authority, &mut engine)?;
             engine
         } else {
             let mut engine = Engine::start_with_args(artifact, execution_id, &self.caps, &[])
@@ -161,6 +167,99 @@ impl Inner {
                 last_effect: None,
             },
         ))
+    }
+
+    /// Initialize a created child from its stored arguments, or resume it once
+    /// that first continuation is committed. The artifact must already have been
+    /// validated and stored by `Runtime::open` or `install`.
+    pub(super) fn start_created_child(&self, id: &str, artifact_hash: &str) -> Result<()> {
+        if self.artifact(artifact_hash).is_err() {
+            return Err(Error::new("artifact bytes do not match the declared hash"));
+        }
+        if self.slot(id).is_some() {
+            return Err(Error::new("execution id is already in use"));
+        }
+        let keys = self.keys_for(artifact_hash);
+        let started =
+            self.authority
+                .start_created(id, &self.owner, self.lease_ms, artifact_hash, &keys)?;
+        if started.initialized {
+            return self.claim_and_admit(id, artifact_hash, &keys);
+        }
+        let artifact = self.artifact(artifact_hash)?;
+        let args = drive::decode_arguments(&started.arguments)?;
+        let engine = Engine::start_with_args(artifact.clone(), id, &self.caps, &args)
+            .map_err(|err| Error::new(err.to_string()))?;
+        let mut snapshot = engine.continuation().clone();
+        snapshot.revision = started.revision.saturating_add(1);
+        let bytes = encode_continuation(&snapshot)
+            .map_err(|err| Error::new(format!("encode continuation: {err}")))?;
+        let committed = self.authority.commit(&Commit {
+            execution_id: id.to_string(),
+            owner_token: self.owner.clone(),
+            fence: started.fence,
+            expected_revision: started.revision,
+            continuation: bytes,
+            journal: BTreeMap::new(),
+            timers: None,
+            waits: None,
+            artifact_hash: artifact_hash.to_string(),
+            handler_keys: keys.clone(),
+        })?;
+        snapshot.revision = committed.revision;
+        let engine = Engine::resume(artifact, snapshot, &self.caps)
+            .map_err(|err| Error::new(err.to_string()))?;
+        let lease_until = committed.lease_until;
+        self.admit(
+            id.to_string(),
+            engine,
+            Memory {
+                journal: BTreeMap::new(),
+                revision: committed.revision,
+                last_effect: None,
+            },
+            committed.fence,
+            lease_until,
+            artifact_hash.to_string(),
+            keys,
+        );
+        Ok(())
+    }
+
+    /// After a child commits a terminal continuation, resume a parent this
+    /// process still holds. A missing parent slot is left for a later claim.
+    pub(super) fn wake_parent_of(&self, child_id: &str) {
+        let Ok(view) = self.authority.view(child_id) else {
+            return;
+        };
+        if !terminal_status(view.status) {
+            return;
+        }
+        let Ok(child) = self.authority.created_child(child_id) else {
+            return;
+        };
+        let parent_id = child.parent_execution_id;
+        let Some(slot) = self.slot(&parent_id) else {
+            return;
+        };
+        {
+            let mut phase = slot.phase.lock().expect("phase");
+            if !matches!(*phase, Phase::Suspended) {
+                return;
+            }
+            *phase = Phase::Recovering;
+        }
+        let hash = slot.artifact_hash.clone();
+        let keys = slot.handler_keys.clone();
+        if let Err(err) = self.claim_and_admit(&parent_id, &hash, &keys) {
+            let mut phase = slot.phase.lock().expect("phase");
+            if matches!(*phase, Phase::Recovering) {
+                *phase = Phase::Suspended;
+            }
+            if err.to_string() != "execution is owned" {
+                self.note_failure(&parent_id, err.to_string());
+            }
+        }
     }
 
     pub(super) fn artifact(&self, hash: &str) -> Result<Artifact> {
@@ -323,6 +422,7 @@ impl Inner {
             let mut engine = Engine::resume(artifact, continuation, &self.caps)
                 .map_err(|err| Error::new(err.to_string()))?;
             wake_claimed(&mut engine, &claimed)?;
+            deliver_pending_child(&self.authority, &mut engine)?;
             engine
         } else {
             let mut engine = Engine::start_with_args(artifact, execution_id, &self.caps, &[])
@@ -446,6 +546,128 @@ fn wake_claimed(engine: &mut Engine, claimed: &Claimed) -> Result<()> {
             .map_err(|err| Error::new(err.to_string()))?;
     }
     Ok(())
+}
+
+/// Deliver a committed child outcome. `cancel_requested` is the flag from the
+/// claim that admitted this engine. A later remote cancel is not read here.
+pub(crate) fn apply_child_outcome(
+    authority: &crate::authority::Authority,
+    engine: &mut Engine,
+    cancel_requested: bool,
+) -> Result<()> {
+    if cancel_requested && !terminal_status(engine.continuation().status) {
+        engine
+            .apply_host_response(HostResponse::Cancel)
+            .map_err(|err| Error::new(err.to_string()))?;
+        return Ok(());
+    }
+    deliver_pending_child(authority, engine)
+}
+
+fn deliver_pending_child(
+    authority: &crate::authority::Authority,
+    engine: &mut Engine,
+) -> Result<()> {
+    if terminal_status(engine.continuation().status) {
+        return Ok(());
+    }
+    let pending = match &engine.continuation().pending {
+        Some(PendingOp::Wait {
+            kind: WaitKind::Child {
+                child_execution_id, ..
+            },
+        }) => Some((child_execution_id.clone(), None)),
+        _ => None,
+    };
+    let Some((child_id, branch)) = pending else {
+        return deliver_join_children(authority, engine);
+    };
+    deliver_one(authority, engine, &child_id, branch)?;
+    Ok(())
+}
+
+fn deliver_join_children(
+    authority: &crate::authority::Authority,
+    engine: &mut Engine,
+) -> Result<()> {
+    let children = join_children(engine);
+    for (branch, child_id) in children {
+        if terminal_status(engine.continuation().status) {
+            return Ok(());
+        }
+        // One child response queues the checkpoint. The next claim delivers
+        // any later branch, including a stale result for a detached race.
+        if deliver_one(authority, engine, &child_id, Some(branch))? {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+fn join_children(engine: &Engine) -> Vec<(String, String)> {
+    let Some(join) = &engine.continuation().join else {
+        return Vec::new();
+    };
+    join.branches
+        .iter()
+        .filter(|branch| {
+            matches!(
+                branch.phase,
+                tcc_state::BranchPhase::Registered | tcc_state::BranchPhase::Detached
+            )
+        })
+        .filter_map(|branch| match &branch.op {
+            Some(tcc_state::BranchOp::Child {
+                child_execution_id, ..
+            }) => Some((branch.branch_id.clone(), child_execution_id.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn deliver_one(
+    authority: &crate::authority::Authority,
+    engine: &mut Engine,
+    child_id: &str,
+    branch: Option<String>,
+) -> Result<bool> {
+    let parent_id = engine.continuation().execution_id.clone();
+    let Ok(view) = authority.view_child(child_id, &parent_id) else {
+        return Ok(false);
+    };
+    let Some(bytes) = view.continuation else {
+        return Ok(false);
+    };
+    let decoded =
+        decode_continuation(&bytes).map_err(|err| Error::new(format!("restore: {err}")))?;
+    let response = match decoded.status {
+        ContinuationStatus::Completed => {
+            let raw = decoded.result.unwrap_or(Value::Undefined);
+            let value = export_value(&decoded.heap, &raw)
+                .map_err(|err| Error::new(format!("child result: {err}")))?;
+            HostResponse::ChildResult {
+                value,
+                child_execution_id: child_id.to_string(),
+                branch,
+            }
+        }
+        ContinuationStatus::Failed => {
+            let message = match decoded.result {
+                Some(Value::String(text)) => text,
+                _ => "execution failed".to_string(),
+            };
+            HostResponse::ChildFailed {
+                message,
+                child_execution_id: child_id.to_string(),
+                branch,
+            }
+        }
+        _ => return Ok(false),
+    };
+    engine
+        .apply_host_response(response)
+        .map_err(|err| Error::new(err.to_string()))?;
+    Ok(true)
 }
 
 fn terminal_status(status: ContinuationStatus) -> bool {

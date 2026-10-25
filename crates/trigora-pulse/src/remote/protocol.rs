@@ -59,6 +59,19 @@ pub(super) struct IntentJson {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(super) struct StartedChildJson {
+    pub(super) parent_execution_id: String,
+    pub(super) invoke_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+    pub(super) revision: u64,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    pub(super) initialized: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(super) struct CreatedChildJson {
     pub(super) parent_execution_id: String,
     pub(super) invoke_id: String,

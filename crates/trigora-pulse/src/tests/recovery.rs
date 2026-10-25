@@ -1156,18 +1156,23 @@ fn invoke_suite(authority: &Arc<Authority>) {
     let mut other = second_invoke.clone();
     other.invoke_id = "other".into();
     other.child_execution_id = "child:other".into();
+    let stored = authority.record_invoke("second", "A", 1, &other).unwrap();
+    assert!(!stored.idempotent);
+    let mut changed = second_invoke.clone();
+    changed.program_name = "other-program".into();
     let conflict = authority
-        .record_invoke("second", "A", 1, &other)
+        .record_invoke("second", "A", 1, &changed)
         .unwrap_err();
     assert_eq!(conflict.to_string(), "invoke conflict");
+    authority.ensure_child("second", None).unwrap();
+    let original = authority
+        .created_child(&second_invoke.child_execution_id)
+        .unwrap();
+    assert_eq!(original.program_name, "child");
+    assert_eq!(original.arguments, "[]");
     assert_eq!(
-        authority
-            .claim("second", "A", 60_000, "invoke", &[])
-            .unwrap()
-            .intent
-            .unwrap()
-            .invoke_id,
-        second_invoke.invoke_id
+        authority.created_child("child:other").unwrap().invoke_id,
+        "other"
     );
 
     let before = invoke_spec("before");
