@@ -21,7 +21,3 @@ tcc-host = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-host" }
 tcc-ir = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-ir" }
 tcc-state = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-state" }
 uuid = { version = "1", features = ["v4"] }
-
-[dev-dependencies]
-tcc-ir = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-ir" }
-tcc-state = { version = "26.10.3", path = "../../tcc-engine/crates/tcc-state" }

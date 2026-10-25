@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, HashMap};
 use std::env;
-use std::fs::OpenOptions;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::thread;
 use std::time::SystemTime;
@@ -17,15 +18,6 @@ use crate::authority::{
 };
 use crate::error::{Error, Result};
 
-const RESTORE_IN_FLIGHT: usize = 8;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Upload {
-    Snapshot,
-    Delta,
-    None,
-}
-
 #[derive(Clone)]
 struct Endpoint {
     host: String,
@@ -37,8 +29,6 @@ struct Endpoint {
 #[derive(Clone)]
 struct CacheEntry {
     journal: BTreeMap<String, JournalRow>,
-    snapshot: Option<String>,
-    deltas: usize,
     revision: u64,
     continuation: Vec<u8>,
     timers: Vec<TimerRow>,
@@ -53,37 +43,47 @@ struct CacheEntry {
 pub struct RemoteReport {
     pub validation_us: u64,
     pub continuation_bytes: u64,
-    pub journal_bytes: u64,
-    pub objects: u64,
-    pub compactions: u64,
+    pub chunks: u64,
     pub revision: u64,
 }
 
+const HARD_CONTINUATION_MAX: usize = 16 * 1024 * 1024;
+
 pub struct RemoteClient {
     endpoint: Endpoint,
-    bound: usize,
+    max_continuation: usize,
     cache: Mutex<HashMap<String, CacheEntry>>,
     report: Mutex<Option<RemoteReport>>,
     owner_hint: Mutex<Option<String>>,
 }
 
 impl RemoteClient {
-    pub fn new(
+    pub fn sqlite(
         base: impl Into<String>,
         workspace: impl Into<String>,
         token: impl Into<String>,
-        bound: usize,
+        max_continuation: usize,
     ) -> Self {
         let base = base.into();
         let (host, port) = split_base(&base).unwrap_or_else(|_| ("invalid".into(), 0));
+        Self::build(host, port, workspace.into(), token.into(), max_continuation)
+    }
+
+    fn build(
+        host: String,
+        port: u16,
+        workspace: String,
+        token: String,
+        max_continuation: usize,
+    ) -> Self {
         Self {
             endpoint: Endpoint {
                 host,
                 port,
-                workspace: workspace.into(),
-                token: token.into(),
+                workspace,
+                token,
             },
-            bound,
+            max_continuation,
             cache: Mutex::new(HashMap::new()),
             report: Mutex::new(None),
             owner_hint: Mutex::new(None),
@@ -97,7 +97,7 @@ impl RemoteClient {
     pub fn fresh(&self) -> Self {
         Self {
             endpoint: self.endpoint.clone(),
-            bound: self.bound,
+            max_continuation: self.max_continuation,
             cache: Mutex::new(HashMap::new()),
             report: Mutex::new(None),
             owner_hint: Mutex::new(None),
@@ -105,7 +105,71 @@ impl RemoteClient {
     }
 
     pub fn commit(&self, commit: &Commit) -> Result<CommitResult> {
+        self.commit_sqlite(commit)
+    }
+
+    pub fn claim(&self, execution_id: &str, owner: &str, lease_ms: u64) -> Result<Claimed> {
+        self.claim_sqlite(execution_id, owner, lease_ms)
+    }
+
+    pub fn renew(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        lease_ms: u64,
+    ) -> Result<crate::authority::Renewed> {
+        let renewed: RenewResponse = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-renew",
+                self.endpoint.workspace
+            ),
+            owner,
+            &json!({ "fence": fence, "leaseMs": lease_ms }),
+        )?;
+        Ok(crate::authority::Renewed {
+            owner: renewed.owner,
+            fence: renewed.fence,
+            lease_until: renewed.lease_until,
+        })
+    }
+
+    pub fn reconcile(
+        &self,
+        execution_id: &str,
+        revision: u64,
+        identity: &str,
+    ) -> Result<crate::authority::CommitQuery> {
+        let owner = self
+            .owner_hint
+            .lock()
+            .expect("owner")
+            .clone()
+            .unwrap_or_default();
+        let path = format!(
+            "/v1/workspaces/{}/executions/{execution_id}/sql-reconcile",
+            self.endpoint.workspace
+        );
+        let found: QueryResponse = self.endpoint.post_json(
+            &path,
+            &owner,
+            &json!({ "revision": revision, "identity": identity }),
+        )?;
+        Ok(crate::authority::CommitQuery {
+            accepted: found.accepted,
+            revision: found.revision,
+            identity: found.identity,
+            owner: Some(found.owner),
+            fence: found.fence,
+            lease_until: found.lease_until,
+        })
+    }
+
+    fn commit_sqlite(&self, commit: &Commit) -> Result<CommitResult> {
         self.remember(&commit.owner_token);
+        if commit.continuation.len() > self.max_continuation {
+            return Err(checkpoint_too_large(self.max_continuation));
+        }
         let continuation = decode_continuation(&commit.continuation)
             .map_err(|err| Error::new(format!("continuation decode failed: {err}")))?;
         if continuation.execution_id != commit.execution_id {
@@ -134,50 +198,32 @@ impl RemoteClient {
         }
         let digest = authority::sha256(&commit.continuation);
         let identity = authority::commit_identity(next, &digest, &commit.journal, &timers, &waits);
-        self.endpoint.put(
-            &commit.execution_id,
-            &commit.owner_token,
-            &digest,
-            &commit.continuation,
-        )?;
         let cached = self.prepare(&commit.execution_id, &commit.owner_token)?;
         let changed = changed_rows(&cached.journal, &commit.journal)?;
-        let upload = journal_upload(
-            cached.snapshot.is_some(),
-            cached.deltas,
-            !changed.is_empty(),
-            self.bound,
-        );
-        let (journal, journal_bytes) = match upload {
-            Upload::None => (None, 0),
-            Upload::Snapshot => {
-                let bytes = canonical_journal(commit.journal.values());
-                let digest = authority::sha256(&bytes);
-                self.endpoint
-                    .put(&commit.execution_id, &commit.owner_token, &digest, &bytes)?;
-                (Some(("snapshot", digest)), bytes.len() as u64)
-            }
-            Upload::Delta => {
-                let bytes = canonical_journal(changed.iter());
-                let digest = authority::sha256(&bytes);
-                self.endpoint
-                    .put(&commit.execution_id, &commit.owner_token, &digest, &bytes)?;
-                (Some(("delta", digest)), bytes.len() as u64)
-            }
-        };
-        let body = json!({
+        let unchanged =
+            !cached.continuation.is_empty() && authority::sha256(&cached.continuation) == digest;
+        let raw: &[u8] = if unchanged { &[] } else { &commit.continuation };
+        let header = json!({
             "ownerToken": commit.owner_token,
             "fence": commit.fence,
             "expectedRevision": commit.expected_revision,
             "continuationDigest": digest,
+            "continuationBytes": raw.len(),
             "identity": identity,
-            "journal": journal.as_ref().map(|(kind, digest)| json!({"kind": kind, "digest": digest})),
+            "journal": changed.iter().map(|row| json!({
+                "key": row.key,
+                "idempotencyKey": row.idempotency_key,
+                "status": row.status,
+                "input": row.input,
+                "result": row.result,
+            })).collect::<Vec<_>>(),
             "timers": timers.iter().map(|timer| json!({"branch": timer.branch, "dueAt": timer.due_at})).collect::<Vec<_>>(),
             "waits": waits.iter().map(|wait| json!({"waitId": wait.wait_id, "event": wait.event})).collect::<Vec<_>>(),
         });
-        let posted: Result<CommitResponse> = self.endpoint.post_json(
+        let body = checkpoint_frame(&header, raw)?;
+        let posted: Result<SqliteCommitResponse> = self.endpoint.post_bytes(
             &format!(
-                "/v1/workspaces/{}/executions/{}/commits",
+                "/v1/workspaces/{}/executions/{}/sql-commits",
                 self.endpoint.workspace, commit.execution_id
             ),
             &commit.owner_token,
@@ -210,17 +256,13 @@ impl RemoteClient {
         *self.report.lock().expect("report") = Some(RemoteReport {
             validation_us: response.validation_us,
             continuation_bytes: response.continuation_bytes,
-            journal_bytes,
-            objects: response.objects,
-            compactions: response.compactions,
+            chunks: response.chunk_count,
             revision: response.revision,
         });
         self.cache.lock().expect("cache").insert(
             commit.execution_id.clone(),
             CacheEntry {
                 journal: commit.journal.clone(),
-                snapshot: Some(response.snapshot),
-                deltas: response.deltas.len(),
                 revision: response.revision,
                 continuation: commit.continuation.clone(),
                 timers,
@@ -240,84 +282,21 @@ impl RemoteClient {
         })
     }
 
-    pub fn claim(&self, execution_id: &str, owner: &str, lease_ms: u64) -> Result<Claimed> {
+    fn claim_sqlite(&self, execution_id: &str, owner: &str, lease_ms: u64) -> Result<Claimed> {
         self.remember(owner);
-        let manifest: ManifestResponse = self.endpoint.post_json(
+        let claimed: SqliteClaimResponse = self.endpoint.post_json(
             &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/claim",
+                "/v1/workspaces/{}/executions/{execution_id}/sql-claim",
                 self.endpoint.workspace
             ),
             owner,
             &json!({ "leaseMs": lease_ms }),
         )?;
-        self.claimed(execution_id, owner, manifest)
-    }
-
-    pub fn renew(
-        &self,
-        execution_id: &str,
-        owner: &str,
-        fence: u64,
-        lease_ms: u64,
-    ) -> Result<crate::authority::Renewed> {
-        let renewed: RenewResponse = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/renew",
-                self.endpoint.workspace
-            ),
-            owner,
-            &json!({ "fence": fence, "leaseMs": lease_ms }),
-        )?;
-        Ok(crate::authority::Renewed {
-            owner: renewed.owner,
-            fence: renewed.fence,
-            lease_until: renewed.lease_until,
-        })
-    }
-
-    pub fn reconcile(
-        &self,
-        execution_id: &str,
-        revision: u64,
-        identity: &str,
-    ) -> Result<crate::authority::CommitQuery> {
-        let owner = self
-            .owner_hint
-            .lock()
-            .expect("owner")
-            .clone()
-            .unwrap_or_default();
-        let found: QueryResponse = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/reconcile",
-                self.endpoint.workspace
-            ),
-            &owner,
-            &json!({ "revision": revision, "identity": identity }),
-        )?;
-        Ok(crate::authority::CommitQuery {
-            accepted: found.accepted,
-            revision: found.revision,
-            identity: found.identity,
-            owner: Some(found.owner),
-            fence: found.fence,
-            lease_until: found.lease_until,
-        })
-    }
-
-    fn claimed(
-        &self,
-        execution_id: &str,
-        owner: &str,
-        manifest: ManifestResponse,
-    ) -> Result<Claimed> {
-        let fence = manifest.fence;
-        let lease_until = manifest.lease_until;
-        if manifest.revision == 0 || manifest.continuation_digest.is_empty() {
+        if claimed.revision == 0 || claimed.continuation_digest.is_empty() {
             return Ok(Claimed {
-                revision: manifest.revision,
-                fence,
-                lease_until,
+                revision: claimed.revision,
+                fence: claimed.fence,
+                lease_until: claimed.lease_until,
                 continuation: None,
                 journal: BTreeMap::new(),
                 timers: Vec::new(),
@@ -326,7 +305,7 @@ impl RemoteClient {
                 status: ContinuationStatus::Runnable,
             });
         }
-        let entry = self.fetch_entry(execution_id, owner)?;
+        let entry = self.fetch_sqlite(execution_id, owner)?;
         let status = entry.status;
         self.cache
             .lock()
@@ -334,8 +313,8 @@ impl RemoteClient {
             .insert(execution_id.to_string(), entry.clone());
         Ok(Claimed {
             revision: entry.revision,
-            fence,
-            lease_until,
+            fence: claimed.fence,
+            lease_until: claimed.lease_until,
             continuation: Some(entry.continuation),
             journal: entry.journal,
             timers: entry.timers,
@@ -343,6 +322,207 @@ impl RemoteClient {
             timer_due: false,
             status,
         })
+    }
+
+    fn fetch_sqlite(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
+        let response = self.endpoint.call(
+            "GET",
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-restore",
+                self.endpoint.workspace
+            ),
+            owner,
+            None,
+            "application/trigora-checkpoint",
+        )?;
+        let (header, continuation) = split_frame(&response.body)?;
+        let header: SqliteRestoreHeader =
+            serde_json::from_slice(header).map_err(|err| Error::new(err.to_string()))?;
+        if header.revision == 0 || header.continuation_digest.is_empty() {
+            return Ok(CacheEntry {
+                journal: BTreeMap::new(),
+                revision: header.revision,
+                continuation: Vec::new(),
+                timers: Vec::new(),
+                waits: Vec::new(),
+                status: ContinuationStatus::Runnable,
+                owner: header.owner,
+                fence: header.fence,
+                lease_until: header.lease_until,
+            });
+        }
+        if continuation.len() as u64 != header.continuation_bytes {
+            return Err(Error::new("corrupt blob"));
+        }
+        if authority::sha256(continuation) != header.continuation_digest {
+            return Err(Error::new("corrupt blob"));
+        }
+        let decoded = decode_continuation(continuation)
+            .map_err(|err| Error::new(format!("restore: {err}")))?;
+        if decoded.execution_id != execution_id {
+            return Err(Error::new("continuation execution id mismatch"));
+        }
+        let timers = timers_of(&decoded);
+        let waits = waits_of(&decoded);
+        if manifest_timers(&header.timers) != timers || manifest_waits(&header.waits) != waits {
+            return Err(Error::new("inconsistent timer metadata"));
+        }
+        let mut journal = BTreeMap::new();
+        for row in header.journal {
+            journal.insert(
+                row.key.clone(),
+                JournalRow {
+                    key: row.key,
+                    idempotency_key: row.idempotency_key,
+                    status: row.status,
+                    input: row.input,
+                    result: row.result,
+                },
+            );
+        }
+        let identity = authority::commit_identity(
+            header.revision,
+            &header.continuation_digest,
+            &journal,
+            &timers,
+            &waits,
+        );
+        if identity != header.identity {
+            return Err(Error::new("commit conflict"));
+        }
+        Ok(CacheEntry {
+            journal,
+            revision: header.revision,
+            continuation: continuation.to_vec(),
+            timers,
+            waits,
+            status: decoded.status,
+            owner: header.owner,
+            fence: header.fence,
+            lease_until: header.lease_until,
+        })
+    }
+
+    fn measure_pair(&self, execution: &str, size: usize, keys: usize) -> Result<serde_json::Value> {
+        let continuation = vec![b'x'; size];
+        let digest = authority::sha256(&continuation);
+        let journal = measure_journal(keys);
+        let identity = authority::commit_identity(1, &digest, &journal, &[], &[]);
+        let rows: Vec<JournalRow> = journal.values().cloned().collect();
+        let rss_before = rss_kb();
+        let (first, rss_peak) = sample_rss(|| {
+            let started = Instant::now();
+            let first =
+                self.measure_post(execution, 0, &digest, &identity, &rows, Some(&continuation))?;
+            Ok::<_, Error>((first, started.elapsed().as_secs_f64() * 1000.0))
+        });
+        let (first, first_ms) = first?;
+        let rss_after = rss_kb();
+        let mut later_journal = journal.clone();
+        let extra = JournalRow {
+            key: "extra".into(),
+            idempotency_key: "exec:extra".into(),
+            status: "completed".into(),
+            input: String::new(),
+            result: "1".into(),
+        };
+        later_journal.insert(extra.key.clone(), extra.clone());
+        let later_identity = authority::commit_identity(2, &digest, &later_journal, &[], &[]);
+        let started = Instant::now();
+        let later = self.measure_post(execution, 1, &digest, &later_identity, &[extra], None)?;
+        let later_ms = started.elapsed().as_secs_f64() * 1000.0;
+        let started = Instant::now();
+        let restored = self.fresh().measure_restore(execution)?;
+        let restore_ms = started.elapsed().as_secs_f64() * 1000.0;
+        if restored != digest {
+            return Err(Error::new("corrupt blob"));
+        }
+        Ok(json!({
+            "execution": execution,
+            "size": size,
+            "keys": keys,
+            "firstMs": first_ms,
+            "laterMs": later_ms,
+            "restoreMs": restore_ms,
+            "chunkCount": first.chunk_count,
+            "chunksWritten": first.chunks_written,
+            "laterChunksWritten": later.chunks_written,
+            "rowsRead": first.rows_read,
+            "rowsWritten": first.rows_written,
+            "laterRowsWritten": later.rows_written,
+            "bytesRewritten": first.bytes_rewritten,
+            "laterBytesRewritten": later.bytes_rewritten,
+            "bufferedBytes": first.buffered_bytes,
+            "validationUs": first.validation_us,
+            "laterValidationUs": later.validation_us,
+            "rssBeforeKb": rss_before,
+            "rssPeakKb": rss_peak,
+            "rssAfterKb": rss_after,
+        }))
+    }
+
+    fn measure_post(
+        &self,
+        execution: &str,
+        expected: u64,
+        digest: &str,
+        identity: &str,
+        journal: &[JournalRow],
+        continuation: Option<&[u8]>,
+    ) -> Result<SqliteCommitResponse> {
+        let raw = continuation.unwrap_or(&[]);
+        let header = json!({
+            "ownerToken": "measure",
+            "fence": 1,
+            "expectedRevision": expected,
+            "continuationDigest": digest,
+            "continuationBytes": raw.len(),
+            "identity": identity,
+            "journal": journal.iter().map(|row| json!({
+                "key": row.key,
+                "idempotencyKey": row.idempotency_key,
+                "status": row.status,
+                "input": row.input,
+                "result": row.result,
+            })).collect::<Vec<_>>(),
+            "timers": [],
+            "waits": [],
+        });
+        let body = checkpoint_frame(&header, raw)?;
+        self.endpoint.post_bytes(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution}/sql-commits",
+                self.endpoint.workspace
+            ),
+            "measure",
+            &body,
+        )
+    }
+
+    fn measure_restore(&self, execution: &str) -> Result<String> {
+        Ok(self.measure_restore_report(execution)?.continuation_digest)
+    }
+
+    fn measure_restore_report(&self, execution: &str) -> Result<SqliteRestoreHeader> {
+        let response = self.endpoint.call(
+            "GET",
+            &format!(
+                "/v1/workspaces/{}/executions/{execution}/sql-restore",
+                self.endpoint.workspace
+            ),
+            "measure",
+            None,
+            "application/trigora-checkpoint",
+        )?;
+        let (header, continuation) = split_frame(&response.body)?;
+        let header: SqliteRestoreHeader =
+            serde_json::from_slice(header).map_err(|err| Error::new(err.to_string()))?;
+        if continuation.len() as u64 != header.continuation_bytes
+            || authority::sha256(continuation) != header.continuation_digest
+        {
+            return Err(Error::new("corrupt blob"));
+        }
+        Ok(header)
     }
 
     pub fn view(&self, execution_id: &str) -> Result<View> {
@@ -382,8 +562,6 @@ impl RemoteClient {
             Ok(entry) => Ok(entry),
             Err(err) if err.to_string() == "unknown execution" => Ok(CacheEntry {
                 journal: BTreeMap::new(),
-                snapshot: None,
-                deltas: 0,
                 revision: 0,
                 continuation: Vec::new(),
                 timers: Vec::new(),
@@ -398,96 +576,11 @@ impl RemoteClient {
     }
 
     fn fetch_entry(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
-        let manifest: ManifestResponse = self.endpoint.get_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}",
-                self.endpoint.workspace
-            ),
-            owner,
-        )?;
-        if manifest.revision == 0 || manifest.continuation_digest.is_empty() {
-            return Ok(CacheEntry {
-                journal: BTreeMap::new(),
-                snapshot: None,
-                deltas: 0,
-                revision: 0,
-                continuation: Vec::new(),
-                timers: Vec::new(),
-                waits: Vec::new(),
-                status: ContinuationStatus::Runnable,
-                owner: manifest.owner,
-                fence: manifest.fence,
-                lease_until: manifest.lease_until,
-            });
-        }
-        let continuation = self.endpoint.get_bytes(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/objects/{}",
-                self.endpoint.workspace, manifest.continuation_digest
-            ),
-            owner,
-        )?;
-        if authority::sha256(&continuation) != manifest.continuation_digest {
-            return Err(Error::new("corrupt blob"));
-        }
-        let decoded = decode_continuation(&continuation)
-            .map_err(|err| Error::new(format!("restore: {err}")))?;
-        if decoded.execution_id != execution_id {
-            return Err(Error::new("continuation execution id mismatch"));
-        }
-        let timers = timers_of(&decoded);
-        let waits = waits_of(&decoded);
-        if manifest_timers(&manifest.timers) != timers || manifest_waits(&manifest.waits) != waits {
-            return Err(Error::new("inconsistent timer metadata"));
-        }
-        let mut digests = vec![manifest.snapshot.clone()];
-        digests.extend(manifest.deltas.iter().cloned());
-        let objects = self.endpoint.fetch_all(execution_id, owner, &digests)?;
-        let mut journal = BTreeMap::new();
-        for (digest, bytes) in digests.iter().zip(objects) {
-            if authority::sha256(&bytes) != *digest {
-                return Err(Error::new("corrupt blob"));
-            }
-            for row in parse_journal(&bytes)? {
-                journal.insert(row.key.clone(), row);
-            }
-        }
-        let identity = authority::commit_identity(
-            manifest.revision,
-            &manifest.continuation_digest,
-            &journal,
-            &timers,
-            &waits,
-        );
-        if identity != manifest.identity {
-            return Err(Error::new("commit conflict"));
-        }
-        Ok(CacheEntry {
-            journal,
-            snapshot: Some(manifest.snapshot),
-            deltas: manifest.deltas.len(),
-            revision: manifest.revision,
-            continuation,
-            timers,
-            waits,
-            status: decoded.status,
-            owner: manifest.owner,
-            fence: manifest.fence,
-            lease_until: manifest.lease_until,
-        })
+        self.fetch_sqlite(execution_id, owner)
     }
 }
 
 impl Endpoint {
-    fn put(&self, execution: &str, owner: &str, digest: &str, bytes: &[u8]) -> Result<()> {
-        let path = format!(
-            "/v1/workspaces/{}/executions/{execution}/objects/{digest}",
-            self.workspace
-        );
-        self.call("PUT", &path, owner, Some(bytes), "application/octet-stream")?;
-        Ok(())
-    }
-
     fn post_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -499,51 +592,20 @@ impl Endpoint {
         serde_json::from_slice(&response.body).map_err(|err| Error::new(err.to_string()))
     }
 
-    fn get_json<T: for<'de> Deserialize<'de>>(&self, path: &str, owner: &str) -> Result<T> {
-        let response = self.call("GET", path, owner, None, "application/json")?;
+    fn post_bytes<T: for<'de> Deserialize<'de>>(
+        &self,
+        path: &str,
+        owner: &str,
+        body: &[u8],
+    ) -> Result<T> {
+        let response = self.call(
+            "POST",
+            path,
+            owner,
+            Some(body),
+            "application/trigora-checkpoint",
+        )?;
         serde_json::from_slice(&response.body).map_err(|err| Error::new(err.to_string()))
-    }
-
-    fn get_bytes(&self, path: &str, owner: &str) -> Result<Vec<u8>> {
-        Ok(self
-            .call("GET", path, owner, None, "application/octet-stream")?
-            .body)
-    }
-
-    fn fetch_all(&self, execution: &str, owner: &str, digests: &[String]) -> Result<Vec<Vec<u8>>> {
-        if digests.is_empty() {
-            return Err(Error::new("missing object"));
-        }
-        let mut objects = vec![Vec::new(); digests.len()];
-        let mut start = 0;
-        while start < digests.len() {
-            let end = (start + RESTORE_IN_FLIGHT).min(digests.len());
-            let mut handles = Vec::new();
-            for (offset, digest) in digests[start..end].iter().cloned().enumerate() {
-                let endpoint = self.clone();
-                let owner = owner.to_string();
-                let execution = execution.to_string();
-                handles.push(thread::spawn(move || {
-                    let bytes = endpoint.get_bytes(
-                        &format!(
-                            "/v1/workspaces/{}/executions/{execution}/objects/{digest}",
-                            endpoint.workspace
-                        ),
-                        &owner,
-                    )?;
-                    if authority::sha256(&bytes) != digest {
-                        return Err(Error::new("corrupt blob"));
-                    }
-                    Ok((offset, bytes))
-                }));
-            }
-            for handle in handles {
-                let (offset, bytes) = handle.join().map_err(|_| Error::new("restore failed"))??;
-                objects[start + offset] = bytes;
-            }
-            start = end;
-        }
-        Ok(objects)
     }
 
     fn call(
@@ -579,14 +641,18 @@ impl Endpoint {
                 "the Pulse authority client speaks HTTP/1.1; terminate TLS at the deployment edge",
             ));
         }
-        let started = Instant::now();
         let mut stream = TcpStream::connect((self.host.as_str(), self.port))
             .map_err(|err| Error::new(format!("authority connect: {err}")))?;
+        let timeout = if body.is_some_and(|bytes| bytes.len() > 1024 * 1024) {
+            Duration::from_secs(120)
+        } else {
+            Duration::from_secs(30)
+        };
         stream
-            .set_read_timeout(Some(Duration::from_secs(30)))
+            .set_read_timeout(Some(timeout))
             .map_err(|err| Error::new(err.to_string()))?;
         stream
-            .set_write_timeout(Some(Duration::from_secs(30)))
+            .set_write_timeout(Some(timeout))
             .map_err(|err| Error::new(err.to_string()))?;
         let mut request = format!(
             "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAuthorization: Bearer {}\r\nX-Pulse-Owner: {owner}\r\nConnection: close\r\n",
@@ -613,12 +679,10 @@ impl Endpoint {
         stream
             .read_to_end(&mut response)
             .map_err(|err| Error::new(format!("authority read: {err}")))?;
-        let (status, payload, server_timing) = parse_http(&response)?;
+        let (status, payload) = parse_http(&response)?;
         Ok(RawHttp {
             status,
             body: payload,
-            server_timing,
-            client_ms: started.elapsed().as_secs_f64() * 1000.0,
         })
     }
 }
@@ -626,217 +690,10 @@ impl Endpoint {
 struct RawHttp {
     status: u16,
     body: Vec<u8>,
-    server_timing: String,
-    client_ms: f64,
 }
 
 pub fn run_remote_measure() -> Result<()> {
-    let url = env::var("TRIGORA_PULSE_AUTHORITY_URL")
-        .map_err(|_| Error::new("TRIGORA_PULSE_AUTHORITY_URL is required"))?;
-    let workspace = env::var("TRIGORA_PULSE_WORKSPACE_ID")
-        .map_err(|_| Error::new("TRIGORA_PULSE_WORKSPACE_ID is required"))?;
-    let token = env::var("TRIGORA_PULSE_WORKSPACE_TOKEN")
-        .map_err(|_| Error::new("TRIGORA_PULSE_WORKSPACE_TOKEN is required"))?;
-    let samples = env::var("TRIGORA_PULSE_SAMPLES")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(5usize);
-    let deltas: Vec<usize> = env::var("TRIGORA_PULSE_DELTAS")
-        .unwrap_or_else(|_| "0,8".to_string())
-        .split(',')
-        .filter_map(|part| part.trim().parse().ok())
-        .collect();
-    let keys = env::var("TRIGORA_PULSE_KEYS_FILE").unwrap_or_default();
-    let client = RemoteClient::new(&url, &workspace, &token, 32);
-    let mut runs = Vec::new();
-    for delta in deltas {
-        for sample in 0..samples {
-            runs.push(client.measure_once(&workspace, delta, sample, &keys)?);
-        }
-    }
-    println!(
-        "{}",
-        serde_json::json!({
-            "transport": "remote.rs Endpoint, one TcpStream per request, Connection: close",
-            "pattern": "continuation uploaded on every commit",
-            "runs": runs,
-        })
-    );
-    Ok(())
-}
-
-impl RemoteClient {
-    fn measure_once(
-        &self,
-        workspace: &str,
-        deltas: usize,
-        sample: usize,
-        keys: &str,
-    ) -> Result<serde_json::Value> {
-        let millis = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|err| Error::new(err.to_string()))?
-            .as_millis();
-        let execution = format!("measure-rust-{deltas}-{sample}-{millis}");
-        let continuation = format!("continuation {execution} {}", "x".repeat(200));
-        let continuation_bytes = continuation.into_bytes();
-        let continuation_digest = authority::sha256(&continuation_bytes);
-        let owner = "measure";
-        let mut logical = BTreeMap::new();
-        let mut requests = Vec::new();
-        for index in 0..=deltas {
-            if index > 0 {
-                let key = format!("k{index}");
-                logical.insert(
-                    key.clone(),
-                    JournalRow {
-                        key: key.clone(),
-                        idempotency_key: format!("{execution}:k{index}"),
-                        status: "completed".to_string(),
-                        input: String::new(),
-                        result: index.to_string(),
-                    },
-                );
-            }
-            self.put_observed(
-                &execution,
-                owner,
-                &continuation_digest,
-                &continuation_bytes,
-                workspace,
-                keys,
-                index,
-                "put-continuation",
-                &mut requests,
-            )?;
-            let journal_bytes = if index == 0 {
-                canonical_journal(logical.values())
-            } else {
-                let row = logical.get(&format!("k{index}")).expect("row");
-                canonical_journal(std::iter::once(row))
-            };
-            let digest = authority::sha256(&journal_bytes);
-            self.put_observed(
-                &execution,
-                owner,
-                &digest,
-                &journal_bytes,
-                workspace,
-                keys,
-                index,
-                "put-journal",
-                &mut requests,
-            )?;
-            let identity = authority::commit_identity(
-                (index as u64) + 1,
-                &continuation_digest,
-                &logical,
-                &[],
-                &[],
-            );
-            let body = json!({
-                "ownerToken": owner,
-                "fence": 1,
-                "expectedRevision": index,
-                "continuationDigest": continuation_digest,
-                "identity": identity,
-                "journal": { "kind": if index == 0 { "snapshot" } else { "delta" }, "digest": digest },
-                "timers": [],
-                "waits": [],
-                "leaseMs": 600_000,
-            });
-            let path = format!(
-                "/v1/workspaces/{}/executions/{execution}/commits",
-                self.endpoint.workspace
-            );
-            let bytes = serde_json::to_vec(&body).map_err(|err| Error::new(err.to_string()))?;
-            let response =
-                self.endpoint
-                    .exchange("POST", &path, owner, Some(&bytes), "application/json")?;
-            requests.push(observed(index, "commit", &response));
-            if !(200..300).contains(&response.status) {
-                return Err(Error::new(format!("authority status {}", response.status)));
-            }
-        }
-        Ok(json!({
-            "deltas": deltas,
-            "sample": sample,
-            "execution": execution,
-            "requests": requests,
-        }))
-    }
-
-    fn put_observed(
-        &self,
-        execution: &str,
-        owner: &str,
-        digest: &str,
-        bytes: &[u8],
-        workspace: &str,
-        keys: &str,
-        index: usize,
-        op: &str,
-        requests: &mut Vec<serde_json::Value>,
-    ) -> Result<()> {
-        let path = format!(
-            "/v1/workspaces/{}/executions/{execution}/objects/{digest}",
-            self.endpoint.workspace
-        );
-        let response =
-            self.endpoint
-                .exchange("PUT", &path, owner, Some(bytes), "application/octet-stream")?;
-        requests.push(observed(index, op, &response));
-        if !(200..300).contains(&response.status) {
-            return Err(Error::new(format!("authority status {}", response.status)));
-        }
-        if !keys.is_empty() {
-            let mut file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(keys)
-                .map_err(|err| Error::new(err.to_string()))?;
-            writeln!(file, "{workspace}/{execution}/{digest}\t{}", bytes.len())
-                .map_err(|err| Error::new(err.to_string()))?;
-        }
-        Ok(())
-    }
-}
-
-fn observed(index: usize, op: &str, response: &RawHttp) -> serde_json::Value {
-    let authority = metric_ms(&response.server_timing, "worker")
-        .or_else(|| metric_ms(&response.server_timing, "object"));
-    let gap = match authority {
-        Some(ms) => response.client_ms - ms,
-        None => response.client_ms,
-    };
-    json!({
-        "op": op,
-        "index": index,
-        "clientMs": response.client_ms,
-        "gapMs": gap,
-        "status": response.status,
-        "serverTiming": response.server_timing,
-    })
-}
-
-fn metric_ms(header: &str, name: &str) -> Option<f64> {
-    let needle = format!("{name};dur=");
-    let rest = header.split(&needle).nth(1)?;
-    let number: String = rest
-        .chars()
-        .take_while(|char| char.is_ascii_digit() || *char == '.')
-        .collect();
-    number.parse().ok()
-}
-
-fn journal_upload(has_snapshot: bool, deltas: usize, changed: bool, bound: usize) -> Upload {
-    if !has_snapshot || (changed && deltas >= bound) {
-        Upload::Snapshot
-    } else if changed {
-        Upload::Delta
-    } else {
-        Upload::None
-    }
+    run_sqlite_measure()
 }
 
 fn changed_rows(
@@ -853,50 +710,6 @@ fn changed_rows(
         .filter(|(key, row)| old.get(*key) != Some(*row))
         .map(|(_, row)| row.clone())
         .collect())
-}
-
-fn canonical_journal<'a>(rows: impl IntoIterator<Item = &'a JournalRow>) -> Vec<u8> {
-    let mut rows: Vec<&JournalRow> = rows.into_iter().collect();
-    rows.sort_by(|left, right| left.key.cmp(&right.key));
-    let mut out = b"{\"rows\":[".to_vec();
-    for (index, row) in rows.iter().enumerate() {
-        if index > 0 {
-            out.push(b',');
-        }
-        out.extend(
-            format!(
-                "{{\"idempotencyKey\":{},\"input\":{},\"key\":{},\"result\":{},\"status\":{}}}",
-                serde_json::to_string(&row.idempotency_key).expect("string"),
-                serde_json::to_string(&row.input).expect("string"),
-                serde_json::to_string(&row.key).expect("string"),
-                serde_json::to_string(&row.result).expect("string"),
-                serde_json::to_string(&row.status).expect("string"),
-            )
-            .into_bytes(),
-        );
-    }
-    out.extend(b"]}");
-    out
-}
-
-fn parse_journal(bytes: &[u8]) -> Result<Vec<JournalRow>> {
-    let parsed: JournalFile =
-        serde_json::from_slice(bytes).map_err(|_| Error::new("journal object is invalid"))?;
-    let rows: Vec<JournalRow> = parsed
-        .rows
-        .into_iter()
-        .map(|row| JournalRow {
-            key: row.key,
-            idempotency_key: row.idempotency_key,
-            status: row.status,
-            input: row.input,
-            result: row.result,
-        })
-        .collect();
-    if canonical_journal(rows.iter()) != bytes {
-        return Err(Error::new("journal object is invalid"));
-    }
-    Ok(rows)
 }
 
 fn manifest_timers(timers: &[TimerJson]) -> Vec<TimerRow> {
@@ -919,6 +732,190 @@ fn manifest_waits(waits: &[WaitJson]) -> Vec<WaitRow> {
         .collect()
 }
 
+fn run_sqlite_measure() -> Result<()> {
+    let url = env::var("TRIGORA_PULSE_AUTHORITY_URL")
+        .map_err(|_| Error::new("TRIGORA_PULSE_AUTHORITY_URL is required"))?;
+    let workspace = env::var("TRIGORA_PULSE_WORKSPACE_ID")
+        .map_err(|_| Error::new("TRIGORA_PULSE_WORKSPACE_ID is required"))?;
+    let token = env::var("TRIGORA_PULSE_WORKSPACE_TOKEN")
+        .map_err(|_| Error::new("TRIGORA_PULSE_WORKSPACE_TOKEN is required"))?;
+    let max = env::var("TRIGORA_PULSE_MAX_CONTINUATION_BYTES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(HARD_CONTINUATION_MAX);
+    let client = RemoteClient::sqlite(&url, &workspace, &token, max);
+    if let Ok(execution) = env::var("TRIGORA_PULSE_RESTORE_EXECUTION") {
+        let (restored, rss_peak) = sample_rss(|| {
+            let started = Instant::now();
+            let restored = client.measure_restore_report(&execution)?;
+            Ok::<_, Error>((restored, started.elapsed().as_secs_f64() * 1000.0))
+        });
+        let (restored, restore_ms) = restored?;
+        println!(
+            "{}",
+            serde_json::json!({
+                "restoreExecution": execution,
+                "restoreMs": restore_ms,
+                "rssPeakKb": rss_peak,
+                "rssKb": rss_kb(),
+                "revision": restored.revision,
+                "owner": restored.owner,
+                "fence": restored.fence,
+                "digest": restored.continuation_digest,
+                "bytes": restored.continuation_bytes,
+                "journal": restored.journal.len(),
+                "completed": restored.journal.iter().filter(|row| row.status == "completed").count(),
+            })
+        );
+        return Ok(());
+    }
+    let stamp = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map_err(|err| Error::new(err.to_string()))?
+        .as_millis();
+    let mut small = Vec::new();
+    for index in 0..8 {
+        let execution = format!("p3e-{stamp}-s-{index}");
+        let report = client.measure_pair(&execution, 4096, 1)?;
+        emit_measure("small", &report);
+        small.push(report);
+    }
+    let mut overlap = Vec::new();
+    let mut handles = Vec::new();
+    for index in 0..8 {
+        let execution = format!("p3e-{stamp}-o-{index}");
+        let worker = client.fresh();
+        handles.push(thread::spawn(move || {
+            worker.measure_pair(&execution, 4096, 1)
+        }));
+    }
+    for handle in handles {
+        let report = handle.join().map_err(|_| Error::new("measure thread"))??;
+        emit_measure("overlap", &report);
+        overlap.push(report);
+    }
+    let mut sized = Vec::new();
+    let mut restart_execution = String::new();
+    for (label, size, samples) in [
+        ("1MiB", 1024 * 1024, 3usize),
+        ("4MiB", 4 * 1024 * 1024, 3),
+        ("16MiB", HARD_CONTINUATION_MAX, 1),
+    ] {
+        for index in 0..samples {
+            let execution = format!("p3e-{stamp}-{label}-{index}");
+            if label == "4MiB" && index == 0 {
+                restart_execution = execution.clone();
+            }
+            let report = client.measure_pair(&execution, size, 1)?;
+            emit_measure(label, &report);
+            sized.push(report);
+        }
+    }
+    let growth = format!("p3e-{stamp}-keys");
+    let growth_report = client.measure_pair(&growth, 64, 2000)?;
+    emit_measure("growth", &growth_report);
+    println!(
+        "{}",
+        serde_json::json!({
+            "transport": "one HTTP request, binary frame, SQLite chunks",
+            "rssKb": rss_kb(),
+            "small": small,
+            "overlap": overlap,
+            "sized": sized,
+            "growth": growth_report,
+            "restartExecution": restart_execution,
+        })
+    );
+    let _ = std::io::stdout().flush();
+    Ok(())
+}
+
+fn emit_measure(kind: &str, report: &serde_json::Value) {
+    println!("{}", serde_json::json!({ "kind": kind, "report": report }));
+    let _ = std::io::stdout().flush();
+}
+
+fn measure_journal(keys: usize) -> BTreeMap<String, JournalRow> {
+    let mut journal = BTreeMap::new();
+    for index in 0..keys {
+        let key = format!("k{index:04}");
+        journal.insert(
+            key.clone(),
+            JournalRow {
+                key,
+                idempotency_key: format!("exec:{index}"),
+                status: "completed".into(),
+                input: String::new(),
+                result: "1".into(),
+            },
+        );
+    }
+    journal
+}
+
+fn sample_rss<T>(work: impl FnOnce() -> T) -> (T, u64) {
+    let peak = Arc::new(AtomicU64::new(rss_kb()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let watched = Arc::clone(&peak);
+    let stopping = Arc::clone(&stop);
+    let sampler = thread::spawn(move || {
+        while !stopping.load(Ordering::Relaxed) {
+            watched.fetch_max(rss_kb(), Ordering::Relaxed);
+            thread::sleep(Duration::from_millis(20));
+        }
+    });
+    let value = work();
+    stop.store(true, Ordering::Relaxed);
+    let _ = sampler.join();
+    peak.fetch_max(rss_kb(), Ordering::Relaxed);
+    (value, peak.load(Ordering::Relaxed))
+}
+
+fn rss_kb() -> u64 {
+    let Ok(output) = std::process::Command::new("ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+    else {
+        return 0;
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(0)
+}
+
+fn checkpoint_too_large(limit: usize) -> Error {
+    let label = if limit.is_multiple_of(1024 * 1024) {
+        format!("{} MiB", limit / (1024 * 1024))
+    } else {
+        format!("{limit} bytes")
+    };
+    Error::new(format!(
+        "TRIGORA_CHECKPOINT_TOO_LARGE\nContinuation exceeds the configured {label} limit. Store large data externally and retain a reference in the durable program state."
+    ))
+}
+
+fn checkpoint_frame(header: &serde_json::Value, continuation: &[u8]) -> Result<Vec<u8>> {
+    let json = serde_json::to_vec(header).map_err(|err| Error::new(err.to_string()))?;
+    let len = u32::try_from(json.len()).map_err(|_| Error::new("checkpoint frame is invalid"))?;
+    let mut frame = Vec::with_capacity(4 + json.len() + continuation.len());
+    frame.extend_from_slice(&len.to_be_bytes());
+    frame.extend_from_slice(&json);
+    frame.extend_from_slice(continuation);
+    Ok(frame)
+}
+
+fn split_frame(bytes: &[u8]) -> Result<(&[u8], &[u8])> {
+    if bytes.len() < 4 {
+        return Err(Error::new("checkpoint frame is invalid"));
+    }
+    let len = u32::from_be_bytes(bytes[..4].try_into().expect("4 bytes")) as usize;
+    if bytes.len() < 4 + len {
+        return Err(Error::new("checkpoint frame is invalid"));
+    }
+    Ok((&bytes[4..4 + len], &bytes[4 + len..]))
+}
+
 fn split_base(base: &str) -> Result<(String, u16)> {
     let rest = base.strip_prefix("http://").ok_or_else(|| {
         Error::new(
@@ -938,7 +935,7 @@ fn split_base(base: &str) -> Result<(String, u16)> {
     Ok((host.to_string(), port))
 }
 
-fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>, String)> {
+fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>)> {
     let split = bytes
         .windows(4)
         .position(|window| window == b"\r\n\r\n")
@@ -956,7 +953,6 @@ fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>, String)> {
         .map_err(|_| Error::new("authority response is truncated"))?;
     let mut length = None;
     let mut chunked = false;
-    let mut server_timing = String::new();
     for line in lines {
         if let Some((name, value)) = line.split_once(':') {
             if name.eq_ignore_ascii_case("content-length") {
@@ -972,9 +968,6 @@ fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>, String)> {
             {
                 chunked = true;
             }
-            if name.eq_ignore_ascii_case("server-timing") {
-                server_timing = value.trim().to_string();
-            }
         }
     }
     let body = &bytes[split + 4..];
@@ -987,7 +980,7 @@ fn parse_http(bytes: &[u8]) -> Result<(u16, Vec<u8>, String)> {
     } else {
         body.to_vec()
     };
-    Ok((code, body, server_timing))
+    Ok((code, body))
 }
 
 fn decode_chunks(mut bytes: &[u8]) -> Result<Vec<u8>> {
@@ -1019,11 +1012,6 @@ fn decode_chunks(mut bytes: &[u8]) -> Result<Vec<u8>> {
 }
 
 #[derive(Deserialize)]
-struct JournalFile {
-    rows: Vec<WireRow>,
-}
-
-#[derive(Deserialize)]
 struct WireRow {
     key: String,
     #[serde(rename = "idempotencyKey")]
@@ -1035,7 +1023,7 @@ struct WireRow {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CommitResponse {
+struct SqliteCommitResponse {
     revision: u64,
     owner: String,
     fence: u64,
@@ -1044,10 +1032,41 @@ struct CommitResponse {
     identity: String,
     validation_us: u64,
     continuation_bytes: u64,
-    objects: u64,
-    compactions: u64,
-    snapshot: String,
-    deltas: Vec<String>,
+    chunk_count: u64,
+    #[serde(default)]
+    chunks_written: u64,
+    #[serde(default)]
+    rows_read: u64,
+    #[serde(default)]
+    rows_written: u64,
+    #[serde(default)]
+    bytes_rewritten: u64,
+    #[serde(default)]
+    buffered_bytes: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SqliteClaimResponse {
+    revision: u64,
+    fence: u64,
+    lease_until: u64,
+    continuation_digest: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SqliteRestoreHeader {
+    revision: u64,
+    owner: String,
+    fence: u64,
+    lease_until: u64,
+    identity: String,
+    continuation_digest: String,
+    continuation_bytes: u64,
+    journal: Vec<WireRow>,
+    timers: Vec<TimerJson>,
+    waits: Vec<WaitJson>,
 }
 
 #[derive(Deserialize)]
@@ -1067,21 +1086,6 @@ struct QueryResponse {
     owner: String,
     fence: u64,
     lease_until: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct ManifestResponse {
-    revision: u64,
-    owner: String,
-    fence: u64,
-    lease_until: u64,
-    identity: String,
-    continuation_digest: String,
-    snapshot: String,
-    deltas: Vec<String>,
-    timers: Vec<TimerJson>,
-    waits: Vec<WaitJson>,
 }
 
 #[derive(Deserialize)]
@@ -1152,10 +1156,12 @@ pub(crate) fn serve() -> TestAuthority {
 
     let script = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../trigora-platform/apps/pulse-authority/src/serve.ts");
-    let mut child = Command::new("node")
+    let mut command = Command::new("node");
+    command
         .arg("--experimental-strip-types")
         .arg(&script)
-        .env("PULSE_TEST_HOOKS", "1")
+        .env("PULSE_TEST_HOOKS", "1");
+    let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1191,45 +1197,13 @@ pub(crate) fn serve() -> TestAuthority {
             }
             Ok(_) => {
                 if let Some(port) = line.trim().strip_prefix("listening ") {
-                    let client = RemoteClient::new(
-                        format!("http://127.0.0.1:{port}"),
-                        "ws",
-                        "workspace-token",
-                        32,
-                    );
+                    let url = format!("http://127.0.0.1:{port}");
+                    let client =
+                        RemoteClient::sqlite(url, "ws", "workspace-token", HARD_CONTINUATION_MAX);
                     return TestAuthority { child, client };
                 }
             }
             Err(err) => panic!("read authority port: {err}"),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn canonical_journal_matches_the_authority() {
-        let row = JournalRow {
-            key: "k".into(),
-            idempotency_key: "exec:k".into(),
-            status: "completed".into(),
-            input: String::new(),
-            result: "1".into(),
-        };
-        let bytes = canonical_journal(std::iter::once(&row));
-        assert_eq!(
-            std::str::from_utf8(&bytes).unwrap(),
-            r#"{"rows":[{"idempotencyKey":"exec:k","input":"","key":"k","result":"1","status":"completed"}]}"#
-        );
-    }
-
-    #[test]
-    fn a_full_delta_chain_becomes_a_snapshot() {
-        assert_eq!(journal_upload(true, 32, true, 32), Upload::Snapshot);
-        assert_eq!(journal_upload(true, 31, true, 32), Upload::Delta);
-        assert_eq!(journal_upload(true, 31, false, 32), Upload::None);
-        assert_eq!(journal_upload(false, 0, false, 32), Upload::Snapshot);
     }
 }

@@ -66,11 +66,15 @@ fn main() -> ExitCode {
                 return ExitCode::from(2);
             }
         };
-        let bound = env::var("TRIGORA_PULSE_JOURNAL_DELTA_BOUND")
+        let max = env::var("TRIGORA_PULSE_MAX_CONTINUATION_BYTES")
             .ok()
-            .and_then(|value| value.parse().ok())
-            .unwrap_or(32);
-        authority = authority.with_remote(RemoteClient::new(url, workspace, token, bound));
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(16 * 1024 * 1024);
+        if max == 0 || max > 16 * 1024 * 1024 {
+            eprintln!("TRIGORA_PULSE_MAX_CONTINUATION_BYTES is above 16 MiB");
+            return ExitCode::from(2);
+        }
+        authority = authority.with_remote(RemoteClient::sqlite(url, workspace, token, max));
     }
     let runtime = match Runtime::open(Arc::new(authority), artifact, config) {
         Ok(runtime) => runtime,

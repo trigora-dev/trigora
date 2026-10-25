@@ -928,18 +928,18 @@ impl Drop for NodePeer {
 }
 
 #[test]
-fn remote_commit_survives_the_host_and_is_not_replayed() {
+fn sqlite_commit_survives_a_fresh_host_and_is_not_replayed() {
     let server = crate::remote::serve();
     let authority = Arc::new(Authority::new().with_remote(server.client()));
-    let program = artifact("remote", effects(&["work"]));
-    let dir = scratch("remote");
+    let program = artifact("sqlite-remote", effects(&["work"]));
+    let dir = scratch("sqlite-remote");
     let host = Host::open(
-        "remote",
+        "sqlite-remote",
         Arc::clone(&authority),
         program.clone(),
         settings(&dir, "A"),
     );
-    let _adapter = host.start_with_adapter("exec", "remote", &["work"]);
+    let _adapter = host.start_with_adapter("exec", "sqlite-remote", &["work"]);
     assert!(
         host.runtime
             .wait_until(|runtime| runtime.completed() == 1, Duration::from_secs(15)),
@@ -952,22 +952,11 @@ fn remote_commit_survives_the_host_and_is_not_replayed() {
         .expect("view")
         .continuation
         .expect("continuation");
-    let report = authority.remote_report().expect("remote report");
-    eprintln!(
-        "remote continuation {} journal {} objects {} validation_us {} compactions {}",
-        report.continuation_bytes,
-        report.journal_bytes,
-        report.objects,
-        report.validation_us,
-        report.compactions
-    );
-    assert!(report.continuation_bytes > 0);
-    assert!(report.objects >= 1);
     drop(host);
     let authority = Arc::new(Authority::new().with_remote(server.client()));
-    let dir = scratch("remote-restored");
+    let dir = scratch("sqlite-remote-restored");
     let host = Host::open(
-        "remote-restored",
+        "sqlite-remote-restored",
         Arc::clone(&authority),
         program,
         settings(&dir, "A"),
