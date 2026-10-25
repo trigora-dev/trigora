@@ -142,31 +142,3 @@ pub(super) fn split_frame(bytes: &[u8]) -> Result<(&[u8], &[u8])> {
     }
     Ok((&bytes[4..4 + len], &bytes[4 + len..]))
 }
-
-pub(super) fn decode_chunks(mut bytes: &[u8]) -> Result<Vec<u8>> {
-    let mut out = Vec::new();
-    loop {
-        let line_end = bytes
-            .windows(2)
-            .position(|window| window == b"\r\n")
-            .ok_or_else(|| Error::new("authority response is truncated"))?;
-        let size = std::str::from_utf8(&bytes[..line_end])
-            .map_err(|err| Error::new(err.to_string()))?
-            .split(';')
-            .next()
-            .unwrap_or("")
-            .trim();
-        let size = usize::from_str_radix(size, 16)
-            .map_err(|_| Error::new("authority response is truncated"))?;
-        bytes = &bytes[line_end + 2..];
-        if size == 0 {
-            break;
-        }
-        if bytes.len() < size + 2 {
-            return Err(Error::new("authority response is truncated"));
-        }
-        out.extend_from_slice(&bytes[..size]);
-        bytes = &bytes[size + 2..];
-    }
-    Ok(out)
-}

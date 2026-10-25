@@ -61,12 +61,7 @@ impl RemoteClient {
         max_continuation: usize,
     ) -> Self {
         Self {
-            endpoint: Endpoint {
-                host,
-                port,
-                workspace,
-                token,
-            },
+            endpoint: Endpoint::open(host, port, workspace, token),
             max_continuation,
             cache: Mutex::new(HashMap::new()),
             report: Mutex::new(None),
