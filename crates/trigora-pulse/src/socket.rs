@@ -29,9 +29,13 @@ pub enum Frame {
         #[serde(rename = "artifactHash")]
         artifact_hash: String,
         keys: Vec<String>,
+        #[serde(default)]
+        artifact: Option<String>,
     },
     #[serde(rename = "registered")]
     Registered,
+    #[serde(rename = "registerError")]
+    RegisterError { message: String },
     #[serde(rename = "start")]
     Start {
         #[serde(rename = "executionId")]
@@ -283,10 +287,14 @@ pub(crate) struct Connection {
 }
 
 impl Connection {
-    pub(crate) fn handshake(
+    pub(crate) fn handshake<F>(
         mut stream: UnixStream,
         bearer: &str,
-    ) -> Result<(Arc<Self>, UnixStream)> {
+        install: F,
+    ) -> Result<(Arc<Self>, UnixStream)>
+    where
+        F: FnOnce(&str, &[String], Option<&str>) -> Result<()>,
+    {
         if !peer_allowed(&stream) {
             return Err(Error::new("socket peer was rejected"));
         }
@@ -319,10 +327,20 @@ impl Connection {
         let Frame::Register {
             artifact_hash,
             keys,
+            artifact,
         } = frame
         else {
             return Err(Error::new("registration is required after authentication"));
         };
+        if let Err(err) = install(&artifact_hash, &keys, artifact.as_deref()) {
+            let _ = write_frame(
+                &mut stream,
+                &Frame::RegisterError {
+                    message: err.to_string(),
+                },
+            );
+            return Err(err);
+        }
         write_frame(&mut stream, &Frame::Registered).map_err(|err| Error::new(err.to_string()))?;
         stream
             .set_read_timeout(None)
@@ -578,11 +596,36 @@ impl Adapter {
             &Frame::Register {
                 artifact_hash: artifact_hash.to_string(),
                 keys: keys.iter().map(|key| (*key).to_string()).collect(),
+                artifact: None,
             },
         )
         .map_err(|err| Error::new(err.to_string()))?;
-        match read_frame(&mut *stream).map_err(|err| Error::new(err.to_string()))? {
+        Self::expect_registered(&mut stream)
+    }
+
+    pub fn register_artifact(
+        &self,
+        artifact_hash: &str,
+        keys: &[&str],
+        artifact: &str,
+    ) -> Result<()> {
+        let mut stream = self.writer.lock().expect("writer");
+        write_frame(
+            &mut *stream,
+            &Frame::Register {
+                artifact_hash: artifact_hash.to_string(),
+                keys: keys.iter().map(|key| (*key).to_string()).collect(),
+                artifact: Some(artifact.to_string()),
+            },
+        )
+        .map_err(|err| Error::new(err.to_string()))?;
+        Self::expect_registered(&mut stream)
+    }
+
+    fn expect_registered(stream: &mut UnixStream) -> Result<()> {
+        match read_frame(stream).map_err(|err| Error::new(err.to_string()))? {
             Frame::Registered => Ok(()),
+            Frame::RegisterError { message } => Err(Error::new(message)),
             other => Err(Error::new(format!("expected registered, got {other:?}"))),
         }
     }
@@ -751,7 +794,7 @@ pub fn listen(dir: &Path) -> Result<()> {
             .map_err(|err| Error::new(err.to_string()))?;
         let bearer = listener.bearer().to_string();
         std::thread::spawn(move || {
-            let _ = Connection::handshake(stream, &bearer);
+            let _ = Connection::handshake(stream, &bearer, |_, _, _| Ok(()));
         });
     }
 }
@@ -786,7 +829,7 @@ mod tests {
         let dir_thread = dir.clone();
         let handle = std::thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
-            Connection::handshake(stream, listener.bearer()).map(|_| ())
+            Connection::handshake(stream, listener.bearer(), |_, _, _| Ok(())).map(|_| ())
         });
         let mut client = UnixStream::connect(dir_thread.join("pulse.sock")).unwrap();
         write_frame(
@@ -794,6 +837,7 @@ mod tests {
             &Frame::Register {
                 artifact_hash: "hash".to_string(),
                 keys: vec!["work".to_string()],
+                artifact: None,
             },
         )
         .unwrap();

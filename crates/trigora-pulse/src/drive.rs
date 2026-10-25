@@ -219,6 +219,8 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                         journal: memory.journal.clone(),
                         timers: None,
                         waits: None,
+                        artifact_hash: snapshot.artifact.hash.clone(),
+                        handler_keys: Vec::new(),
                     }));
                 }
             },

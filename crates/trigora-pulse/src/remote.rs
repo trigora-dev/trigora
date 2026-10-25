@@ -108,8 +108,30 @@ impl RemoteClient {
         self.commit_sqlite(commit)
     }
 
-    pub fn claim(&self, execution_id: &str, owner: &str, lease_ms: u64) -> Result<Claimed> {
-        self.claim_sqlite(execution_id, owner, lease_ms)
+    pub fn claim(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<Claimed> {
+        self.claim_sqlite(execution_id, owner, lease_ms, artifact_hash, handler_keys)
+    }
+
+    pub fn pin(&self, execution_id: &str) -> Result<crate::authority::VersionPin> {
+        let found: VersionBody = self.endpoint.call_json(
+            "GET",
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-version",
+                self.endpoint.workspace
+            ),
+        )?;
+        Ok(crate::authority::VersionPin {
+            revision: found.revision,
+            artifact_hash: found.artifact_hash,
+            handler_keys: found.handler_keys,
+        })
     }
 
     pub fn renew(
@@ -219,6 +241,8 @@ impl RemoteClient {
             })).collect::<Vec<_>>(),
             "timers": timers.iter().map(|timer| json!({"branch": timer.branch, "dueAt": timer.due_at})).collect::<Vec<_>>(),
             "waits": waits.iter().map(|wait| json!({"waitId": wait.wait_id, "event": wait.event})).collect::<Vec<_>>(),
+            "artifactHash": commit.artifact_hash,
+            "handlerKeys": commit.handler_keys,
         });
         let body = checkpoint_frame(&header, raw)?;
         let posted: Result<SqliteCommitResponse> = self.endpoint.post_bytes(
@@ -282,7 +306,14 @@ impl RemoteClient {
         })
     }
 
-    fn claim_sqlite(&self, execution_id: &str, owner: &str, lease_ms: u64) -> Result<Claimed> {
+    fn claim_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<Claimed> {
         self.remember(owner);
         let claimed: SqliteClaimResponse = self.endpoint.post_json(
             &format!(
@@ -290,7 +321,11 @@ impl RemoteClient {
                 self.endpoint.workspace
             ),
             owner,
-            &json!({ "leaseMs": lease_ms }),
+            &json!({
+                "leaseMs": lease_ms,
+                "artifactHash": artifact_hash,
+                "handlerKeys": handler_keys,
+            }),
         )?;
         if claimed.revision == 0 || claimed.continuation_digest.is_empty() {
             return Ok(Claimed {
@@ -547,6 +582,8 @@ impl RemoteClient {
             timers: entry.timers,
             waits: entry.waits,
             status: entry.status,
+            artifact_hash: String::new(),
+            handler_keys: Vec::new(),
         })
     }
 
@@ -581,6 +618,11 @@ impl RemoteClient {
 }
 
 impl Endpoint {
+    fn call_json<T: for<'de> Deserialize<'de>>(&self, method: &str, path: &str) -> Result<T> {
+        let response = self.call(method, path, "", None, "application/json")?;
+        serde_json::from_slice(&response.body).map_err(|err| Error::new(err.to_string()))
+    }
+
     fn post_json<T: for<'de> Deserialize<'de>>(
         &self,
         path: &str,
@@ -1043,6 +1085,14 @@ struct SqliteCommitResponse {
     bytes_rewritten: u64,
     #[serde(default)]
     buffered_bytes: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionBody {
+    revision: u64,
+    artifact_hash: String,
+    handler_keys: Vec<String>,
 }
 
 #[derive(Deserialize)]

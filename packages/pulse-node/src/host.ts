@@ -14,6 +14,7 @@ type Frame = {
   bearer?: string;
   artifactHash?: string;
   keys?: string[];
+  artifact?: string;
   executionId?: string;
   attemptId?: string;
   key?: string;
@@ -144,6 +145,7 @@ export class Pulse {
       Object.keys(compiled.handlers),
       child,
       options.onEffect,
+      artifactJson,
     );
     pulse.readStderr = () => stderr;
     return pulse;
@@ -243,10 +245,11 @@ export class Pulse {
     keys: string[],
     child: ChildProcess | undefined,
     onEffect?: PulseOptions['onEffect'],
+    artifactJson?: string,
   ): Promise<Pulse> {
     const socket = await connectSocket(dir);
     const pulse = new Pulse(socket, child, dir, handlers, artifactHash, onEffect);
-    await pulse.authenticate(artifactHash, keys);
+    await pulse.authenticate(artifactHash, keys, artifactJson);
     return pulse;
   }
 
@@ -258,7 +261,11 @@ export class Pulse {
     socket.on('error', () => undefined);
   }
 
-  private async authenticate(artifactHash: string, keys: string[]): Promise<void> {
+  private async authenticate(
+    artifactHash: string,
+    keys: string[],
+    artifactJson?: string,
+  ): Promise<void> {
     const bearer = fs.readFileSync(path.join(this.dir, 'bearer'), 'utf8');
     this.send({ type: 'auth', bearer });
     const auth = await this.waitFor(
@@ -267,10 +274,17 @@ export class Pulse {
     if (auth.type === 'authError') {
       throw new Error(auth.message ?? 'authentication failed');
     }
-    this.send({ type: 'register', artifactHash, keys });
-    const registered = await this.waitFor((frame) => frame.type === 'registered');
+    this.send({
+      type: 'register',
+      artifactHash,
+      keys,
+      ...(artifactJson === undefined ? {} : { artifact: artifactJson }),
+    });
+    const registered = await this.waitFor(
+      (frame) => frame.type === 'registered' || frame.type === 'registerError',
+    );
     if (registered.type !== 'registered') {
-      throw new Error('registration failed');
+      throw new Error(registered.message ?? 'registration failed');
     }
   }
 

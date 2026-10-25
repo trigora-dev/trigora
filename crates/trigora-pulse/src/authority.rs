@@ -40,6 +40,9 @@ pub struct Commit {
     pub journal: BTreeMap<String, JournalRow>,
     pub timers: Option<Vec<TimerRow>>,
     pub waits: Option<Vec<WaitRow>>,
+    /// Empty means the continuation's artifact hash is the pin.
+    pub artifact_hash: String,
+    pub handler_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,6 +82,15 @@ pub struct View {
     pub timers: Vec<TimerRow>,
     pub waits: Vec<WaitRow>,
     pub status: ContinuationStatus,
+    pub artifact_hash: String,
+    pub handler_keys: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionPin {
+    pub revision: u64,
+    pub artifact_hash: String,
+    pub handler_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,6 +117,8 @@ struct Record {
     timers: Vec<TimerRow>,
     waits: Vec<WaitRow>,
     status: ContinuationStatus,
+    artifact_hash: String,
+    handler_keys: Vec<String>,
 }
 
 struct State {
@@ -165,7 +179,7 @@ impl Authority {
             return Err(Error::new("execution already exists"));
         }
         if let Some(remote) = &self.remote {
-            let claimed = remote.claim(execution_id, owner_token, lease_ms)?;
+            let claimed = remote.claim(execution_id, owner_token, lease_ms, "", &[])?;
             self.insert_local(
                 execution_id,
                 owner_token,
@@ -189,6 +203,8 @@ impl Authority {
                 timers: Vec::new(),
                 waits: Vec::new(),
                 status: ContinuationStatus::Runnable,
+                artifact_hash: String::new(),
+                handler_keys: Vec::new(),
             },
         );
         Ok(Claimed {
@@ -262,6 +278,19 @@ impl Authority {
         {
             return Err(Error::new("stale owner"));
         }
+        let hash = if commit.artifact_hash.is_empty() {
+            continuation.artifact.hash.clone()
+        } else if commit.artifact_hash == continuation.artifact.hash {
+            commit.artifact_hash.clone()
+        } else {
+            return Err(Error::new("commit conflict"));
+        };
+        let keys = canonical_keys(&commit.handler_keys);
+        if !record.artifact_hash.is_empty()
+            && (record.artifact_hash != hash || record.handler_keys != keys)
+        {
+            return Err(Error::new("commit conflict"));
+        }
         if record.revision == next && record.commit_id.as_deref() == Some(identity.as_str()) {
             return Ok(CommitResult {
                 revision: next,
@@ -281,6 +310,10 @@ impl Authority {
         record.timers = derived_timers;
         record.waits = derived_waits;
         record.status = continuation.status;
+        if record.artifact_hash.is_empty() {
+            record.artifact_hash = hash;
+            record.handler_keys = keys;
+        }
         Ok(CommitResult {
             revision: next,
             owner: record.owner.clone(),
@@ -357,9 +390,40 @@ impl Authority {
 
     /// Take or renew ownership. A live lease held by someone else is rejected.
     /// Does not read a continuation except by returning the committed one.
-    pub fn claim(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {
+    pub fn pin(&self, execution_id: &str) -> Result<VersionPin> {
         if let Some(remote) = &self.remote {
-            return remote.claim(execution_id, owner_token, lease_ms);
+            return remote.pin(execution_id);
+        }
+        let state = self.lock();
+        let record = state
+            .executions
+            .get(execution_id)
+            .ok_or_else(|| Error::new("unknown execution"))?;
+        Ok(VersionPin {
+            revision: record.revision,
+            artifact_hash: record.artifact_hash.clone(),
+            handler_keys: record.handler_keys.clone(),
+        })
+    }
+
+    /// Take or renew ownership when the offered artifact and handler keys match
+    /// the pin. A mismatch leaves owner, fence, and lease unchanged.
+    pub fn claim(
+        &self,
+        execution_id: &str,
+        owner_token: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<Claimed> {
+        if let Some(remote) = &self.remote {
+            return remote.claim(
+                execution_id,
+                owner_token,
+                lease_ms,
+                artifact_hash,
+                handler_keys,
+            );
         }
         let mut state = self.lock();
         let clock = state.clock;
@@ -367,6 +431,12 @@ impl Authority {
             .executions
             .get_mut(execution_id)
             .ok_or_else(|| Error::new("unknown execution"))?;
+        if !record.artifact_hash.is_empty()
+            && (record.artifact_hash != artifact_hash
+                || record.handler_keys != canonical_keys(handler_keys))
+        {
+            return Err(Error::new("artifact version mismatch"));
+        }
         let same = record.owner.as_deref() == Some(owner_token);
         let lease_open = record.lease_until > clock;
         if same && lease_open {
@@ -417,6 +487,8 @@ impl Authority {
                 timers: Vec::new(),
                 waits: Vec::new(),
                 status: ContinuationStatus::Runnable,
+                artifact_hash: String::new(),
+                handler_keys: Vec::new(),
             },
         );
         Ok(())
@@ -444,7 +516,16 @@ fn snapshot(record: &Record) -> View {
         timers: record.timers.clone(),
         waits: record.waits.clone(),
         status: record.status,
+        artifact_hash: record.artifact_hash.clone(),
+        handler_keys: record.handler_keys.clone(),
     }
+}
+
+pub(crate) fn canonical_keys(keys: &[String]) -> Vec<String> {
+    let mut keys = keys.to_vec();
+    keys.sort();
+    keys.dedup();
+    keys
 }
 
 pub(crate) fn timers_of(continuation: &Continuation) -> Vec<TimerRow> {
@@ -559,6 +640,8 @@ mod tests {
             journal: journal("first", "1"),
             timers: None,
             waits: None,
+            artifact_hash: String::new(),
+            handler_keys: Vec::new(),
         };
         let applied = authority.commit(&commit).unwrap();
         assert!(!applied.idempotent);
@@ -571,7 +654,9 @@ mod tests {
             applied.lease_until
         );
         authority.advance_clock(1_000).unwrap();
-        let claimed = authority.claim("exec", "B", 1_000).unwrap();
+        let claimed = authority
+            .claim("exec", "B", 1_000, "artifact", &[])
+            .unwrap();
         assert_eq!(claimed.fence, 2);
         let lease = authority.view("exec").unwrap().lease_until;
         let err = authority.commit(&commit).unwrap_err();
@@ -607,6 +692,8 @@ mod tests {
             journal: journal("first", "1"),
             timers: None,
             waits: None,
+            artifact_hash: String::new(),
+            handler_keys: Vec::new(),
         };
         authority.commit(&first).unwrap();
         let other_journal = Commit {
@@ -643,13 +730,19 @@ mod tests {
                 journal: BTreeMap::new(),
                 timers: None,
                 waits: None,
+                artifact_hash: String::new(),
+                handler_keys: Vec::new(),
             })
             .unwrap();
         authority.advance_clock(1_000).unwrap();
-        let early = authority.claim("exec", "B", 1_000).unwrap();
+        let early = authority
+            .claim("exec", "B", 1_000, "artifact", &[])
+            .unwrap();
         assert!(!early.timer_due);
         authority.advance_clock(5_000).unwrap();
-        let due = authority.claim("exec", "C", 1_000).unwrap();
+        let due = authority
+            .claim("exec", "C", 1_000, "artifact", &[])
+            .unwrap();
         assert!(due.timer_due);
         assert_eq!(due.revision, 1);
         assert_eq!(due.fence, 3);
@@ -669,6 +762,8 @@ mod tests {
             journal: journal("first", "1"),
             timers: None,
             waits: None,
+            artifact_hash: String::new(),
+            handler_keys: Vec::new(),
         };
         authority.commit(&commit).unwrap();
         let digest = sha256(&commit.continuation);
@@ -693,7 +788,9 @@ mod tests {
         assert_eq!(view.revision, 1);
         assert_eq!(view.fence, 1);
         assert_eq!(view.journal["first"].result, "1");
-        let reclaimed = authority.claim("exec", "A", 1_000).unwrap();
+        let reclaimed = authority
+            .claim("exec", "A", 1_000, "artifact", &[])
+            .unwrap();
         assert_eq!(reclaimed.fence, 2);
         assert_eq!(reclaimed.revision, 1);
         let err = authority.commit(&commit).unwrap_err();
@@ -714,6 +811,8 @@ mod tests {
                 journal: BTreeMap::new(),
                 timers: None,
                 waits: None,
+                artifact_hash: String::new(),
+                handler_keys: Vec::new(),
             })
             .unwrap();
         authority.advance_clock(1_000).unwrap();
@@ -722,5 +821,64 @@ mod tests {
         assert_eq!(view.fence, 1);
         assert_eq!(view.revision, 1);
         assert_eq!(view.timers[0].due_at, 1_000);
+    }
+
+    #[test]
+    fn a_mismatched_claim_does_not_move_the_lease() {
+        let authority = Authority::new();
+        authority.open("exec", "A", 1_000).unwrap();
+        authority
+            .commit(&Commit {
+                execution_id: "exec".to_string(),
+                owner_token: "A".to_string(),
+                fence: 1,
+                expected_revision: 0,
+                continuation: continuation("exec", 1, None),
+                journal: BTreeMap::new(),
+                timers: None,
+                waits: None,
+                artifact_hash: String::new(),
+                handler_keys: vec!["work".to_string()],
+            })
+            .unwrap();
+        let before = authority.view("exec").unwrap();
+        authority.advance_clock(1_000).unwrap();
+        let err = authority
+            .claim("exec", "B", 1_000, "other", &["work".to_string()])
+            .unwrap_err();
+        assert_eq!(err.to_string(), "artifact version mismatch");
+        let err = authority
+            .claim("exec", "B", 1_000, "artifact", &["other".to_string()])
+            .unwrap_err();
+        assert_eq!(err.to_string(), "artifact version mismatch");
+        let after = authority.view("exec").unwrap();
+        assert_eq!(after.owner, before.owner);
+        assert_eq!(after.fence, before.fence);
+        assert_eq!(after.lease_until, before.lease_until);
+        assert_eq!(after.revision, 1);
+        let claimed = authority
+            .claim("exec", "B", 1_000, "artifact", &["work".to_string()])
+            .unwrap();
+        assert_eq!(claimed.fence, 2);
+        let err = authority
+            .commit(&Commit {
+                execution_id: "exec".to_string(),
+                owner_token: "B".to_string(),
+                fence: 2,
+                expected_revision: 1,
+                continuation: continuation("exec", 2, None),
+                journal: BTreeMap::new(),
+                timers: None,
+                waits: None,
+                artifact_hash: String::new(),
+                handler_keys: vec!["other".to_string()],
+            })
+            .unwrap_err();
+        assert_eq!(err.to_string(), "commit conflict");
+        assert_eq!(authority.view("exec").unwrap().revision, 1);
+        assert_eq!(
+            authority.view("exec").unwrap().handler_keys,
+            vec!["work".to_string()]
+        );
     }
 }

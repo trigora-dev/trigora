@@ -11,7 +11,7 @@ use tcc_core::{Engine, HostResponse};
 use tcc_ir::{Artifact, EngineCaps};
 use tcc_state::decode_continuation;
 
-use crate::authority::Authority;
+use crate::authority::{canonical_keys, Authority};
 use crate::drive::{self, Answer, Memory, Step};
 use crate::error::{Error, Result};
 use crate::socket::{Connection, DispatchError, HostCommand, Listener, TransportSample};
@@ -37,6 +37,25 @@ pub struct Span {
     pub journal: Duration,
     pub continuation: Duration,
     pub commit: Duration,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionWait {
+    pub execution_id: String,
+    pub artifact_hash: String,
+    pub reason: String,
+    pub message: String,
+}
+
+fn version_wait(execution_id: &str, artifact_hash: &str) -> VersionWait {
+    VersionWait {
+        execution_id: execution_id.to_string(),
+        artifact_hash: artifact_hash.to_string(),
+        reason: "waiting-for-version".to_string(),
+        message: format!(
+            "Execution requires artifact {artifact_hash}, but no compatible worker is connected. Deploy a worker with the required version to resume."
+        ),
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -112,6 +131,8 @@ struct Slot {
     lease_until: AtomicU64,
     live: AtomicBool,
     renewing: AtomicBool,
+    artifact_hash: String,
+    handler_keys: Vec<String>,
 }
 
 struct Backlog {
@@ -120,6 +141,8 @@ struct Backlog {
     memory: Memory,
     fence: u64,
     lease_until: u64,
+    artifact_hash: String,
+    handler_keys: Vec<String>,
 }
 
 struct QueueState {
@@ -133,7 +156,8 @@ struct QueueState {
 
 struct Inner {
     authority: Arc<Authority>,
-    artifact: Artifact,
+    artifacts: Mutex<HashMap<String, Artifact>>,
+    initial_hash: String,
     caps: EngineCaps,
     owner: String,
     cap: usize,
@@ -154,6 +178,7 @@ struct Inner {
     commits_done: AtomicU32,
     dispatches: Mutex<Vec<Dispatch>>,
     failures: Mutex<Vec<(String, String)>>,
+    waiting: Mutex<Vec<VersionWait>>,
     timings: Mutex<Timings>,
     log_timings: bool,
     workers: Mutex<Vec<JoinHandle<()>>>,
@@ -170,11 +195,15 @@ impl Runtime {
     pub fn open(authority: Arc<Authority>, artifact: Artifact, config: Config) -> Result<Self> {
         tcc_ir::validate(&artifact, &EngineCaps::current())
             .map_err(|err| Error::new(format!("artifact: {err}")))?;
+        let initial_hash = artifact.envelope.artifact_hash.clone();
+        let mut artifacts = HashMap::new();
+        artifacts.insert(initial_hash.clone(), artifact);
         let workers = config.workers.max(1);
         let listener = Listener::bind(&config.dir)?;
         let inner = Arc::new(Inner {
             authority,
-            artifact,
+            artifacts: Mutex::new(artifacts),
+            initial_hash,
             caps: EngineCaps::current(),
             owner: config.owner_token,
             cap: config.cap.max(1),
@@ -202,6 +231,7 @@ impl Runtime {
             commits_done: AtomicU32::new(0),
             dispatches: Mutex::new(Vec::new()),
             failures: Mutex::new(Vec::new()),
+            waiting: Mutex::new(Vec::new()),
             timings: Mutex::new(Timings::default()),
             log_timings: std::env::var("TRIGORA_PULSE_TIMINGS").ok().as_deref() == Some("1"),
             workers: Mutex::new(Vec::new()),
@@ -227,60 +257,29 @@ impl Runtime {
     }
 
     pub fn start(&self, execution_id: &str) -> Result<()> {
-        if self.inner.accept_execution(execution_id)? {
+        let hash = self.inner.initial_hash.clone();
+        let keys = self.inner.keys_for(&hash);
+        if self.inner.accept_execution(execution_id, &hash, &keys)? {
             self.inner.enqueue(execution_id.to_string());
         }
         Ok(())
     }
 
     pub fn resume(&self, execution_id: &str) -> Result<()> {
-        let started = Instant::now();
-        let claimed =
-            self.inner
-                .authority
-                .claim(execution_id, &self.inner.owner, self.inner.lease_ms)?;
-        let engine = if let Some(bytes) = &claimed.continuation {
-            let continuation =
-                decode_continuation(bytes).map_err(|err| Error::new(format!("restore: {err}")))?;
-            if continuation.artifact.hash != self.inner.artifact.envelope.artifact_hash {
-                return Err(Error::new("artifact hash does not match the continuation"));
+        self.inner.resume_execution(execution_id)
+    }
+
+    pub fn waiting(&self) -> Vec<VersionWait> {
+        let mut waiting = self.inner.waiting.lock().expect("waiting").clone();
+        let slots = self.inner.slots.lock().expect("slots");
+        for (id, slot) in slots.iter() {
+            if matches!(*slot.phase.lock().expect("phase"), Phase::WaitingForAdapter)
+                && !waiting.iter().any(|item| item.execution_id == *id)
+            {
+                waiting.push(version_wait(id, &slot.artifact_hash));
             }
-            let mut engine =
-                Engine::resume(self.inner.artifact.clone(), continuation, &self.inner.caps)
-                    .map_err(|err| Error::new(err.to_string()))?;
-            if claimed.timer_due {
-                engine
-                    .apply_host_response(HostResponse::TimerFired { branch: None })
-                    .map_err(|err| Error::new(err.to_string()))?;
-            }
-            engine
-        } else {
-            Engine::start_with_args(
-                self.inner.artifact.clone(),
-                execution_id,
-                &self.inner.caps,
-                &[],
-            )
-            .map_err(|err| Error::new(err.to_string()))?
-        };
-        self.inner
-            .timings
-            .lock()
-            .expect("timings")
-            .restore
-            .push(started.elapsed());
-        self.inner.admit(
-            execution_id.to_string(),
-            engine,
-            Memory {
-                journal: claimed.journal,
-                revision: claimed.revision,
-                last_effect: None,
-            },
-            claimed.fence,
-            claimed.lease_until,
-        );
-        Ok(())
+        }
+        waiting
     }
 
     pub fn wait_until(&self, mut pred: impl FnMut(&Runtime) -> bool, timeout: Duration) -> bool {
@@ -372,7 +371,12 @@ fn accept_loop(inner: Arc<Inner>) {
                 let bearer = inner.listener.bearer().to_string();
                 let inner = Arc::clone(&inner);
                 std::thread::spawn(move || {
-                    let Ok((connection, reader)) = Connection::handshake(stream, &bearer) else {
+                    let installed = Arc::clone(&inner);
+                    let Ok((connection, reader)) =
+                        Connection::handshake(stream, &bearer, |hash, _keys, artifact| {
+                            installed.install_artifact(hash, artifact)
+                        })
+                    else {
                         return;
                     };
                     let (tx, rx) = std::sync::mpsc::channel();
@@ -387,7 +391,9 @@ fn accept_loop(inner: Arc<Inner>) {
                     std::thread::spawn(move || {
                         while let Ok(command) = rx.recv() {
                             let HostCommand::Start(id) = command;
-                            match commands.accept_execution(&id) {
+                            let hash = writer.artifact_hash.clone();
+                            let keys = writer.keys.clone();
+                            match commands.accept_execution(&id, &hash, &keys) {
                                 Ok(true) => {
                                     writer.reply_start(&id, Ok(()));
                                     commands.enqueue(id);
@@ -399,6 +405,7 @@ fn accept_loop(inner: Arc<Inner>) {
                     });
                     connection.spawn_reader(reader);
                     inner.reconcile();
+                    inner.resume_waiting();
                 });
             }
             Err(_) => break,
@@ -459,7 +466,16 @@ fn worker_loop(inner: Arc<Inner>) {
 }
 
 impl Inner {
-    fn admit(&self, id: String, engine: Engine, memory: Memory, fence: u64, lease_until: u64) {
+    fn admit(
+        &self,
+        id: String,
+        engine: Engine,
+        memory: Memory,
+        fence: u64,
+        lease_until: u64,
+        artifact_hash: String,
+        handler_keys: Vec<String>,
+    ) {
         {
             let mut queue = self.queue.lock().expect("queue");
             if queue.inflight >= self.cap {
@@ -469,6 +485,8 @@ impl Inner {
                     memory,
                     fence,
                     lease_until,
+                    artifact_hash,
+                    handler_keys,
                 });
                 queue.backlogged = true;
                 return;
@@ -476,11 +494,36 @@ impl Inner {
             queue.inflight += 1;
             queue.max_inflight = queue.max_inflight.max(queue.inflight);
         }
-        self.launch(id, engine, memory, fence, lease_until);
+        self.launch(
+            id,
+            engine,
+            memory,
+            fence,
+            lease_until,
+            artifact_hash,
+            handler_keys,
+        );
     }
 
-    fn launch(&self, id: String, engine: Engine, memory: Memory, fence: u64, lease_until: u64) {
-        self.insert_slot(id.clone(), engine, memory, fence, lease_until);
+    fn launch(
+        &self,
+        id: String,
+        engine: Engine,
+        memory: Memory,
+        fence: u64,
+        lease_until: u64,
+        artifact_hash: String,
+        handler_keys: Vec<String>,
+    ) {
+        self.insert_slot(
+            id.clone(),
+            engine,
+            memory,
+            fence,
+            lease_until,
+            artifact_hash,
+            handler_keys,
+        );
         self.enqueue(id);
     }
 
@@ -491,6 +534,8 @@ impl Inner {
         memory: Memory,
         fence: u64,
         lease_until: u64,
+        artifact_hash: String,
+        handler_keys: Vec<String>,
     ) {
         let slot = Arc::new(Slot {
             phase: Mutex::new(Phase::Runnable),
@@ -505,6 +550,8 @@ impl Inner {
             lease_until: AtomicU64::new(lease_until),
             live: AtomicBool::new(true),
             renewing: AtomicBool::new(false),
+            artifact_hash,
+            handler_keys,
         });
         self.spawn_renewal(&id, &slot);
         self.slots.lock().expect("slots").insert(id, slot);
@@ -536,10 +583,17 @@ impl Inner {
         self.slots.lock().expect("slots").get(id).cloned()
     }
 
-    fn accept_execution(&self, execution_id: &str) -> Result<bool> {
+    fn accept_execution(
+        &self,
+        execution_id: &str,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<bool> {
         if self.slot(execution_id).is_some() || self.in_backlog(execution_id) {
             return Err(Error::new("execution id is already in use"));
         }
+        let artifact = self.artifact(artifact_hash)?;
+        let handler_keys = canonical_keys(handler_keys);
         let opened = self
             .authority
             .open(execution_id, &self.owner, self.lease_ms)
@@ -550,7 +604,7 @@ impl Inner {
                     err
                 }
             })?;
-        let engine = Engine::start_with_args(self.artifact.clone(), execution_id, &self.caps, &[])
+        let engine = Engine::start_with_args(artifact, execution_id, &self.caps, &[])
             .map_err(|err| Error::new(err.to_string()))?;
         let memory = Memory {
             journal: BTreeMap::new(),
@@ -566,6 +620,8 @@ impl Inner {
                     memory,
                     fence: opened.fence,
                     lease_until: opened.lease_until,
+                    artifact_hash: artifact_hash.to_string(),
+                    handler_keys,
                 });
                 queue.backlogged = true;
                 return Ok(false);
@@ -579,6 +635,8 @@ impl Inner {
             memory,
             opened.fence,
             opened.lease_until,
+            artifact_hash.to_string(),
+            handler_keys,
         );
         Ok(true)
     }
@@ -612,7 +670,7 @@ impl Inner {
             self.abandon(id, slot);
             return;
         };
-        if !self.has_adapter(&last.key) {
+        if !self.has_adapter(&slot.artifact_hash, &slot.handler_keys, &last.key) {
             self.note_failure(
                 id,
                 format!("no adapter registered for effect `{}`", last.key),
@@ -642,7 +700,9 @@ impl Inner {
         let decided = Instant::now();
         let slot = Arc::clone(slot);
         std::thread::spawn(move || {
-            let sample = inner.hub_dispatch(&id, &attempt_id, &last.key, &last.input);
+            let hash = slot.artifact_hash.clone();
+            let keys = slot.handler_keys.clone();
+            let sample = inner.hub_dispatch(&id, &attempt_id, &last.key, &last.input, &hash, &keys);
             inner.note_transport(&slot, &attempt_id, decided, &sample);
             let answer = match sample.outcome {
                 Ok(value) => Answer::Value(value),
@@ -662,12 +722,15 @@ impl Inner {
         attempt_id: &str,
         key: &str,
         input: &str,
+        artifact_hash: &str,
+        handler_keys: &[String],
     ) -> TransportSample {
         let connections = self.connections.lock().expect("connections").clone();
-        let hash = &self.artifact.envelope.artifact_hash;
+        let pinned = canonical_keys(handler_keys);
         for connection in connections {
             if connection.alive()
-                && connection.artifact_hash == *hash
+                && connection.artifact_hash == artifact_hash
+                && canonical_keys(&connection.keys) == pinned
                 && connection.keys.iter().any(|known| known == key)
             {
                 return connection.dispatch(
@@ -720,6 +783,8 @@ impl Inner {
         }
         let mut commit = commit;
         commit.fence = slot.fence.load(Ordering::SeqCst);
+        commit.artifact_hash = slot.artifact_hash.clone();
+        commit.handler_keys = slot.handler_keys.clone();
         *slot.phase.lock().expect("phase") = Phase::WaitingForCommit;
         let inner = Arc::clone(self);
         let id = id.to_string();
@@ -855,14 +920,36 @@ impl Inner {
         self.release_inflight();
     }
 
-    fn has_adapter(&self, key: &str) -> bool {
+    fn has_adapter(&self, artifact_hash: &str, handler_keys: &[String], key: &str) -> bool {
         let connections = self.connections.lock().expect("connections");
-        let hash = &self.artifact.envelope.artifact_hash;
+        let pinned = canonical_keys(handler_keys);
         connections.iter().any(|connection| {
             connection.alive()
-                && connection.artifact_hash == *hash
+                && connection.artifact_hash == artifact_hash
+                && canonical_keys(&connection.keys) == pinned
                 && connection.keys.iter().any(|known| known == key)
         })
+    }
+
+    fn has_registration(&self, artifact_hash: &str, handler_keys: &[String]) -> bool {
+        if !self
+            .artifacts
+            .lock()
+            .expect("artifacts")
+            .contains_key(artifact_hash)
+        {
+            return false;
+        }
+        let pinned = canonical_keys(handler_keys);
+        self.connections
+            .lock()
+            .expect("connections")
+            .iter()
+            .any(|connection| {
+                connection.alive()
+                    && connection.artifact_hash == artifact_hash
+                    && canonical_keys(&connection.keys) == pinned
+            })
     }
 
     fn reconcile(self: &Arc<Self>) {
@@ -888,7 +975,7 @@ impl Inner {
         let Some(key) = key else {
             return;
         };
-        if !self.has_adapter(&key) {
+        if !self.has_adapter(&slot.artifact_hash, &slot.handler_keys, &key) {
             return;
         }
         let restore = {
@@ -912,7 +999,7 @@ impl Inner {
     }
 
     fn install_resumed(self: &Arc<Self>, id: &str, slot: &Slot) {
-        match self.restore_engine(id) {
+        match self.restore_engine(id, &slot.artifact_hash, &slot.handler_keys) {
             Ok((engine, memory)) => {
                 *slot.engine.lock().expect("engine") = Some(engine);
                 *slot.memory.lock().expect("memory") = memory;
@@ -926,18 +1013,28 @@ impl Inner {
         }
     }
 
-    fn restore_engine(&self, execution_id: &str) -> Result<(Engine, Memory)> {
+    fn restore_engine(
+        &self,
+        execution_id: &str,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<(Engine, Memory)> {
         let started = Instant::now();
-        let claimed = self
-            .authority
-            .claim(execution_id, &self.owner, self.lease_ms)?;
+        let artifact = self.artifact(artifact_hash)?;
+        let claimed = self.authority.claim(
+            execution_id,
+            &self.owner,
+            self.lease_ms,
+            artifact_hash,
+            handler_keys,
+        )?;
         let engine = if let Some(bytes) = &claimed.continuation {
             let continuation =
                 decode_continuation(bytes).map_err(|err| Error::new(format!("restore: {err}")))?;
-            if continuation.artifact.hash != self.artifact.envelope.artifact_hash {
+            if continuation.artifact.hash != artifact_hash {
                 return Err(Error::new("artifact hash does not match the continuation"));
             }
-            let mut engine = Engine::resume(self.artifact.clone(), continuation, &self.caps)
+            let mut engine = Engine::resume(artifact, continuation, &self.caps)
                 .map_err(|err| Error::new(err.to_string()))?;
             if claimed.timer_due {
                 engine
@@ -946,7 +1043,7 @@ impl Inner {
             }
             engine
         } else {
-            Engine::start_with_args(self.artifact.clone(), execution_id, &self.caps, &[])
+            Engine::start_with_args(artifact, execution_id, &self.caps, &[])
                 .map_err(|err| Error::new(err.to_string()))?
         };
         self.timings
@@ -962,6 +1059,151 @@ impl Inner {
                 last_effect: None,
             },
         ))
+    }
+
+    fn artifact(&self, hash: &str) -> Result<Artifact> {
+        self.artifacts
+            .lock()
+            .expect("artifacts")
+            .get(hash)
+            .cloned()
+            .ok_or_else(|| Error::new("artifact is not loaded"))
+    }
+
+    fn keys_for(&self, hash: &str) -> Vec<String> {
+        self.connections
+            .lock()
+            .expect("connections")
+            .iter()
+            .find(|connection| connection.alive() && connection.artifact_hash == hash)
+            .map(|connection| canonical_keys(&connection.keys))
+            .unwrap_or_default()
+    }
+
+    fn install_artifact(&self, hash: &str, artifact: Option<&str>) -> Result<()> {
+        let Some(encoded) = artifact else {
+            return Ok(());
+        };
+        let decoded = tcc_ir::decode_artifact(encoded)
+            .map_err(|err| Error::new(format!("artifact: {err}")))?;
+        if decoded.envelope.artifact_hash != hash {
+            return Err(Error::new("artifact bytes do not match the declared hash"));
+        }
+        tcc_ir::validate(&decoded, &self.caps)
+            .map_err(|err| Error::new(format!("artifact: {err}")))?;
+        self.artifacts
+            .lock()
+            .expect("artifacts")
+            .insert(hash.to_string(), decoded);
+        Ok(())
+    }
+
+    fn resume_execution(&self, execution_id: &str) -> Result<()> {
+        let pin = self.authority.pin(execution_id)?;
+        let (hash, keys) = if pin.artifact_hash.is_empty() {
+            let hash = self.initial_hash.clone();
+            (hash.clone(), self.keys_for(&hash))
+        } else if self.has_registration(&pin.artifact_hash, &pin.handler_keys) {
+            (pin.artifact_hash, pin.handler_keys)
+        } else {
+            self.note_waiting(execution_id, &pin.artifact_hash);
+            return Ok(());
+        };
+        match self.claim_and_admit(execution_id, &hash, &keys) {
+            Ok(()) => {
+                self.clear_waiting(execution_id);
+                Ok(())
+            }
+            Err(err) if err.to_string() == "execution is owned" => {
+                self.note_waiting(execution_id, &hash);
+                Ok(())
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn claim_and_admit(
+        &self,
+        execution_id: &str,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<()> {
+        let started = Instant::now();
+        let artifact = self.artifact(artifact_hash)?;
+        let claimed = self.authority.claim(
+            execution_id,
+            &self.owner,
+            self.lease_ms,
+            artifact_hash,
+            handler_keys,
+        )?;
+        let engine = if let Some(bytes) = &claimed.continuation {
+            let continuation =
+                decode_continuation(bytes).map_err(|err| Error::new(format!("restore: {err}")))?;
+            if continuation.artifact.hash != artifact_hash {
+                return Err(Error::new("artifact hash does not match the continuation"));
+            }
+            let mut engine = Engine::resume(artifact, continuation, &self.caps)
+                .map_err(|err| Error::new(err.to_string()))?;
+            if claimed.timer_due {
+                engine
+                    .apply_host_response(HostResponse::TimerFired { branch: None })
+                    .map_err(|err| Error::new(err.to_string()))?;
+            }
+            engine
+        } else {
+            Engine::start_with_args(artifact, execution_id, &self.caps, &[])
+                .map_err(|err| Error::new(err.to_string()))?
+        };
+        self.timings
+            .lock()
+            .expect("timings")
+            .restore
+            .push(started.elapsed());
+        self.admit(
+            execution_id.to_string(),
+            engine,
+            Memory {
+                journal: claimed.journal,
+                revision: claimed.revision,
+                last_effect: None,
+            },
+            claimed.fence,
+            claimed.lease_until,
+            artifact_hash.to_string(),
+            canonical_keys(handler_keys),
+        );
+        Ok(())
+    }
+
+    fn resume_waiting(&self) {
+        let pending: Vec<String> = self
+            .waiting
+            .lock()
+            .expect("waiting")
+            .iter()
+            .map(|item| item.execution_id.clone())
+            .collect();
+        for id in pending {
+            if let Err(err) = self.resume_execution(&id) {
+                self.note_failure(&id, err.to_string());
+            }
+        }
+    }
+
+    fn note_waiting(&self, execution_id: &str, artifact_hash: &str) {
+        let mut waiting = self.waiting.lock().expect("waiting");
+        if waiting.iter().any(|item| item.execution_id == execution_id) {
+            return;
+        }
+        waiting.push(version_wait(execution_id, artifact_hash));
+    }
+
+    fn clear_waiting(&self, execution_id: &str) {
+        self.waiting
+            .lock()
+            .expect("waiting")
+            .retain(|item| item.execution_id != execution_id);
     }
 
     fn park_for_adapter(self: &Arc<Self>, id: &str, slot: &Arc<Slot>) {
@@ -1029,6 +1271,8 @@ impl Inner {
                 item.memory,
                 item.fence,
                 item.lease_until,
+                item.artifact_hash,
+                item.handler_keys,
             );
         }
     }
