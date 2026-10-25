@@ -71,6 +71,42 @@ pub struct CancelReceipt {
     pub idempotent: bool,
 }
 
+/// One child the parent has asked to create. The argument vector is stored in
+/// full so a later owner can create that child without the original process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvokeIntent {
+    pub invoke_id: String,
+    pub child_execution_id: String,
+    pub program_name: String,
+    pub arguments: String,
+    pub digest: String,
+}
+
+/// The invoke a host is asking to record or to match against the stored intent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvokeSpec {
+    pub invoke_id: String,
+    pub child_execution_id: String,
+    pub program_name: String,
+    pub arguments: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvokeReceipt {
+    pub revision: u64,
+    pub idempotent: bool,
+}
+
+/// A child row that exists and has not been initialized with a continuation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreatedChild {
+    pub parent_execution_id: String,
+    pub invoke_id: String,
+    pub child_execution_id: String,
+    pub program_name: String,
+    pub arguments: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Renewed {
     pub owner: String,
@@ -123,4 +159,6 @@ pub struct Claimed {
     pub status: ContinuationStatus,
     pub event: Option<AcceptedEvent>,
     pub cancel_requested: bool,
+    /// Present only while the parent has not committed the wait for this child.
+    pub intent: Option<InvokeIntent>,
 }

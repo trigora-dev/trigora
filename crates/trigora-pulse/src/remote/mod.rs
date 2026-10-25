@@ -73,6 +73,28 @@ impl RemoteClient {
         self.request_cancel_sqlite(execution_id)
     }
 
+    pub fn record_invoke(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        spec: &crate::authority::InvokeSpec,
+    ) -> Result<crate::authority::InvokeReceipt> {
+        self.record_invoke_sqlite(execution_id, owner, fence, spec)
+    }
+
+    pub fn ensure_child(
+        &self,
+        parent_id: &str,
+        offered: Option<&crate::authority::InvokeSpec>,
+    ) -> Result<crate::authority::InvokeReceipt> {
+        self.ensure_child_sqlite(parent_id, offered)
+    }
+
+    pub fn created_child(&self, execution_id: &str) -> Result<crate::authority::CreatedChild> {
+        self.created_child_sqlite(execution_id)
+    }
+
     pub fn accept_event(
         &self,
         execution_id: &str,

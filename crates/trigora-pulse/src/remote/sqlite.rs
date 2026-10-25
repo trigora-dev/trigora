@@ -4,13 +4,15 @@ use serde_json::json;
 use tcc_state::{decode_continuation, ContinuationStatus};
 
 use super::protocol::{
-    checkpoint_frame, manifest_timers, manifest_waits, split_frame, CancelReceiptBody, EventJson,
-    EventReceiptBody, SqliteClaimResponse, SqliteCommitResponse, SqliteRestoreHeader, VersionBody,
+    checkpoint_frame, manifest_timers, manifest_waits, split_frame, CancelReceiptBody,
+    CreatedChildJson, EventJson, EventReceiptBody, IntentJson, SqliteClaimResponse,
+    SqliteCommitResponse, SqliteRestoreHeader, VersionBody,
 };
 use super::RemoteClient;
 use crate::authority::{
     self, timers_of, waits_of, AcceptedEvent, CancelReceipt, Claimed, Commit, CommitResult,
-    EventReceipt, JournalRow, TimerRow, WaitRow,
+    CreatedChild, EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, TimerRow,
+    WaitRow,
 };
 use crate::error::{Error, Result};
 
@@ -190,6 +192,7 @@ impl RemoteClient {
                 status: ContinuationStatus::Runnable,
                 event: accepted_event(claimed.event),
                 cancel_requested: claimed.cancel_requested,
+                intent: accepted_intent(claimed.intent),
             });
         }
         let entry = self.fetch_sqlite(execution_id, owner)?;
@@ -210,6 +213,80 @@ impl RemoteClient {
             status,
             event: accepted_event(claimed.event),
             cancel_requested: claimed.cancel_requested,
+            intent: accepted_intent(claimed.intent),
+        })
+    }
+
+    pub(super) fn record_invoke_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        spec: &InvokeSpec,
+    ) -> Result<InvokeReceipt> {
+        self.remember(owner);
+        let receipt: CancelReceiptBody = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-invoke",
+                self.endpoint.workspace
+            ),
+            owner,
+            &json!({
+                "fence": fence,
+                "invokeId": spec.invoke_id,
+                "childExecutionId": spec.child_execution_id,
+                "programName": spec.program_name,
+                "arguments": spec.arguments,
+            }),
+        )?;
+        Ok(InvokeReceipt {
+            revision: receipt.revision,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn ensure_child_sqlite(
+        &self,
+        parent_id: &str,
+        offered: Option<&InvokeSpec>,
+    ) -> Result<InvokeReceipt> {
+        let body = match offered {
+            Some(spec) => json!({
+                "invokeId": spec.invoke_id,
+                "childExecutionId": spec.child_execution_id,
+                "programName": spec.program_name,
+                "arguments": spec.arguments,
+            }),
+            None => json!({}),
+        };
+        let receipt: CancelReceiptBody = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{parent_id}/sql-child",
+                self.endpoint.workspace
+            ),
+            "child",
+            &body,
+        )?;
+        Ok(InvokeReceipt {
+            revision: receipt.revision,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn created_child_sqlite(&self, execution_id: &str) -> Result<CreatedChild> {
+        let found: CreatedChildJson = self.endpoint.call_json(
+            "GET",
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-created",
+                self.endpoint.workspace
+            ),
+        )?;
+        Ok(CreatedChild {
+            parent_execution_id: found.parent_execution_id,
+            invoke_id: found.invoke_id,
+            child_execution_id: found.child_execution_id,
+            program_name: found.program_name,
+            arguments: found.arguments,
         })
     }
 
@@ -365,6 +442,16 @@ impl RemoteClient {
     pub(super) fn fetch_entry(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
         self.fetch_sqlite(execution_id, owner)
     }
+}
+
+fn accepted_intent(intent: Option<IntentJson>) -> Option<InvokeIntent> {
+    intent.map(|intent| InvokeIntent {
+        invoke_id: intent.invoke_id,
+        child_execution_id: intent.child_execution_id,
+        program_name: intent.program_name,
+        arguments: intent.arguments,
+        digest: intent.digest,
+    })
 }
 
 fn accepted_event(event: Option<EventJson>) -> Option<AcceptedEvent> {

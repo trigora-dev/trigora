@@ -43,6 +43,28 @@ pub(super) struct SqliteClaimResponse {
     pub(super) event: Option<EventJson>,
     #[serde(default)]
     pub(super) cancel_requested: bool,
+    #[serde(default)]
+    pub(super) intent: Option<IntentJson>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct IntentJson {
+    pub(super) invoke_id: String,
+    pub(super) child_execution_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+    pub(super) digest: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CreatedChildJson {
+    pub(super) parent_execution_id: String,
+    pub(super) invoke_id: String,
+    pub(super) child_execution_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
 }
 
 #[derive(Deserialize)]

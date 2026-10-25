@@ -1,6 +1,7 @@
 use tcc_state::{decode_continuation, Continuation};
 
 use super::identity::{canonical_keys, commit_identity, is_terminal, sha256, timers_of, waits_of};
+use super::invoke;
 use super::signals::release_event;
 use super::state::State;
 use super::types::{Commit, CommitResult, TimerRow, WaitRow};
@@ -128,6 +129,7 @@ pub(super) fn apply(
     if is_terminal(continuation.status) {
         record.cancel_requested = false;
     }
+    invoke::consume(&mut record.intent, &continuation);
     if record.artifact_hash.is_empty() {
         record.artifact_hash = hash;
         record.handler_keys = keys;

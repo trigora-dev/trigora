@@ -127,6 +127,9 @@ impl Inner {
             artifact_hash,
             handler_keys,
         )?;
+        if claimed.intent.is_some() {
+            self.authority.ensure_child(execution_id, None)?;
+        }
         let engine = if let Some(bytes) = &claimed.continuation {
             let continuation =
                 decode_continuation(bytes).map_err(|err| Error::new(format!("restore: {err}")))?;
@@ -308,6 +311,9 @@ impl Inner {
             artifact_hash,
             handler_keys,
         )?;
+        if claimed.intent.is_some() {
+            self.authority.ensure_child(execution_id, None)?;
+        }
         let engine = if let Some(bytes) = &claimed.continuation {
             let continuation =
                 decode_continuation(bytes).map_err(|err| Error::new(format!("restore: {err}")))?;

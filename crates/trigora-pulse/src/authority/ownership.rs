@@ -1,6 +1,7 @@
 use tcc_state::ContinuationStatus;
 
 use super::identity::canonical_keys;
+use super::invoke;
 use super::state::{snapshot, Record, State};
 use super::types::{AcceptedEvent, Claimed, CommitQuery, Renewed, VersionPin, View};
 use crate::error::{Error, Result};
@@ -28,6 +29,7 @@ pub(super) fn open(
         status: ContinuationStatus::Runnable,
         event: None,
         cancel_requested: false,
+        intent: None,
     })
 }
 
@@ -112,6 +114,9 @@ pub(super) fn claim(
         .executions
         .get_mut(execution_id)
         .ok_or_else(|| Error::new("unknown execution"))?;
+    if record.created.is_some() {
+        return Err(Error::new("child is not initialized"));
+    }
     if !record.artifact_hash.is_empty()
         && (record.artifact_hash != artifact_hash
             || record.handler_keys != canonical_keys(handler_keys))
@@ -147,5 +152,6 @@ pub(super) fn claim(
             payload: event.payload.clone(),
         }),
         cancel_requested: record.cancel_requested,
+        intent: invoke::pending(&record.intent),
     })
 }

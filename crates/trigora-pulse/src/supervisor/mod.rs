@@ -356,6 +356,7 @@ fn worker_loop(inner: Arc<Inner>) {
         let answer = slot.answer.lock().expect("answer").take();
         let confirm = slot.confirm.lock().expect("confirm").take();
         let cancel = slot.cancel.load(Ordering::SeqCst);
+        let child_ready = slot.child_ready.swap(false, Ordering::SeqCst);
         let step = {
             let mut engine_guard = slot.engine.lock().expect("engine");
             let Some(engine) = engine_guard.as_mut() else {
@@ -373,6 +374,7 @@ fn worker_loop(inner: Arc<Inner>) {
                 answer,
                 confirm,
                 cancel,
+                child_ready,
                 cost: &mut cost,
             });
             inner.note_cost(&slot, cost);

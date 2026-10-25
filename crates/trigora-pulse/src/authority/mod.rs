@@ -1,5 +1,6 @@
 mod commit;
 mod identity;
+mod invoke;
 mod ownership;
 mod signals;
 mod state;
@@ -8,8 +9,9 @@ mod types;
 use std::sync::{Arc, Mutex};
 
 pub use types::{
-    AcceptedEvent, CancelReceipt, Claimed, Commit, CommitQuery, CommitResult, EventReceipt,
-    JournalRow, Renewed, TimerRow, VersionPin, View, WaitRow,
+    AcceptedEvent, CancelReceipt, Claimed, Commit, CommitQuery, CommitResult, CreatedChild,
+    EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, Renewed, TimerRow,
+    VersionPin, View, WaitRow,
 };
 
 pub(crate) use identity::{canonical_keys, commit_identity, sha256, timers_of, waits_of};
@@ -55,7 +57,10 @@ impl Authority {
     }
 
     pub fn open(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {
-        if self.lock().executions.contains_key(execution_id) {
+        if let Some(record) = self.lock().executions.get(execution_id) {
+            if record.created.is_some() {
+                return Err(Error::new("child is not initialized"));
+            }
             return Err(Error::new("execution already exists"));
         }
         if let Some(remote) = &self.remote {
@@ -115,6 +120,41 @@ impl Authority {
             payload,
             digest,
         )
+    }
+
+    /// Store one invoke intent. The revision does not move. The same intent is
+    /// idempotent. A different unresolved invoke conflicts.
+    pub fn record_invoke(
+        &self,
+        execution_id: &str,
+        owner_token: &str,
+        fence: u64,
+        spec: &InvokeSpec,
+    ) -> Result<InvokeReceipt> {
+        if let Some(remote) = &self.remote {
+            return remote.record_invoke(execution_id, owner_token, fence, spec);
+        }
+        invoke::record(&mut self.lock(), execution_id, owner_token, fence, spec)
+    }
+
+    /// Create the child from the stored intent. This does not require the
+    /// parent's current lease. `offered`, when set, must match that intent.
+    pub fn ensure_child(
+        &self,
+        parent_id: &str,
+        offered: Option<&InvokeSpec>,
+    ) -> Result<InvokeReceipt> {
+        if let Some(remote) = &self.remote {
+            return remote.ensure_child(parent_id, offered);
+        }
+        invoke::ensure(&mut self.lock(), parent_id, offered)
+    }
+
+    pub fn created_child(&self, execution_id: &str) -> Result<CreatedChild> {
+        if let Some(remote) = &self.remote {
+            return remote.created_child(execution_id);
+        }
+        invoke::created(&self.lock(), execution_id)
     }
 
     /// Record a cancellation request. The caller does not need the owner fence,

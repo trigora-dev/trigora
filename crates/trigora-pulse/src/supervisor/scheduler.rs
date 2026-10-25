@@ -100,6 +100,7 @@ impl Inner {
             live: AtomicBool::new(true),
             renewing: AtomicBool::new(false),
             cancel: AtomicBool::new(false),
+            child_ready: AtomicBool::new(false),
             artifact_hash,
             handler_keys,
         });

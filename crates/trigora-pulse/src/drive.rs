@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use tcc_core::{EffectStatus, Engine, EngineOutcome, HostRequest, HostResponse};
+use tcc_core::{ChildSpec, EffectStatus, Engine, EngineOutcome, HostRequest, HostResponse};
 use tcc_state::{decode_value, encode_continuation, encode_value, ContinuationStatus, Value};
 
 use crate::authority::{Commit, JournalRow};
@@ -33,6 +33,7 @@ pub(crate) enum Step {
     TimedOut,
     Disconnected,
     Commit(Commit),
+    EnsureChild(ChildSpec),
     Suspended,
     Finished,
     Cancelled,
@@ -56,6 +57,8 @@ pub(crate) struct Turn<'a> {
     pub answer: Option<Answer>,
     pub confirm: Option<std::result::Result<u64, String>>,
     pub cancel: bool,
+    /// The child named by the outstanding `CreateChild` request now exists.
+    pub child_ready: bool,
     pub cost: &'a mut Cost,
 }
 
@@ -72,6 +75,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
         answer,
         confirm,
         cancel,
+        child_ready,
         cost,
     } = turn;
 
@@ -106,6 +110,12 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                     .map_err(|err| Error::new(err.to_string()))?;
             }
         }
+    }
+
+    if child_ready {
+        engine
+            .apply_host_response(HostResponse::Ack)
+            .map_err(|err| Error::new(err.to_string()))?;
     }
 
     let drove = Instant::now();
@@ -200,10 +210,8 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
                         .apply_host_response(HostResponse::Ack)
                         .map_err(|err| Error::new(err.to_string()))?;
                 }
-                HostRequest::CreateChild { .. } => {
-                    return Ok(Step::Failed(
-                        "create_child is not available in this Pulse host".into(),
-                    ));
+                HostRequest::CreateChild { child } => {
+                    return Ok(Step::EnsureChild(child));
                 }
                 HostRequest::FetchArtifact { hash } => {
                     engine
@@ -253,6 +261,14 @@ fn terminal_status(status: ContinuationStatus) -> bool {
         status,
         ContinuationStatus::Completed | ContinuationStatus::Failed | ContinuationStatus::Cancelled
     )
+}
+
+pub(crate) fn encode_arguments(args: &[Value]) -> Result<String> {
+    let mut encoded = Vec::with_capacity(args.len());
+    for arg in args {
+        encoded.push(encode_owned(arg)?);
+    }
+    serde_json::to_string(&encoded).map_err(|err| Error::new(err.to_string()))
 }
 
 fn encode_owned(value: &Value) -> Result<String> {

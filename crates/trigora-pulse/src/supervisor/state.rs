@@ -54,6 +54,7 @@ pub(super) struct Slot {
     pub(super) live: AtomicBool,
     pub(super) renewing: AtomicBool,
     pub(super) cancel: AtomicBool,
+    pub(super) child_ready: AtomicBool,
     pub(super) artifact_hash: String,
     pub(super) handler_keys: Vec<String>,
 }

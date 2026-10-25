@@ -13,6 +13,23 @@ pub(super) struct StoredEvent {
     pub(super) digest: String,
 }
 
+pub(super) struct StoredIntent {
+    pub(super) invoke_id: String,
+    pub(super) child_execution_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+    pub(super) digest: String,
+    pub(super) committed: bool,
+}
+
+pub(super) struct CreatedLink {
+    pub(super) parent_execution_id: String,
+    pub(super) invoke_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+    pub(super) digest: String,
+}
+
 pub(super) struct Record {
     pub(super) owner: Option<String>,
     pub(super) fence: u64,
@@ -28,6 +45,8 @@ pub(super) struct Record {
     pub(super) handler_keys: Vec<String>,
     pub(super) event: Option<StoredEvent>,
     pub(super) cancel_requested: bool,
+    pub(super) intent: Option<StoredIntent>,
+    pub(super) created: Option<CreatedLink>,
 }
 
 impl Record {
@@ -47,6 +66,8 @@ impl Record {
             handler_keys: Vec::new(),
             event: None,
             cancel_requested: false,
+            intent: None,
+            created: None,
         }
     }
 }

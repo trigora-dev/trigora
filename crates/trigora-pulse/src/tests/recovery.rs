@@ -4,9 +4,11 @@ use std::sync::{Arc, Barrier};
 use std::time::Duration;
 
 use tcc_ir::Artifact;
-use tcc_state::{decode_continuation, encode_continuation, ContinuationStatus, Value};
+use tcc_state::{
+    decode_continuation, encode_continuation, ContinuationStatus, PendingOp, Value, WaitKind,
+};
 
-use crate::{Adapter, Authority, Commit, Reply};
+use crate::{Adapter, Authority, Commit, InvokeSpec, Reply};
 
 use super::common::*;
 
@@ -128,22 +130,15 @@ fn sleep_resumes_through_a_claim_after_the_simulated_clock() {
 }
 
 #[test]
-fn create_child_is_rejected() {
-    let authority = Arc::new(Authority::new());
-    let program = artifact("invoke", invoke_program());
-    let dir = scratch("child");
-    let host = Host::open("child", authority, program, settings(&dir, "A"));
-    host.runtime.start("exec").unwrap();
-    assert!(host
-        .runtime
-        .wait_until(|runtime| runtime.abandoned() == 1, Duration::from_secs(5)));
-    let failures = host.runtime.failures();
-    assert!(
-        failures
-            .iter()
-            .any(|(_, message)| message.contains("create_child")),
-        "{failures:?}"
-    );
+fn invoke_creation_on_the_memory_authority() {
+    invoke_suite(&Arc::new(Authority::new()));
+}
+
+#[test]
+fn invoke_creation_on_the_sql_authority() {
+    let server = crate::remote::serve();
+    let authority = Arc::new(Authority::new().with_remote(server.client()));
+    invoke_suite(&authority);
 }
 
 #[test]
@@ -1127,6 +1122,262 @@ fn replace(
     let adapter = serve(&host.dir, &hash, &[]);
     wait_adapters(&host.runtime, 1);
     (host, adapter)
+}
+
+fn invoke_suite(authority: &Arc<Authority>) {
+    let program = artifact("invoke", invoke_program());
+
+    let same = invoke_spec("same");
+    authority.open("same", "A", 60_000).unwrap();
+    let first = authority.record_invoke("same", "A", 1, &same).unwrap();
+    let second = authority.record_invoke("same", "A", 1, &same).unwrap();
+    assert!(!first.idempotent);
+    assert!(second.idempotent);
+    assert_eq!(authority.view("same").unwrap().revision, 0);
+
+    let stale = invoke_spec("stale");
+    authority.open("stale", "A", 60_000).unwrap();
+    authority.record_invoke("stale", "A", 1, &stale).unwrap();
+    expire(authority, "stale");
+    let rejected = authority
+        .record_invoke("stale", "A", 1, &stale)
+        .unwrap_err();
+    assert_eq!(rejected.to_string(), "stale owner");
+    let recovered = authority
+        .claim("stale", "B", 60_000, "invoke", &[])
+        .unwrap();
+    assert_eq!(recovered.intent.unwrap().arguments, "[]");
+
+    let second_invoke = invoke_spec("second");
+    authority.open("second", "A", 60_000).unwrap();
+    authority
+        .record_invoke("second", "A", 1, &second_invoke)
+        .unwrap();
+    let mut other = second_invoke.clone();
+    other.invoke_id = "other".into();
+    other.child_execution_id = "child:other".into();
+    let conflict = authority
+        .record_invoke("second", "A", 1, &other)
+        .unwrap_err();
+    assert_eq!(conflict.to_string(), "invoke conflict");
+    assert_eq!(
+        authority
+            .claim("second", "A", 60_000, "invoke", &[])
+            .unwrap()
+            .intent
+            .unwrap()
+            .invoke_id,
+        second_invoke.invoke_id
+    );
+
+    let before = invoke_spec("before");
+    authority.open("before", "A", 60_000).unwrap();
+    authority.record_invoke("before", "A", 1, &before).unwrap();
+    expire(authority, "before");
+    let pending = authority
+        .claim("before", "B", 60_000, "invoke", &[])
+        .unwrap();
+    assert_eq!(pending.intent.unwrap().arguments, before.arguments);
+    let dir = scratch("before");
+    let host = Host::open(
+        "before",
+        Arc::clone(authority),
+        program.clone(),
+        settings(&dir, "B"),
+    );
+    host.runtime.resume("before").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.suspended() == 1, Duration::from_secs(5)));
+    assert!(
+        host.runtime.failures().is_empty(),
+        "{:?}",
+        host.runtime.failures()
+    );
+    let child = authority.created_child(&before.child_execution_id).unwrap();
+    assert_eq!(child.arguments, "[]");
+    assert_eq!(child.parent_execution_id, "before");
+    assert!(authority
+        .claim("before", "B", 60_000, "invoke", &[])
+        .unwrap()
+        .intent
+        .is_none());
+    drop(host);
+
+    let late = invoke_spec("late");
+    authority.open("late", "A", 60_000).unwrap();
+    authority.record_invoke("late", "A", 1, &late).unwrap();
+    authority.ensure_child("late", None).unwrap();
+    let uninitialized = authority
+        .claim(&late.child_execution_id, "A", 60_000, "invoke", &[])
+        .unwrap_err();
+    assert_eq!(uninitialized.to_string(), "child is not initialized");
+    let dir = scratch("late-start");
+    let host = Host::open(
+        "late-start",
+        Arc::clone(authority),
+        program.clone(),
+        settings(&dir, "A"),
+    );
+    let started = host.runtime.start(&late.child_execution_id).unwrap_err();
+    assert_eq!(started.to_string(), "child is not initialized");
+    assert_eq!(host.runtime.completed(), 0);
+    drop(host);
+    expire(authority, "late");
+    let mut changed = late.clone();
+    changed.arguments = "[1]".into();
+    let late_conflict = authority.ensure_child("late", Some(&changed)).unwrap_err();
+    assert_eq!(late_conflict.to_string(), "child conflict");
+    assert_eq!(
+        authority
+            .created_child(&late.child_execution_id)
+            .unwrap()
+            .arguments,
+        "[]"
+    );
+    assert!(authority.ensure_child("late", None).unwrap().idempotent);
+
+    let mut config = settings(&scratch("failed"), "A");
+    config.fault_after_commits = Some(0);
+    let host = Host::open("failed", Arc::clone(authority), program.clone(), config);
+    host.runtime.start("failed").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.abandoned() == 1, Duration::from_secs(5)));
+    let failed = authority
+        .claim("failed", "A", 60_000, "invoke", &[])
+        .unwrap();
+    let failed_intent = failed.intent.expect("pending intent");
+    assert_eq!(failed_intent.arguments, "[]");
+    let failed_child = authority
+        .created_child(&failed_intent.child_execution_id)
+        .unwrap();
+    assert_eq!(failed_child.arguments, "[]");
+    drop(host);
+    expire(authority, "failed");
+    let dir = scratch("failed-again");
+    let host = Host::open(
+        "failed-again",
+        Arc::clone(authority),
+        program.clone(),
+        settings(&dir, "B"),
+    );
+    host.runtime.resume("failed").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.suspended() == 1, Duration::from_secs(5)));
+    assert!(
+        host.runtime.failures().is_empty(),
+        "{:?}",
+        host.runtime.failures()
+    );
+    assert_eq!(
+        authority
+            .created_child(&failed_intent.child_execution_id)
+            .unwrap()
+            .arguments,
+        "[]"
+    );
+    assert!(authority
+        .claim("failed", "B", 60_000, "invoke", &[])
+        .unwrap()
+        .intent
+        .is_none());
+    drop(host);
+
+    let dir = scratch("ack");
+    let host = Host::open(
+        "ack",
+        Arc::clone(authority),
+        program.clone(),
+        settings(&dir, "A"),
+    );
+    host.runtime.start("ack").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.suspended() == 1, Duration::from_secs(5)));
+    let view = authority.view("ack").unwrap();
+    let bytes = view.continuation.clone().unwrap();
+    let decoded = decode_continuation(&bytes).unwrap();
+    let child_id = match &decoded.pending {
+        Some(PendingOp::Wait {
+            kind: WaitKind::Child {
+                child_execution_id, ..
+            },
+        }) => child_execution_id.clone(),
+        other => panic!("child wait missing: {other:?}"),
+    };
+    let again = authority
+        .commit(&Commit {
+            execution_id: "ack".into(),
+            owner_token: view.owner.clone().unwrap(),
+            fence: view.fence,
+            expected_revision: view.revision - 1,
+            continuation: bytes,
+            journal: view.journal.clone(),
+            timers: None,
+            waits: None,
+            artifact_hash: decoded.artifact.hash.clone(),
+            handler_keys: Vec::new(),
+        })
+        .unwrap();
+    assert!(again.idempotent);
+    assert_eq!(authority.created_child(&child_id).unwrap().arguments, "[]");
+    assert!(authority
+        .claim("ack", "A", 60_000, "invoke", &[])
+        .unwrap()
+        .intent
+        .is_none());
+    let uninitialized = authority
+        .claim(&child_id, "A", 60_000, "invoke", &[])
+        .unwrap_err();
+    assert_eq!(uninitialized.to_string(), "child is not initialized");
+    drop(host);
+
+    let cancel = invoke_spec("cancel-parent");
+    authority.open("cancel-parent", "A", 60_000).unwrap();
+    authority
+        .record_invoke("cancel-parent", "A", 1, &cancel)
+        .unwrap();
+    authority.ensure_child("cancel-parent", None).unwrap();
+    authority.request_cancel("cancel-parent").unwrap();
+    expire(authority, "cancel-parent");
+    let dir = scratch("cancel-parent");
+    let host = Host::open(
+        "cancel-parent",
+        Arc::clone(authority),
+        program,
+        settings(&dir, "B"),
+    );
+    host.runtime.resume("cancel-parent").unwrap();
+    assert!(host
+        .runtime
+        .wait_until(|runtime| runtime.cancelled() == 1, Duration::from_secs(5)));
+    assert!(
+        host.runtime.failures().is_empty(),
+        "{:?}",
+        host.runtime.failures()
+    );
+    let claimed = authority
+        .claim("cancel-parent", "B", 60_000, "invoke", &[])
+        .unwrap();
+    assert_eq!(claimed.intent.unwrap().arguments, "[]");
+    assert_eq!(
+        authority
+            .created_child(&cancel.child_execution_id)
+            .unwrap()
+            .arguments,
+        "[]"
+    );
+}
+
+fn invoke_spec(execution: &str) -> InvokeSpec {
+    InvokeSpec {
+        invoke_id: format!("{execution}:invoke:1"),
+        child_execution_id: format!("child:{execution}:invoke:1"),
+        program_name: "child".into(),
+        arguments: "[]".into(),
+    }
 }
 
 fn expire(authority: &Authority, id: &str) {

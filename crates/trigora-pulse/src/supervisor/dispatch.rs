@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::authority::canonical_keys;
+use crate::authority::{canonical_keys, InvokeSpec};
 use crate::drive::{self, Answer, Step};
 use crate::error::Result;
 use crate::socket::{DispatchError, TransportSample};
@@ -17,6 +17,7 @@ impl Inner {
             Step::TimedOut => self.dispatch_effect(id, slot, true),
             Step::Disconnected => self.park_for_adapter(id, slot),
             Step::Commit(commit) => self.begin_commit(id, slot, commit),
+            Step::EnsureChild(child) => self.ensure_child(id, slot, child),
             Step::Suspended => self.settle(slot, Phase::Suspended, &self.suspended),
             Step::Finished => self.settle(slot, Phase::Completed, &self.completed),
             Step::Cancelled => self.settle(slot, Phase::Cancelled, &self.cancelled),
@@ -25,6 +26,37 @@ impl Inner {
                 self.abandon(id, slot);
             }
         }
+    }
+
+    fn ensure_child(self: &Arc<Self>, id: &str, slot: &Arc<Slot>, child: tcc_core::ChildSpec) {
+        let arguments = match drive::encode_arguments(&child.args) {
+            Ok(arguments) => arguments,
+            Err(err) => {
+                self.note_failure(id, err.to_string());
+                self.abandon(id, slot);
+                return;
+            }
+        };
+        let spec = InvokeSpec {
+            invoke_id: child.invoke_id,
+            child_execution_id: child.child_execution_id,
+            program_name: child.program_name,
+            arguments,
+        };
+        let fence = slot.fence.load(Ordering::SeqCst);
+        if let Err(err) = self.authority.record_invoke(id, &self.owner, fence, &spec) {
+            self.note_failure(id, err.to_string());
+            self.abandon(id, slot);
+            return;
+        }
+        if let Err(err) = self.authority.ensure_child(id, Some(&spec)) {
+            self.note_failure(id, err.to_string());
+            self.abandon(id, slot);
+            return;
+        }
+        slot.child_ready.store(true, Ordering::SeqCst);
+        *slot.phase.lock().expect("phase") = Phase::Runnable;
+        self.enqueue(id.to_string());
     }
 
     pub(super) fn dispatch_effect(
