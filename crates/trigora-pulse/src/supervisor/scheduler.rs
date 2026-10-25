@@ -99,6 +99,7 @@ impl Inner {
             lease_until: AtomicU64::new(lease_until),
             live: AtomicBool::new(true),
             renewing: AtomicBool::new(false),
+            cancel: AtomicBool::new(false),
             artifact_hash,
             handler_keys,
         });

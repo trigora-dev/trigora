@@ -11,7 +11,7 @@ impl Inner {
             let mut phase = slot.phase.lock().expect("phase");
             if matches!(
                 *phase,
-                Phase::Suspended | Phase::Completed | Phase::Abandoned
+                Phase::Suspended | Phase::Completed | Phase::Cancelled | Phase::Abandoned
             ) {
                 return;
             }

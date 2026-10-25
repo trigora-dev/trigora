@@ -69,6 +69,35 @@ impl RemoteClient {
         self.commit_sqlite(commit)
     }
 
+    pub fn request_cancel(&self, execution_id: &str) -> Result<crate::authority::CancelReceipt> {
+        self.request_cancel_sqlite(execution_id)
+    }
+
+    pub fn accept_event(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        event_name: &str,
+        wait_id: &str,
+        payload: &str,
+    ) -> Result<crate::authority::EventReceipt> {
+        self.accept_event_sqlite(execution_id, owner, fence, event_name, wait_id, payload)
+    }
+
+    pub(crate) fn set_clock(&self, at: u64) -> Result<()> {
+        let body = serde_json::to_vec(&json!({ "at": at }))
+            .map_err(|err| crate::error::Error::new(err.to_string()))?;
+        self.endpoint.call(
+            "POST",
+            "/v1/test/clock",
+            "A",
+            Some(&body),
+            "application/json",
+        )?;
+        Ok(())
+    }
+
     pub fn claim(
         &self,
         execution_id: &str,

@@ -124,6 +124,7 @@ impl Runtime {
             queue_cv: Condvar::new(),
             completed: AtomicUsize::new(0),
             suspended: AtomicUsize::new(0),
+            cancelled: AtomicUsize::new(0),
             abandoned: AtomicUsize::new(0),
             commits_done: AtomicU32::new(0),
             dispatches: Mutex::new(Vec::new()),
@@ -166,6 +167,25 @@ impl Runtime {
         self.inner.resume_execution(execution_id)
     }
 
+    /// Accept one payload for a committed wait, then drive. The engine sees the
+    /// payload only after the authority has stored it.
+    pub fn send(
+        &self,
+        execution_id: &str,
+        event_name: &str,
+        wait_id: &str,
+        payload: &str,
+    ) -> Result<()> {
+        self.inner
+            .deliver_event(execution_id, event_name, wait_id, payload)
+    }
+
+    /// Record a cancellation request, then finalize it when this process can
+    /// observe the execution without taking someone else's lease.
+    pub fn cancel(&self, execution_id: &str) -> Result<()> {
+        self.inner.cancel_execution(execution_id)
+    }
+
     pub fn waiting(&self) -> Vec<VersionWait> {
         let mut waiting = self.inner.waiting.lock().expect("waiting").clone();
         let slots = self.inner.slots.lock().expect("slots");
@@ -196,6 +216,10 @@ impl Runtime {
 
     pub fn suspended(&self) -> usize {
         self.inner.suspended.load(Ordering::SeqCst)
+    }
+
+    pub fn cancelled(&self) -> usize {
+        self.inner.cancelled.load(Ordering::SeqCst)
     }
 
     pub fn abandoned(&self) -> usize {
@@ -331,6 +355,7 @@ fn worker_loop(inner: Arc<Inner>) {
         }
         let answer = slot.answer.lock().expect("answer").take();
         let confirm = slot.confirm.lock().expect("confirm").take();
+        let cancel = slot.cancel.load(Ordering::SeqCst);
         let step = {
             let mut engine_guard = slot.engine.lock().expect("engine");
             let Some(engine) = engine_guard.as_mut() else {
@@ -347,6 +372,7 @@ fn worker_loop(inner: Arc<Inner>) {
                 owner_token: inner.owner.clone(),
                 answer,
                 confirm,
+                cancel,
                 cost: &mut cost,
             });
             inner.note_cost(&slot, cost);

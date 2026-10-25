@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use tcc_core::{EffectStatus, Engine, EngineOutcome, HostRequest, HostResponse};
-use tcc_state::{decode_value, encode_continuation, encode_value, Value};
+use tcc_state::{decode_value, encode_continuation, encode_value, ContinuationStatus, Value};
 
 use crate::authority::{Commit, JournalRow};
 use crate::error::{Error, Result};
@@ -35,6 +35,7 @@ pub(crate) enum Step {
     Commit(Commit),
     Suspended,
     Finished,
+    Cancelled,
     Failed(String),
 }
 
@@ -54,6 +55,7 @@ pub(crate) struct Turn<'a> {
     pub owner_token: String,
     pub answer: Option<Answer>,
     pub confirm: Option<std::result::Result<u64, String>>,
+    pub cancel: bool,
     pub cost: &'a mut Cost,
 }
 
@@ -69,6 +71,7 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
         owner_token,
         answer,
         confirm,
+        cancel,
         cost,
     } = turn;
 
@@ -107,6 +110,16 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
 
     let drove = Instant::now();
     loop {
+        // Cancel is valid only when nothing is outstanding. A running effect
+        // still journals; the following iteration cancels before another one.
+        if cancel && !terminal_status(engine.continuation().status) {
+            if let Err(err) = engine.apply_host_response(HostResponse::Cancel) {
+                let message = err.to_string();
+                if !message.contains("does not match outstanding request") {
+                    return Err(Error::new(message));
+                }
+            }
+        }
         match engine.run_until_host(BUDGET) {
             EngineOutcome::Host(request) => match request {
                 HostRequest::RunEffect {
@@ -226,13 +239,20 @@ pub(crate) fn turn(turn: Turn<'_>) -> Result<Step> {
             },
             EngineOutcome::Completed { .. } => return Ok(Step::Finished),
             EngineOutcome::Failed { message } => return Ok(Step::Failed(message)),
-            EngineOutcome::Cancelled => return Ok(Step::Failed("execution cancelled".into())),
+            EngineOutcome::Cancelled => return Ok(Step::Cancelled),
             EngineOutcome::BudgetExhausted => {
                 return Ok(Step::Failed("instruction budget exhausted".into()))
             }
             EngineOutcome::Suspended => return Ok(Step::Suspended),
         }
     }
+}
+
+fn terminal_status(status: ContinuationStatus) -> bool {
+    matches!(
+        status,
+        ContinuationStatus::Completed | ContinuationStatus::Failed | ContinuationStatus::Cancelled
+    )
 }
 
 fn encode_owned(value: &Value) -> Result<String> {

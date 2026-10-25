@@ -4,12 +4,13 @@ use serde_json::json;
 use tcc_state::{decode_continuation, ContinuationStatus};
 
 use super::protocol::{
-    checkpoint_frame, manifest_timers, manifest_waits, split_frame, SqliteClaimResponse,
-    SqliteCommitResponse, SqliteRestoreHeader, VersionBody,
+    checkpoint_frame, manifest_timers, manifest_waits, split_frame, CancelReceiptBody, EventJson,
+    EventReceiptBody, SqliteClaimResponse, SqliteCommitResponse, SqliteRestoreHeader, VersionBody,
 };
 use super::RemoteClient;
 use crate::authority::{
-    self, timers_of, waits_of, Claimed, Commit, CommitResult, JournalRow, TimerRow, WaitRow,
+    self, timers_of, waits_of, AcceptedEvent, CancelReceipt, Claimed, Commit, CommitResult,
+    EventReceipt, JournalRow, TimerRow, WaitRow,
 };
 use crate::error::{Error, Result};
 
@@ -187,6 +188,8 @@ impl RemoteClient {
                 waits: Vec::new(),
                 timer_due: false,
                 status: ContinuationStatus::Runnable,
+                event: accepted_event(claimed.event),
+                cancel_requested: claimed.cancel_requested,
             });
         }
         let entry = self.fetch_sqlite(execution_id, owner)?;
@@ -205,6 +208,53 @@ impl RemoteClient {
             waits: entry.waits,
             timer_due: false,
             status,
+            event: accepted_event(claimed.event),
+            cancel_requested: claimed.cancel_requested,
+        })
+    }
+
+    pub(super) fn request_cancel_sqlite(&self, execution_id: &str) -> Result<CancelReceipt> {
+        let receipt: CancelReceiptBody = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-cancel",
+                self.endpoint.workspace
+            ),
+            "cancel",
+            &json!({}),
+        )?;
+        Ok(CancelReceipt {
+            revision: receipt.revision,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn accept_event_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        event_name: &str,
+        wait_id: &str,
+        payload: &str,
+    ) -> Result<EventReceipt> {
+        self.remember(owner);
+        let receipt: EventReceiptBody = self.endpoint.post_json(
+            &format!(
+                "/v1/workspaces/{}/executions/{execution_id}/sql-events",
+                self.endpoint.workspace
+            ),
+            owner,
+            &json!({
+                "fence": fence,
+                "waitId": wait_id,
+                "eventName": event_name,
+                "payload": payload,
+            }),
+        )?;
+        Ok(EventReceipt {
+            revision: receipt.revision,
+            fence: receipt.fence,
+            idempotent: receipt.idempotent,
         })
     }
 
@@ -315,6 +365,14 @@ impl RemoteClient {
     pub(super) fn fetch_entry(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
         self.fetch_sqlite(execution_id, owner)
     }
+}
+
+fn accepted_event(event: Option<EventJson>) -> Option<AcceptedEvent> {
+    event.map(|event| AcceptedEvent {
+        wait_id: event.wait_id,
+        event: event.event,
+        payload: event.payload,
+    })
 }
 
 fn changed_rows(

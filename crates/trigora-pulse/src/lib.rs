@@ -8,7 +8,8 @@ mod socket;
 mod supervisor;
 
 pub use authority::{
-    Authority, Claimed, Commit, CommitResult, JournalRow, TimerRow, VersionPin, View, WaitRow,
+    AcceptedEvent, Authority, CancelReceipt, Claimed, Commit, CommitResult, EventReceipt,
+    JournalRow, TimerRow, VersionPin, View, WaitRow,
 };
 pub use error::{Error, Result};
 pub use remote::RemoteClient;

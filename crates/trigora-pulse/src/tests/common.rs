@@ -128,6 +128,41 @@ pub(super) fn one() -> String {
     encoded(&Value::Number(1.0))
 }
 
+pub(super) fn wait_once(name: &str) -> Vec<Instruction> {
+    vec![
+        Instruction::LoadConst {
+            value: ConstValue::String(name.into()),
+        },
+        Instruction::WaitForEvent,
+        Instruction::Return,
+    ]
+}
+
+pub(super) fn wait_twice(name: &str) -> Vec<Instruction> {
+    vec![
+        Instruction::LoadConst {
+            value: ConstValue::String(name.into()),
+        },
+        Instruction::WaitForEvent,
+        Instruction::Pop,
+        Instruction::LoadConst {
+            value: ConstValue::String(name.into()),
+        },
+        Instruction::WaitForEvent,
+        Instruction::Return,
+    ]
+}
+
+pub(super) fn result_string(authority: &Authority, id: &str) -> String {
+    let view = authority.view(id).expect("view");
+    let bytes = view.continuation.expect("continuation");
+    let continuation = decode_continuation(&bytes).expect("decode");
+    match continuation.result {
+        Some(Value::String(text)) => text,
+        other => panic!("expected a string result, got {other:?}"),
+    }
+}
+
 pub(super) fn result_number(authority: &Authority, id: &str) -> f64 {
     let view = authority.view(id).expect("view");
     let bytes = view.continuation.expect("continuation");

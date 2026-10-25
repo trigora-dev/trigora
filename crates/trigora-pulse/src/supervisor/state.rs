@@ -22,6 +22,7 @@ pub(super) enum Phase {
     Recovering,
     Suspended,
     Completed,
+    Cancelled,
     Abandoned,
 }
 
@@ -52,6 +53,7 @@ pub(super) struct Slot {
     pub(super) lease_until: AtomicU64,
     pub(super) live: AtomicBool,
     pub(super) renewing: AtomicBool,
+    pub(super) cancel: AtomicBool,
     pub(super) artifact_hash: String,
     pub(super) handler_keys: Vec<String>,
 }
@@ -95,6 +97,7 @@ pub(super) struct Inner {
     pub(super) queue_cv: Condvar,
     pub(super) completed: AtomicUsize,
     pub(super) suspended: AtomicUsize,
+    pub(super) cancelled: AtomicUsize,
     pub(super) abandoned: AtomicUsize,
     pub(super) commits_done: AtomicU32,
     pub(super) dispatches: Mutex<Vec<Dispatch>>,

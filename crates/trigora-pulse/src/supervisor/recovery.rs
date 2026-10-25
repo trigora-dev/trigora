@@ -4,9 +4,9 @@ use std::time::Instant;
 
 use tcc_core::{Engine, HostResponse};
 use tcc_ir::Artifact;
-use tcc_state::decode_continuation;
+use tcc_state::{decode_continuation, decode_value, ContinuationStatus, PendingOp, WaitKind};
 
-use crate::authority::canonical_keys;
+use crate::authority::{canonical_keys, Claimed};
 use crate::drive::Memory;
 use crate::error::{Error, Result};
 
@@ -135,15 +135,15 @@ impl Inner {
             }
             let mut engine = Engine::resume(artifact, continuation, &self.caps)
                 .map_err(|err| Error::new(err.to_string()))?;
-            if claimed.timer_due {
-                engine
-                    .apply_host_response(HostResponse::TimerFired { branch: None })
-                    .map_err(|err| Error::new(err.to_string()))?;
-            }
+            wake_claimed(&mut engine, &claimed)?;
             engine
         } else {
-            Engine::start_with_args(artifact, execution_id, &self.caps, &[])
-                .map_err(|err| Error::new(err.to_string()))?
+            let mut engine = Engine::start_with_args(artifact, execution_id, &self.caps, &[])
+                .map_err(|err| Error::new(err.to_string()))?;
+            if claimed.cancel_requested {
+                wake_claimed(&mut engine, &claimed)?;
+            }
+            engine
         };
         self.timings
             .lock()
@@ -221,6 +221,78 @@ impl Inner {
         }
     }
 
+    pub(super) fn cancel_execution(&self, execution_id: &str) -> Result<()> {
+        self.authority.request_cancel(execution_id)?;
+        let Some(slot) = self.slot(execution_id) else {
+            return Ok(());
+        };
+        slot.cancel.store(true, Ordering::SeqCst);
+        {
+            let mut phase = slot.phase.lock().expect("phase");
+            if !matches!(*phase, Phase::Suspended) {
+                return Ok(());
+            }
+            *phase = Phase::Recovering;
+        }
+        let hash = slot.artifact_hash.clone();
+        let keys = slot.handler_keys.clone();
+        if let Err(err) = self.claim_and_admit(execution_id, &hash, &keys) {
+            let mut phase = slot.phase.lock().expect("phase");
+            if matches!(*phase, Phase::Recovering) {
+                *phase = Phase::Suspended;
+            }
+            if err.to_string() == "execution is owned" {
+                return Ok(());
+            }
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    pub(super) fn deliver_event(
+        &self,
+        execution_id: &str,
+        event_name: &str,
+        wait_id: &str,
+        payload: &str,
+    ) -> Result<()> {
+        let slot = self
+            .slot(execution_id)
+            .ok_or_else(|| Error::new("execution is not waiting"))?;
+        {
+            let phase = slot.phase.lock().expect("phase");
+            if !matches!(*phase, Phase::Suspended) {
+                return Err(Error::new("execution is not waiting"));
+            }
+        }
+        let fence = slot.fence.load(Ordering::SeqCst);
+        self.authority.accept_event(
+            execution_id,
+            &self.owner,
+            fence,
+            event_name,
+            wait_id,
+            payload,
+        )?;
+        {
+            let mut phase = slot.phase.lock().expect("phase");
+            if !matches!(*phase, Phase::Suspended) {
+                return Ok(());
+            }
+            *phase = Phase::Recovering;
+        }
+        let hash = slot.artifact_hash.clone();
+        let keys = slot.handler_keys.clone();
+        if let Err(err) = self.claim_and_admit(execution_id, &hash, &keys) {
+            let mut phase = slot.phase.lock().expect("phase");
+            if matches!(*phase, Phase::Recovering) {
+                *phase = Phase::Suspended;
+            }
+            return Err(err);
+        }
+        Ok(())
+    }
+
     pub(super) fn claim_and_admit(
         &self,
         execution_id: &str,
@@ -244,15 +316,15 @@ impl Inner {
             }
             let mut engine = Engine::resume(artifact, continuation, &self.caps)
                 .map_err(|err| Error::new(err.to_string()))?;
-            if claimed.timer_due {
-                engine
-                    .apply_host_response(HostResponse::TimerFired { branch: None })
-                    .map_err(|err| Error::new(err.to_string()))?;
-            }
+            wake_claimed(&mut engine, &claimed)?;
             engine
         } else {
-            Engine::start_with_args(artifact, execution_id, &self.caps, &[])
-                .map_err(|err| Error::new(err.to_string()))?
+            let mut engine = Engine::start_with_args(artifact, execution_id, &self.caps, &[])
+                .map_err(|err| Error::new(err.to_string()))?;
+            if claimed.cancel_requested {
+                wake_claimed(&mut engine, &claimed)?;
+            }
+            engine
         };
         self.timings
             .lock()
@@ -312,6 +384,7 @@ impl Inner {
                 *phase,
                 Phase::Suspended
                     | Phase::Completed
+                    | Phase::Cancelled
                     | Phase::Abandoned
                     | Phase::WaitingForAdapter
                     | Phase::Recovering
@@ -332,4 +405,46 @@ impl Inner {
             .expect("failures")
             .push((id.to_string(), message));
     }
+}
+
+fn wake_claimed(engine: &mut Engine, claimed: &Claimed) -> Result<()> {
+    if claimed.cancel_requested && !terminal_status(engine.continuation().status) {
+        engine
+            .apply_host_response(HostResponse::Cancel)
+            .map_err(|err| Error::new(err.to_string()))?;
+        return Ok(());
+    }
+    if let Some(event) = claimed.event.as_ref().filter(|event| {
+        matches!(
+            &engine.continuation().pending,
+            Some(PendingOp::Wait {
+                kind: WaitKind::Event {
+                    wait_id,
+                    event_name,
+                    ..
+                },
+            }) if wait_id == &event.wait_id && event_name == &event.event
+        )
+    }) {
+        let value = decode_value(event.payload.as_bytes())
+            .map_err(|err| Error::new(format!("event payload: {err}")))?;
+        engine
+            .apply_host_response(HostResponse::EventPayload {
+                value,
+                branch: None,
+            })
+            .map_err(|err| Error::new(err.to_string()))?;
+    } else if claimed.timer_due {
+        engine
+            .apply_host_response(HostResponse::TimerFired { branch: None })
+            .map_err(|err| Error::new(err.to_string()))?;
+    }
+    Ok(())
+}
+
+fn terminal_status(status: ContinuationStatus) -> bool {
+    matches!(
+        status,
+        ContinuationStatus::Completed | ContinuationStatus::Failed | ContinuationStatus::Cancelled
+    )
 }

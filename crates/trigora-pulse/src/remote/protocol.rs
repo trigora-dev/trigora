@@ -39,6 +39,33 @@ pub(super) struct SqliteClaimResponse {
     pub(super) fence: u64,
     pub(super) lease_until: u64,
     pub(super) continuation_digest: String,
+    #[serde(default)]
+    pub(super) event: Option<EventJson>,
+    #[serde(default)]
+    pub(super) cancel_requested: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EventJson {
+    pub(super) wait_id: String,
+    pub(super) event: String,
+    pub(super) payload: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EventReceiptBody {
+    pub(super) revision: u64,
+    pub(super) fence: u64,
+    pub(super) idempotent: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CancelReceiptBody {
+    pub(super) revision: u64,
+    pub(super) idempotent: bool,
 }
 
 #[derive(Deserialize)]

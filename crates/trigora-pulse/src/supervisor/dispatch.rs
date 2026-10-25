@@ -19,6 +19,7 @@ impl Inner {
             Step::Commit(commit) => self.begin_commit(id, slot, commit),
             Step::Suspended => self.settle(slot, Phase::Suspended, &self.suspended),
             Step::Finished => self.settle(slot, Phase::Completed, &self.completed),
+            Step::Cancelled => self.settle(slot, Phase::Cancelled, &self.cancelled),
             Step::Failed(message) => {
                 self.note_failure(id, message);
                 self.abandon(id, slot);

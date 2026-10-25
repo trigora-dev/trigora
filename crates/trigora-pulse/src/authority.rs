@@ -54,6 +54,34 @@ pub struct CommitResult {
     pub idempotent: bool,
 }
 
+/// One payload accepted for one committed wait. A claim returns it. A view does not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AcceptedEvent {
+    pub wait_id: String,
+    pub event: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventReceipt {
+    pub revision: u64,
+    pub fence: u64,
+    pub idempotent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelReceipt {
+    pub revision: u64,
+    pub idempotent: bool,
+}
+
+struct StoredEvent {
+    wait_id: String,
+    event: String,
+    payload: String,
+    digest: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Renewed {
     pub owner: String,
@@ -104,6 +132,8 @@ pub struct Claimed {
     pub waits: Vec<WaitRow>,
     pub timer_due: bool,
     pub status: ContinuationStatus,
+    pub event: Option<AcceptedEvent>,
+    pub cancel_requested: bool,
 }
 
 struct Record {
@@ -119,6 +149,8 @@ struct Record {
     status: ContinuationStatus,
     artifact_hash: String,
     handler_keys: Vec<String>,
+    event: Option<StoredEvent>,
+    cancel_requested: bool,
 }
 
 struct State {
@@ -158,11 +190,16 @@ impl Authority {
     }
 
     pub fn advance_clock(&self, to: u64) -> Result<()> {
-        let mut state = self.lock();
-        if to < state.clock {
-            return Err(Error::new("clock cannot move backwards"));
+        {
+            let mut state = self.lock();
+            if to < state.clock {
+                return Err(Error::new("clock cannot move backwards"));
+            }
+            state.clock = to;
         }
-        state.clock = to;
+        if let Some(remote) = &self.remote {
+            remote.set_clock(to)?;
+        }
         Ok(())
     }
 
@@ -201,6 +238,8 @@ impl Authority {
                 status: ContinuationStatus::Runnable,
                 artifact_hash: String::new(),
                 handler_keys: Vec::new(),
+                event: None,
+                cancel_requested: false,
             },
         );
         Ok(Claimed {
@@ -213,6 +252,8 @@ impl Authority {
             waits: Vec::new(),
             timer_due: false,
             status: ContinuationStatus::Runnable,
+            event: None,
+            cancel_requested: false,
         })
     }
 
@@ -221,6 +262,99 @@ impl Authority {
             return remote.commit(commit);
         }
         self.commit_local(commit)
+    }
+
+    /// Store one payload for the committed wait. The revision does not move.
+    /// The same digest is an idempotent retry. A different digest conflicts.
+    pub fn accept_event(
+        &self,
+        execution_id: &str,
+        owner_token: &str,
+        fence: u64,
+        event_name: &str,
+        wait_id: &str,
+        payload: &str,
+    ) -> Result<EventReceipt> {
+        if event_name.is_empty() || wait_id.is_empty() || payload.is_empty() {
+            return Err(Error::new("event payload is invalid"));
+        }
+        if let Some(remote) = &self.remote {
+            return remote.accept_event(
+                execution_id,
+                owner_token,
+                fence,
+                event_name,
+                wait_id,
+                payload,
+            );
+        }
+        let digest = sha256(payload.as_bytes());
+        let mut state = self.lock();
+        let clock = state.clock;
+        let record = state
+            .executions
+            .get_mut(execution_id)
+            .ok_or_else(|| Error::new("unknown execution"))?;
+        if record.owner.as_deref() != Some(owner_token)
+            || record.fence != fence
+            || record.lease_until <= clock
+        {
+            return Err(Error::new("stale owner"));
+        }
+        let current = record
+            .waits
+            .iter()
+            .any(|wait| wait.wait_id == wait_id && wait.event == event_name);
+        if !current {
+            return Err(Error::new("wait is not current"));
+        }
+        if let Some(existing) = &record.event {
+            if existing.wait_id == wait_id && existing.digest == digest {
+                return Ok(EventReceipt {
+                    revision: record.revision,
+                    fence: record.fence,
+                    idempotent: true,
+                });
+            }
+            return Err(Error::new("event conflict"));
+        }
+        let revision = record.revision;
+        let fence = record.fence;
+        record.event = Some(StoredEvent {
+            wait_id: wait_id.to_string(),
+            event: event_name.to_string(),
+            payload: payload.to_string(),
+            digest,
+        });
+        Ok(EventReceipt {
+            revision,
+            fence,
+            idempotent: false,
+        })
+    }
+
+    /// Record a cancellation request. The caller does not need the owner fence,
+    /// and the revision does not move.
+    pub fn request_cancel(&self, execution_id: &str) -> Result<CancelReceipt> {
+        if let Some(remote) = &self.remote {
+            return remote.request_cancel(execution_id);
+        }
+        let mut state = self.lock();
+        let record = state
+            .executions
+            .get_mut(execution_id)
+            .ok_or_else(|| Error::new("unknown execution"))?;
+        if is_terminal(record.status) || record.cancel_requested {
+            return Ok(CancelReceipt {
+                revision: record.revision,
+                idempotent: true,
+            });
+        }
+        record.cancel_requested = true;
+        Ok(CancelReceipt {
+            revision: record.revision,
+            idempotent: false,
+        })
     }
 
     fn commit_local(&self, commit: &Commit) -> Result<CommitResult> {
@@ -299,13 +433,21 @@ impl Authority {
         if record.revision == next || record.revision != commit.expected_revision {
             return Err(Error::new("commit conflict"));
         }
+        if is_terminal(record.status) {
+            return Err(Error::new("terminal state"));
+        }
+        let previous_waits = record.waits.clone();
         record.revision = next;
         record.commit_id = Some(identity);
         record.continuation = Some(commit.continuation.clone());
         record.journal = commit.journal.clone();
         record.timers = derived_timers;
         record.waits = derived_waits;
+        release_event(&mut record.event, &previous_waits, &record.waits);
         record.status = continuation.status;
+        if is_terminal(continuation.status) {
+            record.cancel_requested = false;
+        }
         if record.artifact_hash.is_empty() {
             record.artifact_hash = hash;
             record.handler_keys = keys;
@@ -456,6 +598,12 @@ impl Authority {
             waits: record.waits.clone(),
             timer_due,
             status: record.status,
+            event: record.event.as_ref().map(|event| AcceptedEvent {
+                wait_id: event.wait_id.clone(),
+                event: event.event.clone(),
+                payload: event.payload.clone(),
+            }),
+            cancel_requested: record.cancel_requested,
         })
     }
 
@@ -485,6 +633,8 @@ impl Authority {
                 status: ContinuationStatus::Runnable,
                 artifact_hash: String::new(),
                 handler_keys: Vec::new(),
+                event: None,
+                cancel_requested: false,
             },
         );
         Ok(())
@@ -533,6 +683,24 @@ pub(crate) fn timers_of(continuation: &Continuation) -> Vec<TimerRow> {
             due_at: *resume_at_ms,
         }],
         _ => Vec::new(),
+    }
+}
+
+fn is_terminal(status: ContinuationStatus) -> bool {
+    matches!(
+        status,
+        ContinuationStatus::Completed | ContinuationStatus::Failed | ContinuationStatus::Cancelled
+    )
+}
+
+fn release_event(event: &mut Option<StoredEvent>, previous: &[WaitRow], next: &[WaitRow]) {
+    let Some(stored) = event.as_ref() else {
+        return;
+    };
+    let was = previous.iter().any(|wait| wait.wait_id == stored.wait_id);
+    let still = next.iter().any(|wait| wait.wait_id == stored.wait_id);
+    if was && !still {
+        *event = None;
     }
 }
 
