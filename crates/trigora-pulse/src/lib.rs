@@ -13,7 +13,7 @@ pub use authority::{
     VersionPin, View, WaitRow,
 };
 pub use error::{Error, Result};
-pub use remote::RemoteClient;
+pub use remote::{select_remote, RemoteClient, RemoteMode};
 pub use socket::{listen, Adapter, EffectRequest, Frame, Listener, Reply};
 pub use supervisor::{Config, Dispatch, Runtime, Span, Timings, VersionWait};
 

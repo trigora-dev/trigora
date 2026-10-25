@@ -5,4 +5,5 @@ mod concurrency;
 mod effects;
 mod recovery;
 mod remote;
+mod staging;
 mod versioning;

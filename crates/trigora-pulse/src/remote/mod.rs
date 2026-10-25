@@ -14,13 +14,71 @@ use std::sync::Mutex;
 use serde_json::json;
 
 use crate::authority::{Claimed, Commit, CommitResult, View};
-use crate::error::Result;
+use crate::error::{Error, Result};
 
 use protocol::{QueryResponse, RenewResponse};
 use sqlite::CacheEntry;
-use transport::{split_base, Endpoint};
+use transport::{parse_origin, Endpoint, Route};
 
 pub(super) const HARD_CONTINUATION_MAX: usize = 16 * 1024 * 1024;
+
+#[derive(Debug)]
+pub enum RemoteMode {
+    Local,
+    Gateway {
+        base: String,
+        token: String,
+    },
+    Authority {
+        url: String,
+        workspace: String,
+        token: String,
+    },
+}
+
+pub fn select_remote(
+    token: Option<&str>,
+    api_base: Option<&str>,
+    authority_url: Option<&str>,
+    workspace_id: Option<&str>,
+    workspace_token: Option<&str>,
+) -> Result<RemoteMode> {
+    let token = nonempty(token);
+    let authority_url = nonempty(authority_url);
+    let workspace_id = nonempty(workspace_id);
+    let workspace_token = nonempty(workspace_token);
+    let legacy = [authority_url, workspace_id, workspace_token];
+    let legacy_count = legacy.iter().filter(|value| value.is_some()).count();
+    if token.is_some() && legacy_count > 0 {
+        return Err(Error::new(
+            "TRIGORA_TOKEN cannot be combined with TRIGORA_PULSE_AUTHORITY_URL, TRIGORA_PULSE_WORKSPACE_ID, or TRIGORA_PULSE_WORKSPACE_TOKEN",
+        ));
+    }
+    if let Some(token) = token {
+        let base = nonempty(api_base).unwrap_or("https://api.trigora.dev");
+        return Ok(RemoteMode::Gateway {
+            base: base.to_string(),
+            token: token.to_string(),
+        });
+    }
+    if legacy_count == 0 {
+        return Ok(RemoteMode::Local);
+    }
+    if legacy_count != 3 {
+        return Err(Error::new(
+            "TRIGORA_PULSE_AUTHORITY_URL, TRIGORA_PULSE_WORKSPACE_ID, and TRIGORA_PULSE_WORKSPACE_TOKEN are required together",
+        ));
+    }
+    Ok(RemoteMode::Authority {
+        url: authority_url.unwrap().to_string(),
+        workspace: workspace_id.unwrap().to_string(),
+        token: workspace_token.unwrap().to_string(),
+    })
+}
+
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
 
 pub struct RemoteClient {
     pub(super) endpoint: Endpoint,
@@ -35,25 +93,33 @@ impl RemoteClient {
         workspace: impl Into<String>,
         token: impl Into<String>,
         max_continuation: usize,
-    ) -> Self {
-        let base = base.into();
-        let (host, port) = split_base(&base).unwrap_or_else(|_| ("invalid".into(), 0));
-        Self::build(host, port, workspace.into(), token.into(), max_continuation)
+    ) -> Result<Self> {
+        Self::open(
+            base.into(),
+            Route::Authority {
+                workspace: workspace.into(),
+            },
+            token.into(),
+            max_continuation,
+        )
     }
 
-    fn build(
-        host: String,
-        port: u16,
-        workspace: String,
-        token: String,
+    pub fn gateway(
+        base: impl Into<String>,
+        token: impl Into<String>,
         max_continuation: usize,
-    ) -> Self {
-        Self {
-            endpoint: Endpoint::open(host, port, workspace, token),
+    ) -> Result<Self> {
+        Self::open(base.into(), Route::Gateway, token.into(), max_continuation)
+    }
+
+    fn open(base: String, route: Route, token: String, max_continuation: usize) -> Result<Self> {
+        let origin = parse_origin(&base)?;
+        Ok(Self {
+            endpoint: Endpoint::from_parts(origin, route, token),
             max_continuation,
             cache: Mutex::new(HashMap::new()),
             owner_hint: Mutex::new(None),
-        }
+        })
     }
 
     pub fn fresh(&self) -> Self {
@@ -150,10 +216,7 @@ impl RemoteClient {
         lease_ms: u64,
     ) -> Result<crate::authority::Renewed> {
         let renewed: RenewResponse = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-renew",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-renew"),
             owner,
             &json!({ "fence": fence, "leaseMs": lease_ms }),
         )?;
@@ -176,10 +239,7 @@ impl RemoteClient {
             .expect("owner")
             .clone()
             .unwrap_or_default();
-        let path = format!(
-            "/v1/workspaces/{}/executions/{execution_id}/sql-reconcile",
-            self.endpoint.workspace
-        );
+        let path = self.endpoint.execution_path(execution_id, "sql-reconcile");
         let found: QueryResponse = self.endpoint.post_json(
             &path,
             &owner,
@@ -205,6 +265,10 @@ impl RemoteClient {
         self.view_entry(self.fetch_entry(execution_id, &owner)?)
     }
 
+    pub fn connections_opened(&self) -> usize {
+        self.endpoint.connections_opened()
+    }
+
     pub fn view_child(&self, execution_id: &str, parent_id: &str) -> Result<View> {
         self.view_entry(self.fetch_child(execution_id, parent_id)?)
     }
@@ -227,5 +291,48 @@ impl RemoteClient {
             artifact_hash: String::new(),
             handler_keys: Vec::new(),
         })
+    }
+}
+
+#[cfg(test)]
+mod remote_mode_tests {
+    use super::{select_remote, RemoteMode};
+
+    #[test]
+    fn a_token_and_a_legacy_authority_are_rejected() {
+        let err = select_remote(
+            Some("customer"),
+            None,
+            Some("http://127.0.0.1:9"),
+            None,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("cannot be combined"));
+    }
+
+    #[test]
+    fn an_incomplete_legacy_authority_is_rejected() {
+        let err = select_remote(None, None, Some("http://127.0.0.1:9"), None, None).unwrap_err();
+        assert!(err.to_string().contains("required together"));
+    }
+
+    #[test]
+    fn a_token_selects_the_gateway() {
+        let mode = select_remote(
+            Some(" customer "),
+            Some(" https://edge.example/base/ "),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        match mode {
+            RemoteMode::Gateway { base, token } => {
+                assert_eq!(base, "https://edge.example/base/");
+                assert_eq!(token, "customer");
+            }
+            _ => panic!("gateway"),
+        }
     }
 }

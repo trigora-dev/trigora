@@ -1,8 +1,13 @@
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex, OnceLock,
+};
 use std::time::{Duration, Instant};
 
+use rustls::pki_types::ServerName;
+use rustls::{ClientConfig, ClientConnection, RootCertStore, StreamOwned};
 use serde::Deserialize;
 
 use super::HARD_CONTINUATION_MAX;
@@ -14,17 +19,45 @@ const MAX_HEADER: usize = 64 * 1024;
 const MAX_BODY: usize = HARD_CONTINUATION_MAX + 1024 * 1024;
 
 struct IdleConnection {
-    stream: TcpStream,
+    stream: Conn,
     parked_at: Instant,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Scheme {
+    Http,
+    Https,
+}
+
+#[derive(Clone)]
+pub(crate) enum Route {
+    Authority { workspace: String },
+    Gateway,
+}
+
+pub(crate) struct Origin {
+    pub(crate) scheme: Scheme,
+    pub(crate) host: String,
+    pub(crate) port: u16,
+    pub(crate) base_path: String,
 }
 
 #[derive(Clone)]
 pub(crate) struct Endpoint {
     pub(super) host: String,
     pub(super) port: u16,
-    pub(super) workspace: String,
+    scheme: Scheme,
+    route: Route,
+    base_path: String,
     pub(super) token: String,
+    tls: Option<Arc<ClientConfig>>,
     pool: Arc<Mutex<Vec<IdleConnection>>>,
+    opened: Arc<AtomicUsize>,
+}
+
+enum Conn {
+    Plain(TcpStream),
+    Tls(StreamOwned<ClientConnection, TcpStream>),
 }
 
 pub(super) struct RawHttp {
@@ -38,15 +71,97 @@ struct Response {
     reusable: bool,
 }
 
+impl Conn {
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Conn::Plain(stream) => stream,
+            Conn::Tls(stream) => &stream.sock,
+        }
+    }
+
+    fn tcp_mut(&mut self) -> &mut TcpStream {
+        match self {
+            Conn::Plain(stream) => stream,
+            Conn::Tls(stream) => &mut stream.sock,
+        }
+    }
+
+    fn set_timeout(&mut self, timeout: Duration) -> io::Result<()> {
+        self.tcp_mut().set_read_timeout(Some(timeout))?;
+        self.tcp_mut().set_write_timeout(Some(timeout))?;
+        Ok(())
+    }
+}
+
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Conn::Plain(stream) => stream.read(buf),
+            Conn::Tls(stream) => stream.read(buf),
+        }
+    }
+}
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Conn::Plain(stream) => stream.write(buf),
+            Conn::Tls(stream) => stream.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Conn::Plain(stream) => stream.flush(),
+            Conn::Tls(stream) => stream.flush(),
+        }
+    }
+}
+
 impl Endpoint {
     pub(super) fn open(host: String, port: u16, workspace: String, token: String) -> Self {
-        Self {
-            host,
-            port,
-            workspace,
+        Self::from_parts(
+            Origin {
+                scheme: Scheme::Http,
+                host,
+                port,
+                base_path: String::new(),
+            },
+            Route::Authority { workspace },
             token,
+        )
+    }
+
+    pub(super) fn from_parts(origin: Origin, route: Route, token: String) -> Self {
+        let tls = match origin.scheme {
+            Scheme::Http => None,
+            Scheme::Https => Some(tls_config()),
+        };
+        Self {
+            host: origin.host,
+            port: origin.port,
+            scheme: origin.scheme,
+            route,
+            base_path: origin.base_path,
+            token,
+            tls,
             pool: Arc::new(Mutex::new(Vec::new())),
+            opened: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    pub(super) fn execution_path(&self, execution_id: &str, action: &str) -> String {
+        let rest = match &self.route {
+            Route::Authority { workspace } => {
+                format!("v1/workspaces/{workspace}/executions/{execution_id}/{action}")
+            }
+            Route::Gateway => format!("v1/pulse/executions/{execution_id}/{action}"),
+        };
+        join_path(&self.base_path, &rest)
+    }
+
+    pub(super) fn connections_opened(&self) -> usize {
+        self.opened.load(Ordering::SeqCst)
     }
 
     pub(super) fn call_json<T: for<'de> Deserialize<'de>>(
@@ -114,11 +229,13 @@ impl Endpoint {
         content_type: &str,
     ) -> Result<RawHttp> {
         if self.port == 0 {
-            return Err(Error::new(
-                "the Pulse authority client speaks HTTP/1.1; terminate TLS at the deployment edge",
-            ));
+            return Err(Error::new("authority URL is invalid"));
         }
-        let timeout = if body.is_some_and(|bytes| bytes.len() > 1024 * 1024) {
+        let large = body.is_some_and(|bytes| bytes.len() > 1024 * 1024)
+            || path.contains("sql-commits")
+            || path.contains("sql-restore")
+            || path.contains("sql-claim");
+        let timeout = if large {
             Duration::from_secs(120)
         } else {
             Duration::from_secs(30)
@@ -126,13 +243,10 @@ impl Endpoint {
         loop {
             let (mut stream, from_pool) = match self.checkout() {
                 Some(stream) => (stream, true),
-                None => (connect(&self.host, self.port)?, false),
+                None => (self.connect()?, false),
             };
             stream
-                .set_read_timeout(Some(timeout))
-                .map_err(|err| Error::new(err.to_string()))?;
-            stream
-                .set_write_timeout(Some(timeout))
+                .set_timeout(timeout)
                 .map_err(|err| Error::new(err.to_string()))?;
             let request = self.request_bytes(method, path, owner, body, content_type);
             match write_counted(&mut stream, &request) {
@@ -151,7 +265,23 @@ impl Endpoint {
         }
     }
 
-    fn checkout(&self) -> Option<TcpStream> {
+    fn connect(&self) -> Result<Conn> {
+        let tcp = TcpStream::connect((self.host.as_str(), self.port))
+            .map_err(|err| Error::new(format!("authority connect: {err}")))?;
+        self.opened.fetch_add(1, Ordering::SeqCst);
+        match &self.tls {
+            None => Ok(Conn::Plain(tcp)),
+            Some(config) => {
+                let name = ServerName::try_from(self.host.clone())
+                    .map_err(|_| Error::new("authority hostname is invalid"))?;
+                let session = ClientConnection::new(Arc::clone(config), name)
+                    .map_err(|err| Error::new(format!("tls: {err}")))?;
+                Ok(Conn::Tls(StreamOwned::new(session, tcp)))
+            }
+        }
+    }
+
+    fn checkout(&self) -> Option<Conn> {
         loop {
             let candidate = {
                 let mut pool = self.pool.lock().expect("pool");
@@ -165,7 +295,7 @@ impl Endpoint {
         }
     }
 
-    fn release(&self, stream: TcpStream) {
+    fn release(&self, stream: Conn) {
         let mut pool = self.pool.lock().expect("pool");
         if pool.len() >= IDLE_LIMIT {
             return;
@@ -184,10 +314,20 @@ impl Endpoint {
         body: Option<&[u8]>,
         content_type: &str,
     ) -> Vec<u8> {
+        let host = if (self.scheme == Scheme::Https && self.port == 443)
+            || (self.scheme == Scheme::Http && self.port == 80)
+        {
+            self.host.clone()
+        } else {
+            format!("{}:{}", self.host, self.port)
+        };
         let mut request = format!(
-            "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nAuthorization: Bearer {}\r\nX-Pulse-Owner: {owner}\r\nConnection: keep-alive\r\n",
-            self.host, self.port, self.token
+            "{method} {path} HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {}\r\nConnection: keep-alive\r\n",
+            self.token
         );
+        if !owner.is_empty() {
+            request.push_str(&format!("X-Pulse-Owner: {owner}\r\n"));
+        }
         if let Some(body) = body {
             request.push_str(&format!(
                 "Content-Type: {content_type}\r\nContent-Length: {}\r\n\r\n",
@@ -203,11 +343,8 @@ impl Endpoint {
     }
 }
 
-fn connect(host: &str, port: u16) -> Result<TcpStream> {
-    TcpStream::connect((host, port)).map_err(|err| Error::new(format!("authority connect: {err}")))
-}
-
-fn socket_usable(stream: &TcpStream) -> bool {
+fn socket_usable(stream: &Conn) -> bool {
+    let stream = stream.tcp();
     if stream.set_nonblocking(true).is_err() {
         return false;
     }
@@ -223,7 +360,7 @@ fn socket_usable(stream: &TcpStream) -> bool {
 /// A write error reports how many bytes of this buffer were accepted.
 /// Zero means the request was not transmitted.
 fn write_counted(
-    stream: &mut TcpStream,
+    stream: &mut impl Write,
     bytes: &[u8],
 ) -> std::result::Result<(), (usize, io::Error)> {
     let mut sent = 0;
@@ -246,7 +383,7 @@ fn write_counted(
     Ok(())
 }
 
-fn read_response(stream: &mut TcpStream) -> Result<Response> {
+fn read_response(stream: &mut impl Read) -> Result<Response> {
     let header = read_header(stream)?;
     let text = std::str::from_utf8(&header).map_err(|err| Error::new(err.to_string()))?;
     let mut lines = text.split("\r\n");
@@ -311,7 +448,7 @@ fn read_response(stream: &mut TcpStream) -> Result<Response> {
     })
 }
 
-fn read_header(stream: &mut TcpStream) -> Result<Vec<u8>> {
+fn read_header(stream: &mut impl Read) -> Result<Vec<u8>> {
     let mut header = Vec::new();
     let mut byte = [0u8; 1];
     loop {
@@ -328,7 +465,7 @@ fn read_header(stream: &mut TcpStream) -> Result<Vec<u8>> {
     }
 }
 
-fn read_exact_body(stream: &mut TcpStream, length: usize) -> Result<Vec<u8>> {
+fn read_exact_body(stream: &mut impl Read, length: usize) -> Result<Vec<u8>> {
     if length > MAX_BODY {
         return Err(Error::new("authority response is too large"));
     }
@@ -339,7 +476,7 @@ fn read_exact_body(stream: &mut TcpStream, length: usize) -> Result<Vec<u8>> {
     Ok(body)
 }
 
-fn read_chunked(stream: &mut TcpStream) -> Result<Vec<u8>> {
+fn read_chunked(stream: &mut impl Read) -> Result<Vec<u8>> {
     let mut body = Vec::new();
     loop {
         let line = read_crlf_line(stream)?;
@@ -377,7 +514,7 @@ fn read_chunked(stream: &mut TcpStream) -> Result<Vec<u8>> {
     }
 }
 
-fn read_crlf_line(stream: &mut TcpStream) -> Result<Vec<u8>> {
+fn read_crlf_line(stream: &mut impl Read) -> Result<Vec<u8>> {
     let mut line = Vec::new();
     let mut byte = [0u8; 1];
     loop {
@@ -395,23 +532,93 @@ fn read_crlf_line(stream: &mut TcpStream) -> Result<Vec<u8>> {
     }
 }
 
-pub(super) fn split_base(base: &str) -> Result<(String, u16)> {
-    let rest = base.strip_prefix("http://").ok_or_else(|| {
-        Error::new(
-            "the Pulse authority client speaks HTTP/1.1; terminate TLS at the deployment edge",
-        )
-    })?;
-    let (host, port) = rest
-        .split_once(':')
-        .ok_or_else(|| Error::new("authority URL is missing a port"))?;
-    if host.is_empty() || host.contains('/') {
+pub(super) fn parse_origin(base: &str) -> Result<Origin> {
+    let (scheme, rest) = if let Some(rest) = base.strip_prefix("https://") {
+        (Scheme::Https, rest)
+    } else if let Some(rest) = base.strip_prefix("http://") {
+        (Scheme::Http, rest)
+    } else {
+        return Err(Error::new("authority URL is invalid"));
+    };
+    if rest.is_empty() {
         return Err(Error::new("authority URL is invalid"));
     }
-    let port = port
-        .trim_end_matches('/')
-        .parse()
-        .map_err(|_| Error::new("authority URL is invalid"))?;
-    Ok((host.to_string(), port))
+    let (authority, path) = match rest.find(['/', '?', '#']) {
+        Some(index) if rest.as_bytes()[index] != b'/' => {
+            return Err(Error::new("authority URL is invalid"));
+        }
+        Some(index) => (&rest[..index], &rest[index..]),
+        None => (rest, ""),
+    };
+    if path.contains(['?', '#']) {
+        return Err(Error::new("authority URL is invalid"));
+    }
+    let (host, port) = split_authority(authority, scheme)?;
+    Ok(Origin {
+        scheme,
+        host,
+        port,
+        base_path: path.trim_end_matches('/').to_string(),
+    })
+}
+
+fn split_authority(authority: &str, scheme: Scheme) -> Result<(String, u16)> {
+    let default = match scheme {
+        Scheme::Https => 443,
+        Scheme::Http => 80,
+    };
+    if let Some(rest) = authority.strip_prefix('[') {
+        let (host, port) = rest
+            .split_once(']')
+            .ok_or_else(|| Error::new("authority URL is invalid"))?;
+        if host.is_empty() {
+            return Err(Error::new("authority URL is invalid"));
+        }
+        let port = match port.strip_prefix(':') {
+            Some(port) if !port.is_empty() => port
+                .parse()
+                .map_err(|_| Error::new("authority URL is invalid"))?,
+            Some(_) | None if port.is_empty() => default,
+            _ => return Err(Error::new("authority URL is invalid")),
+        };
+        return Ok((format!("[{host}]"), port));
+    }
+    if let Some((host, port)) = authority.rsplit_once(':') {
+        if host.is_empty() || port.is_empty() || port.contains(':') {
+            return Err(Error::new("authority URL is invalid"));
+        }
+        let port = port
+            .parse()
+            .map_err(|_| Error::new("authority URL is invalid"))?;
+        return Ok((host.to_string(), port));
+    }
+    if authority.is_empty() {
+        return Err(Error::new("authority URL is invalid"));
+    }
+    Ok((authority.to_string(), default))
+}
+
+fn join_path(base: &str, rest: &str) -> String {
+    let base = base.trim_end_matches('/');
+    if base.is_empty() {
+        format!("/{rest}")
+    } else {
+        format!("{base}/{rest}")
+    }
+}
+
+fn tls_config() -> Arc<ClientConfig> {
+    static CONFIG: OnceLock<Arc<ClientConfig>> = OnceLock::new();
+    Arc::clone(CONFIG.get_or_init(|| {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let mut config = ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Arc::new(config)
+    }))
 }
 
 #[cfg(test)]
@@ -467,6 +674,49 @@ mod tests {
             .and_then(|line| line.split_whitespace().nth(1))
             .unwrap_or("")
             .to_string()
+    }
+
+    #[test]
+    fn an_empty_owner_is_not_sent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let first = read_request(&mut stream).unwrap();
+            stream.write_all(&keep_alive("ok")).unwrap();
+            let second = read_request(&mut stream).unwrap();
+            stream.write_all(&keep_alive("ok")).unwrap();
+            (first, second)
+        });
+        let client = endpoint(port);
+        client
+            .call("GET", "/version", "", None, "text/plain")
+            .unwrap();
+        client
+            .call("GET", "/claim", "owner-a", None, "text/plain")
+            .unwrap();
+        let (first, second) = server.join().unwrap();
+        assert!(!first.to_ascii_lowercase().contains("x-pulse-owner"));
+        assert!(second.contains("X-Pulse-Owner: owner-a"));
+    }
+
+    #[test]
+    fn a_gateway_base_path_is_preserved() {
+        let origin = parse_origin("https://api.trigora.dev/edge/").unwrap();
+        assert_eq!(origin.port, 443);
+        assert_eq!(origin.base_path, "/edge");
+        let endpoint = Endpoint::from_parts(origin, Route::Gateway, "token".into());
+        assert_eq!(
+            endpoint.execution_path("exec:1", "sql-restore"),
+            "/edge/v1/pulse/executions/exec:1/sql-restore"
+        );
+        let local = parse_origin("http://127.0.0.1:8787").unwrap();
+        assert_eq!(local.port, 8787);
+        assert_eq!(parse_origin("http://authority.internal").unwrap().port, 80);
+        assert!(parse_origin("https://api.trigora.dev?x=1").is_err());
     }
 
     #[test]

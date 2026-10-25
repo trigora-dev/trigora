@@ -3,7 +3,7 @@ use std::fs;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use trigora_pulse::{Authority, Config, RemoteClient, Runtime};
+use trigora_pulse::{select_remote, Authority, Config, RemoteClient, RemoteMode, Runtime};
 
 fn main() -> ExitCode {
     let mut args = env::args().skip(1);
@@ -35,31 +35,44 @@ fn main() -> ExitCode {
             config.effect_timeout = std::time::Duration::from_millis(ms);
         }
     }
-    let mut authority = Authority::new();
-    if let Ok(url) = env::var("TRIGORA_PULSE_AUTHORITY_URL") {
-        let workspace = match env::var("TRIGORA_PULSE_WORKSPACE_ID") {
-            Ok(workspace) => workspace,
-            Err(_) => {
-                eprintln!("TRIGORA_PULSE_WORKSPACE_ID is required with an authority URL");
-                return ExitCode::from(2);
-            }
-        };
-        let token = match env::var("TRIGORA_PULSE_WORKSPACE_TOKEN") {
-            Ok(token) => token,
-            Err(_) => {
-                eprintln!("TRIGORA_PULSE_WORKSPACE_TOKEN is required with an authority URL");
-                return ExitCode::from(2);
-            }
-        };
-        let max = env::var("TRIGORA_PULSE_MAX_CONTINUATION_BYTES")
-            .ok()
-            .and_then(|value| value.parse::<usize>().ok())
-            .unwrap_or(16 * 1024 * 1024);
-        if max == 0 || max > 16 * 1024 * 1024 {
-            eprintln!("TRIGORA_PULSE_MAX_CONTINUATION_BYTES is above 16 MiB");
+    let max = env::var("TRIGORA_PULSE_MAX_CONTINUATION_BYTES")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(16 * 1024 * 1024);
+    if max == 0 || max > 16 * 1024 * 1024 {
+        eprintln!("TRIGORA_PULSE_MAX_CONTINUATION_BYTES is above 16 MiB");
+        return ExitCode::from(2);
+    }
+    let mode = match select_remote(
+        env::var("TRIGORA_TOKEN").ok().as_deref(),
+        env::var("TRIGORA_API_BASE_URL").ok().as_deref(),
+        env::var("TRIGORA_PULSE_AUTHORITY_URL").ok().as_deref(),
+        env::var("TRIGORA_PULSE_WORKSPACE_ID").ok().as_deref(),
+        env::var("TRIGORA_PULSE_WORKSPACE_TOKEN").ok().as_deref(),
+    ) {
+        Ok(mode) => mode,
+        Err(err) => {
+            eprintln!("{err}");
             return ExitCode::from(2);
         }
-        authority = authority.with_remote(RemoteClient::sqlite(url, workspace, token, max));
+    };
+    let mut authority = Authority::new();
+    let remote = match mode {
+        RemoteMode::Local => None,
+        RemoteMode::Gateway { base, token } => Some(RemoteClient::gateway(base, token, max)),
+        RemoteMode::Authority {
+            url,
+            workspace,
+            token,
+        } => Some(RemoteClient::sqlite(url, workspace, token, max)),
+    };
+    match remote {
+        None => {}
+        Some(Ok(remote)) => authority = authority.with_remote(remote),
+        Some(Err(err)) => {
+            eprintln!("{err}");
+            return ExitCode::from(2);
+        }
     }
     let runtime = match Runtime::open(Arc::new(authority), artifact, config) {
         Ok(runtime) => runtime,

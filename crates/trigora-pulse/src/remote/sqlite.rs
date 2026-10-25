@@ -33,10 +33,7 @@ impl RemoteClient {
     pub fn pin(&self, execution_id: &str) -> Result<crate::authority::VersionPin> {
         let found: VersionBody = self.endpoint.call_json(
             "GET",
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-version",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-version"),
         )?;
         Ok(crate::authority::VersionPin {
             revision: found.revision,
@@ -104,10 +101,9 @@ impl RemoteClient {
         });
         let body = checkpoint_frame(&header, raw)?;
         let posted: Result<SqliteCommitResponse> = self.endpoint.post_bytes(
-            &format!(
-                "/v1/workspaces/{}/executions/{}/sql-commits",
-                self.endpoint.workspace, commit.execution_id
-            ),
+            &self
+                .endpoint
+                .execution_path(&commit.execution_id, "sql-commits"),
             &commit.owner_token,
             &body,
         );
@@ -168,10 +164,7 @@ impl RemoteClient {
     ) -> Result<Claimed> {
         self.remember(owner);
         let claimed: SqliteClaimResponse = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-claim",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-claim"),
             owner,
             &json!({
                 "leaseMs": lease_ms,
@@ -226,10 +219,7 @@ impl RemoteClient {
     ) -> Result<InvokeReceipt> {
         self.remember(owner);
         let receipt: CancelReceiptBody = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-invoke",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-invoke"),
             owner,
             &json!({
                 "fence": fence,
@@ -260,10 +250,7 @@ impl RemoteClient {
             None => json!({}),
         };
         let receipt: CancelReceiptBody = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{parent_id}/sql-child",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(parent_id, "sql-child"),
             "child",
             &body,
         )?;
@@ -283,10 +270,7 @@ impl RemoteClient {
     ) -> Result<StartedChild> {
         self.remember(owner);
         let started: StartedChildJson = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-start",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-start"),
             owner,
             &json!({
                 "leaseMs": lease_ms,
@@ -309,10 +293,7 @@ impl RemoteClient {
     pub(super) fn created_child_sqlite(&self, execution_id: &str) -> Result<CreatedChild> {
         let found: CreatedChildJson = self.endpoint.call_json(
             "GET",
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-created",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-created"),
         )?;
         Ok(CreatedChild {
             parent_execution_id: found.parent_execution_id,
@@ -325,10 +306,7 @@ impl RemoteClient {
 
     pub(super) fn request_cancel_sqlite(&self, execution_id: &str) -> Result<CancelReceipt> {
         let receipt: CancelReceiptBody = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-cancel",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-cancel"),
             "cancel",
             &json!({}),
         )?;
@@ -349,10 +327,7 @@ impl RemoteClient {
     ) -> Result<EventReceipt> {
         self.remember(owner);
         let receipt: EventReceiptBody = self.endpoint.post_json(
-            &format!(
-                "/v1/workspaces/{}/executions/{execution_id}/sql-events",
-                self.endpoint.workspace
-            ),
+            &self.endpoint.execution_path(execution_id, "sql-events"),
             owner,
             &json!({
                 "fence": fence,
@@ -382,10 +357,7 @@ impl RemoteClient {
         owner: &str,
         parent_id: Option<&str>,
     ) -> Result<CacheEntry> {
-        let mut path = format!(
-            "/v1/workspaces/{}/executions/{execution_id}/sql-restore",
-            self.endpoint.workspace
-        );
+        let mut path = self.endpoint.execution_path(execution_id, "sql-restore");
         if let Some(parent_id) = parent_id {
             path.push_str("?parent=");
             path.push_str(&query_encode(parent_id));

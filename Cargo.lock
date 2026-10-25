@@ -1224,6 +1224,7 @@ version = "0.1.0"
 dependencies = [
  "flate2",
  "libc",
+ "rustls",
  "serde",
  "serde_json",
  "sha2",
@@ -1232,6 +1233,7 @@ dependencies = [
  "tcc-ir",
  "tcc-state",
  "uuid",
+ "webpki-roots 0.26.11",
 ]
 
 [[package]]

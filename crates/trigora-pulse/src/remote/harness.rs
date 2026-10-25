@@ -98,7 +98,8 @@ pub(crate) fn serve() -> TestAuthority {
                 if let Some(port) = line.trim().strip_prefix("listening ") {
                     let url = format!("http://127.0.0.1:{port}");
                     let client =
-                        RemoteClient::sqlite(url, "ws", "workspace-token", HARD_CONTINUATION_MAX);
+                        RemoteClient::sqlite(url, "ws", "workspace-token", HARD_CONTINUATION_MAX)
+                            .expect("authority url");
                     return TestAuthority { child, client };
                 }
             }
