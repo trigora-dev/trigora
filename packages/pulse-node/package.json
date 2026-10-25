@@ -14,7 +14,7 @@
     "bench": "tsx src/bench.ts"
   },
   "dependencies": {
-    "@tcc-engine/frontend-typescript": "26.10.3",
+    "@tcc-engine/frontend-typescript": "26.10.4",
     "typescript": "^5.9.0"
   }
 }
