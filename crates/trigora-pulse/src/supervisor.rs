@@ -466,6 +466,7 @@ fn worker_loop(inner: Arc<Inner>) {
 }
 
 impl Inner {
+    #[allow(clippy::too_many_arguments)]
     fn admit(
         &self,
         id: String,
@@ -505,6 +506,7 @@ impl Inner {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn launch(
         &self,
         id: String,
@@ -527,6 +529,7 @@ impl Inner {
         self.enqueue(id);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn insert_slot(
         &self,
         id: String,
