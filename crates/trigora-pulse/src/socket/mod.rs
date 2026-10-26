@@ -3,7 +3,7 @@ mod protocol;
 mod server;
 
 pub use adapter::{Adapter, EffectRequest, Reply};
-pub use protocol::Frame;
+pub use protocol::{Frame, ADAPTER_PROTOCOL};
 pub use server::{listen, Listener};
 
 pub(crate) use server::{Connection, DispatchError, HostCommand, TransportSample};

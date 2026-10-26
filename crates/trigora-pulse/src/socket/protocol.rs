@@ -3,6 +3,9 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+/// Socket handshake spoken by this host. The CLI refuses a different number.
+pub const ADAPTER_PROTOCOL: u32 = 1;
+
 const MAX_FRAME: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

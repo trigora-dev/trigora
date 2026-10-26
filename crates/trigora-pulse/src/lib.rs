@@ -14,7 +14,7 @@ pub use authority::{
 };
 pub use error::{Error, Result};
 pub use remote::{select_remote, RemoteClient, RemoteMode};
-pub use socket::{listen, Adapter, EffectRequest, Frame, Listener, Reply};
+pub use socket::{listen, Adapter, EffectRequest, Frame, Listener, Reply, ADAPTER_PROTOCOL};
 pub use supervisor::{Config, Dispatch, Runtime, Span, Timings, VersionWait};
 
 #[cfg(test)]
