@@ -37,7 +37,7 @@ const server = http.createServer((request, response) => {
   response.writeHead(503);
   response.end('not ready');
 });
-server.listen(8080, '127.0.0.1');
+server.listen(8080, '0.0.0.0');
 
 const { serve, encodePayload } = await import(pathToFileURL(adapter).href);
 await serve({
