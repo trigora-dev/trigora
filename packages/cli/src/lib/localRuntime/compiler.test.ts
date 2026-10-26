@@ -1,6 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -152,5 +154,66 @@ async def approval():
       }
       throw error;
     }
+  });
+});
+
+describe('pulse handler modules', () => {
+  it('loads a callback that imports a local module', async () => {
+    const { buildHandlerModule } = await import('./extractEffects');
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'pulse-handler-'));
+    const programFile = path.join(root, 'program.ts');
+    const sdk = path.join(root, 'node_modules', '@trigora', 'sdk');
+    await fs.mkdir(sdk, { recursive: true });
+    await fs.writeFile(
+      path.join(sdk, 'package.json'),
+      JSON.stringify({ name: '@trigora/sdk', type: 'module', exports: { '.': './index.js' } }),
+    );
+    await fs.writeFile(path.join(sdk, 'index.js'), 'export function effect() {}\n');
+    await fs.writeFile(
+      path.join(root, 'quote.ts'),
+      'export function quote(): number {\n  return 17;\n}\n',
+    );
+    const source = `import { effect } from '@trigora/sdk';
+import { quote } from './quote.ts';
+
+export default async function program() {
+  return await effect('price', () => quote());
+}
+`;
+    const built = buildHandlerModule(source, 'program.ts', programFile);
+    expect(built.keys).toEqual(['price']);
+    const modulePath = path.join(root, 'handlers.mjs');
+    await fs.writeFile(modulePath, built.source);
+    const loaded = spawnSync(
+      process.execPath,
+      [
+        '--experimental-strip-types',
+        '--input-type=module',
+        '--eval',
+        `const loaded = await import(${JSON.stringify(pathToFileURL(modulePath).href)});
+process.stdout.write(String(loaded.handlers.price()));`,
+      ],
+      { encoding: 'utf8', cwd: root },
+    );
+    expect(loaded.stderr).toBe('');
+    expect(loaded.status).toBe(0);
+    expect(loaded.stdout).toBe('17');
+  });
+
+  it('names a local binding the callback closes over', async () => {
+    const { buildHandlerModule } = await import('./extractEffects');
+    const source = `import { effect } from '@trigora/sdk';
+
+function tax() {
+  return 1;
+}
+
+export default async function program() {
+  return await effect('price', () => tax());
+}
+`;
+    expect(() => buildHandlerModule(source, 'program.ts', '/tmp/program.ts')).toThrow(
+      'Effect `price` names local binding `tax`.',
+    );
   });
 });

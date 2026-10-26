@@ -14,6 +14,9 @@ pub enum Invocation {
         host: Option<String>,
         port: Option<u16>,
     },
+    PulseStart {
+        ephemeral: bool,
+    },
     Deploy {
         program: Option<String>,
     },
@@ -73,7 +76,7 @@ pub enum Invocation {
     version = env!("CARGO_PKG_VERSION"),
     about = "Durable execution for TypeScript, Python, and Rust",
     arg_required_else_help = true,
-    after_help = "Local commands use `trigora dev`. `deploy`, `whoami`, and `secrets` use Trigora Cloud.\nAdd `--remote` to programs, executions, start, send, result, and cancel to use Trigora Cloud."
+    after_help = "Local commands use `trigora dev`. `deploy`, `whoami`, and `secrets` use Trigora Cloud.\nAdd `--remote` to programs, executions, start, send, result, and cancel to use Trigora Cloud.\n`trigora pulse start` runs this project on Pulse. `TRIGORA_TOKEN` is the remote credential."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -108,6 +111,11 @@ enum Command {
         /// Port to listen on. Defaults to 3477.
         #[arg(long)]
         port: Option<String>,
+    },
+    /// Run this project on Pulse
+    Pulse {
+        #[command(subcommand)]
+        action: PulseCommand,
     },
     /// Deploy this project to Trigora Cloud
     Deploy {
@@ -216,6 +224,16 @@ enum Command {
 }
 
 #[derive(Subcommand)]
+enum PulseCommand {
+    /// Compile programs, start the host, and register effect handlers
+    Start {
+        /// Run without saving execution state
+        #[arg(long)]
+        ephemeral: bool,
+    },
+}
+
+#[derive(Subcommand)]
 enum ExecutionsCommand {
     /// Show an execution
     Inspect {
@@ -285,6 +303,9 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
             host,
             port: port.map(|value| parse_port(&value)).transpose()?,
         }),
+        Command::Pulse { action } => match action {
+            PulseCommand::Start { ephemeral } => Ok(Invocation::PulseStart { ephemeral }),
+        },
         Command::Deploy { program } => Ok(Invocation::Deploy { program }),
         Command::Programs { remote } => Ok(Invocation::Programs { remote }),
         Command::Executions { remote, action } => match action {

@@ -15,6 +15,18 @@ use crate::parse_invocation;
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
+fn pulse_start_parses_ephemeral() {
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "start"])).unwrap(),
+        Invocation::PulseStart { ephemeral: false }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "start", "--ephemeral"])).unwrap(),
+        Invocation::PulseStart { ephemeral: true }
+    ));
+}
+
+#[test]
 fn bench_and_verify_parse_their_flags() {
     assert!(matches!(
         parse_invocation(&arg(&["bench", "order-agent"])).unwrap(),

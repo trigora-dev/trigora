@@ -1,9 +1,14 @@
 import { compile, PACKAGE_VERSION } from '@tcc-engine/frontend-typescript';
 
 import {
+  buildHandlerModule,
+  pulseCompileSource,
   extractTypeScriptEffects,
   extractTypeScriptEffectSources,
+  type HandlerModule,
 } from './lib/localRuntime/extractEffects';
+
+export { buildHandlerModule, pulseCompileSource, type HandlerModule };
 
 export const compilerVersion = PACKAGE_VERSION;
 

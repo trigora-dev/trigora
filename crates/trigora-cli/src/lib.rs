@@ -13,6 +13,7 @@ mod init;
 mod model;
 mod output;
 mod paths;
+mod pulse;
 mod python;
 mod rust_harness;
 mod secrets;
@@ -45,6 +46,7 @@ pub fn dispatch(args: &[String]) -> Result<(), CliError> {
             example,
         } => init::init(force, language, name, example),
         Invocation::Dev { host, port } => dev::dev(host, port),
+        Invocation::PulseStart { ephemeral } => pulse::start(ephemeral),
         Invocation::Deploy { program } => deploy_command(program),
         Invocation::Programs { remote } => commands::programs(remote),
         Invocation::Executions { remote } => commands::executions(remote),

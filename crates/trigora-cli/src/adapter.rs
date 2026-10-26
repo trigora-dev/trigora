@@ -15,6 +15,7 @@ pub struct CompileInput<'a> {
     pub source: &'a str,
     pub program_id: &'a str,
     pub file: &'a Path,
+    pub pulse: bool,
 }
 
 pub struct Compiled {
@@ -42,6 +43,15 @@ pub trait LanguageAdapter: Send + Sync {
         input: &Json,
     ) -> Result<Option<Json>, CliError>;
     fn effect_bundle(&self, program: &Program, root: &Path) -> Result<Option<Json>, CliError>;
+    fn handler_module(
+        &self,
+        source: &str,
+        filename: &str,
+        file: &Path,
+    ) -> Result<Option<Json>, CliError> {
+        let _ = (source, filename, file);
+        Ok(None)
+    }
     fn scaffold(&self, name: &str, example: bool) -> Option<Vec<(PathBuf, String)>>;
     fn watch_paths(&self, root: &Path, programs: &[Program]) -> Vec<PathBuf> {
         let _ = (root, programs);
@@ -98,6 +108,13 @@ impl Registry {
             return Ok(None);
         };
         adapter.effect_bundle(program, root)
+    }
+
+    pub fn handler_module(&self, program: &Program, file: &Path) -> Result<Option<Json>, CliError> {
+        let Some(adapter) = self.by_id(&program.language) else {
+            return Ok(None);
+        };
+        adapter.handler_module(&program.source, &program.file, file)
     }
 
     pub fn run_effect(
@@ -222,7 +239,13 @@ impl LanguageAdapter for TypeScriptAdapter {
         let guard = self.helper()?;
         let helper = guard.as_ref().expect("helper");
         let (artifact_json, artifact_hash, compiler_version, effects) =
-            compile::compile_typescript(helper, input.source, input.relative, input.program_id)?;
+            compile::compile_typescript(
+                helper,
+                input.source,
+                input.relative,
+                input.program_id,
+                input.pulse,
+            )?;
         Ok(Compiled {
             artifact_json,
             artifact_hash,
@@ -259,6 +282,30 @@ impl LanguageAdapter for TypeScriptAdapter {
 
     fn effect_bundle(&self, program: &Program, _root: &Path) -> Result<Option<Json>, CliError> {
         Ok(Some(crate::deploy::typescript_effect_bundle(program)))
+    }
+
+    fn handler_module(
+        &self,
+        source: &str,
+        filename: &str,
+        file: &Path,
+    ) -> Result<Option<Json>, CliError> {
+        let guard = self.helper()?;
+        let helper = guard.as_ref().expect("helper");
+        let response = helper.call(serde_json::json!({
+            "op": "handlerModule",
+            "source": source,
+            "filename": filename,
+            "file": file,
+        }))?;
+        if response.get("ok").and_then(Json::as_bool) == Some(false) {
+            let message = response
+                .get("error")
+                .and_then(Json::as_str)
+                .unwrap_or("effect handler failed");
+            return Err(CliError::new("Effect handler cannot be loaded").detail("Reason", message));
+        }
+        Ok(Some(response))
     }
 
     fn scaffold(&self, name: &str, example: bool) -> Option<Vec<(PathBuf, String)>> {

@@ -51,6 +51,11 @@ impl CliError {
         self.hint = Some(hint.into());
         self
     }
+
+    pub fn with_code(mut self, code: i32) -> Self {
+        self.code = code;
+        self
+    }
 }
 
 impl std::fmt::Display for CliError {

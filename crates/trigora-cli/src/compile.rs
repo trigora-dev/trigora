@@ -119,6 +119,23 @@ pub fn discover(
     globs: &[String],
     registry: &Registry,
 ) -> Result<Vec<Program>, CliError> {
+    discover_in(root, globs, registry, false)
+}
+
+pub fn discover_pulse(
+    root: &Path,
+    globs: &[String],
+    registry: &Registry,
+) -> Result<Vec<Program>, CliError> {
+    discover_in(root, globs, registry, true)
+}
+
+fn discover_in(
+    root: &Path,
+    globs: &[String],
+    registry: &Registry,
+    pulse: bool,
+) -> Result<Vec<Program>, CliError> {
     let files = glob_files(root, globs, registry);
     if files.is_empty() {
         return Err(CliError::new("No programs found")
@@ -150,6 +167,7 @@ pub fn discover(
             source: &source,
             program_id: &id,
             file: &file,
+            pulse,
         })?;
         let program = Program {
             id: id.clone(),
@@ -183,12 +201,14 @@ pub(crate) fn compile_typescript(
     source: &str,
     filename: &str,
     program_id: &str,
+    pulse: bool,
 ) -> Result<(String, String, String, Vec<Effect>), CliError> {
     let response = helper.call(json!({
         "op": "compile",
         "source": source,
         "filename": filename,
         "programId": program_id,
+        "pulse": pulse,
     }))?;
     if response.get("ok").and_then(Json::as_bool) == Some(false) {
         return Err(compile_failure(
