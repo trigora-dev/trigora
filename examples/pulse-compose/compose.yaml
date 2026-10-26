@@ -1,0 +1,56 @@
+# UID 1000 is this example's choice. Both services use the same numeric user.
+# A deployment can pick another uid as long as both containers use it and that
+# user can write the shared socket directory. The host still rejects a different peer uid.
+# This stack does not look for an abandoned execution. Resume uses PULSE_RESUME_EXECUTION_ID.
+name: pulse6d
+services:
+  pulse:
+    image: trigora-pulse:local
+    container_name: pulse6d-host
+    user: '${PULSE_UID:-1000}:${PULSE_GID:-1000}'
+    environment:
+      TRIGORA_PULSE_AUTHORITY_URL: ${TRIGORA_PULSE_AUTHORITY_URL:-}
+      TRIGORA_PULSE_WORKSPACE_ID: ${TRIGORA_PULSE_WORKSPACE_ID:-ws}
+      TRIGORA_PULSE_WORKSPACE_TOKEN: ${TRIGORA_PULSE_WORKSPACE_TOKEN:-workspace-token}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - pulse6d-sock:/pulse
+    healthcheck:
+      test: ['CMD', 'trigora-pulse', '--check', '/pulse']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+      start_period: 1s
+  app:
+    image: pulse-compose-app:local
+    container_name: pulse6d-app
+    user: '${PULSE_UID:-1000}:${PULSE_GID:-1000}'
+    depends_on:
+      pulse:
+        condition: service_healthy
+    environment:
+      PULSE_DIR: /pulse
+      PULSE_EXECUTION_ID: ${PULSE_EXECUTION_ID:-}
+      PULSE_RESUME_EXECUTION_ID: ${PULSE_RESUME_EXECUTION_ID:-}
+      PULSE_PROGRAM: ${PULSE_PROGRAM:-}
+      PULSE_EFFECT_LOG: /var/pulse-log/effects
+    volumes:
+      - pulse6d-sock:/pulse
+      - ${PULSE_LOG_DIR:?}:/var/pulse-log
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:8080/ready').then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 1s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+volumes:
+  pulse6d-sock:
+    name: pulse6d-sock
+    external: true

@@ -1,0 +1,68 @@
+# UID 1000 is this example's choice, not a value the Pulse binary requires.
+# Both containers use that user. The init container gives it ownership of the
+# emptyDir, because the volume is created by the kubelet and the host sets the
+# socket directory to mode 0700. A user that cannot change that mode fails at startup.
+# A new Pod does not adopt an abandoned execution. Resume is an explicit request
+# for an id the caller already has.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pulse-example
+  labels:
+    app: pulse-example
+spec:
+  terminationGracePeriodSeconds: 30
+  securityContext:
+    fsGroup: 1000
+    runAsUser: 1000
+    runAsGroup: 1000
+  initContainers:
+    - name: prepare-socket
+      image: trigora-pulse:local
+      imagePullPolicy: Never
+      command: ['chown', '1000:1000', '/pulse']
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+      volumeMounts:
+        - name: pulse
+          mountPath: /pulse
+  containers:
+    - name: pulse
+      image: trigora-pulse:local
+      imagePullPolicy: Never
+      env:
+        - name: TRIGORA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: trigora-token
+              key: token
+      readinessProbe:
+        exec:
+          command: ['trigora-pulse', '--check', '/pulse']
+        periodSeconds: 2
+      volumeMounts:
+        - name: pulse
+          mountPath: /pulse
+    - name: app
+      image: pulse-compose-app:local
+      imagePullPolicy: Never
+      env:
+        - name: PULSE_DIR
+          value: /pulse
+      readinessProbe:
+        httpGet:
+          path: /ready
+          port: 8080
+        periodSeconds: 2
+      ports:
+        - name: ready
+          containerPort: 8080
+      volumeMounts:
+        - name: pulse
+          mountPath: /pulse
+  volumes:
+    # emptyDir starts owned by root. prepare-socket chowns it to uid 1000 so the
+    # host can set mode 0700. A user that cannot update that directory fails startup.
+    - name: pulse
+      emptyDir: {}
