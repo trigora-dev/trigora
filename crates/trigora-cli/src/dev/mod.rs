@@ -1,12 +1,11 @@
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::io::{BufRead, BufReader, Write};
+use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde_json::{json, Value as Json};
 
 use crate::adapter::Registry;
@@ -16,6 +15,12 @@ use crate::error::CliError;
 use crate::http::{self, Endpoint};
 use crate::model::Program;
 use crate::paths;
+
+mod effects;
+mod watcher;
+
+use effects::serve_effects;
+use watcher::{session_loop, watch_files};
 
 pub fn dev(host: Option<String>, port: Option<u16>) -> Result<(), CliError> {
     let root = std::env::current_dir().map_err(|error| CliError::plain(error.to_string()))?;
@@ -215,7 +220,11 @@ fn print_ready(config: &ProjectConfig, programs: &[Program], host: &str, port: u
     let _ = config;
 }
 
-fn push_programs(port: u16, token: &str, programs: &[Program]) -> Result<(), CliError> {
+pub(in crate::dev) fn push_programs(
+    port: u16,
+    token: &str,
+    programs: &[Program],
+) -> Result<(), CliError> {
     let body = json!({
         "programs": programs.iter().map(|program| json!({
             "id": program.id,
@@ -243,252 +252,12 @@ fn push_programs(port: u16, token: &str, programs: &[Program]) -> Result<(), Cli
     Ok(())
 }
 
-fn session_loop(
-    rx: Receiver<bool>,
-    config: &ProjectConfig,
-    registry: &Registry,
-    programs: &Arc<Mutex<Vec<Program>>>,
-    watcher: &mut RecommendedWatcher,
-    control_port: u16,
-    control_token: &str,
-) {
-    let mut pending = false;
-    loop {
-        let wait = if pending {
-            Duration::from_millis(100)
-        } else {
-            Duration::from_secs(60 * 60)
-        };
-        match rx.recv_timeout(wait) {
-            Ok(true) => break,
-            Ok(false) => pending = true,
-            Err(mpsc::RecvTimeoutError::Timeout) if pending => {
-                pending = false;
-                reload(
-                    config,
-                    registry,
-                    programs,
-                    watcher,
-                    control_port,
-                    control_token,
-                );
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-        }
-    }
-}
-
-fn reload(
-    config: &ProjectConfig,
-    registry: &Registry,
-    programs: &Arc<Mutex<Vec<Program>>>,
-    watcher: &mut RecommendedWatcher,
-    control_port: u16,
-    control_token: &str,
-) {
-    match discover(&config.root, &config.programs, registry) {
-        Ok(next) => {
-            if let Err(error) = push_programs(control_port, control_token, &next) {
-                eprintln!();
-                eprintln!("✖ Reload failed");
-                eprintln!("{error}");
-                return;
-            }
-            let names = next
-                .iter()
-                .map(|program| program.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            *programs.lock().expect("programs") = next;
-            watch_files(
-                watcher,
-                config,
-                &programs.lock().expect("programs"),
-                registry,
-            );
-            println!();
-            println!("Programs changed. Reloaded {names}.");
-            let _ = std::io::stdout().flush();
-        }
-        Err(error) => {
-            eprintln!();
-            eprintln!("✖ Reload failed");
-            eprintln!("{error}");
-        }
-    }
-}
-
-fn watch_files(
-    watcher: &mut RecommendedWatcher,
-    config: &ProjectConfig,
-    programs: &[Program],
-    registry: &Registry,
-) {
-    let mut paths = vec![config.path.clone()];
-    for program in programs {
-        paths.push(config.root.join(&program.file));
-    }
-    paths.extend(registry.watch_paths(&config.root, programs));
-    for path in paths {
-        let _ = watcher.watch(&path, RecursiveMode::NonRecursive);
-    }
-}
-
-fn serve_effects(
-    programs: Arc<Mutex<Vec<Program>>>,
-    secret: String,
-    registry: Arc<Registry>,
-    shutdown: Arc<AtomicBool>,
-) -> Result<u16, CliError> {
-    let listener =
-        TcpListener::bind(("127.0.0.1", 0)).map_err(|error| CliError::plain(error.to_string()))?;
-    listener
-        .set_nonblocking(true)
-        .map_err(|error| CliError::plain(error.to_string()))?;
-    let port = listener
-        .local_addr()
-        .map_err(|error| CliError::plain(error.to_string()))?
-        .port();
-    std::thread::spawn(move || {
-        while !shutdown.load(Ordering::SeqCst) {
-            match listener.accept() {
-                Ok((stream, _)) => {
-                    let programs = Arc::clone(&programs);
-                    let secret = secret.clone();
-                    let registry = Arc::clone(&registry);
-                    std::thread::spawn(move || {
-                        handle_effect(stream, &programs, &secret, &registry)
-                    });
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-                Err(_) => break,
-            }
-        }
-    });
-    Ok(port)
-}
-
-fn handle_effect(
-    mut stream: TcpStream,
-    programs: &Mutex<Vec<Program>>,
-    secret: &str,
-    registry: &Registry,
-) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-    let Ok((method, path, headers, body)) = read_request(&mut stream) else {
-        return;
-    };
-    let authorized = headers.iter().any(|(name, value)| {
-        name.eq_ignore_ascii_case("authorization") && value == &format!("Bearer {secret}")
-    });
-    if method != "POST" || path != "/effects" || !authorized {
-        let _ = write_json(
-            &mut stream,
-            401,
-            &json!({"error": "Effect secret was rejected."}),
-        );
-        return;
-    }
-    let parsed: Json = match serde_json::from_slice(&body) {
-        Ok(parsed) => parsed,
-        Err(_) => {
-            let _ = write_json(
-                &mut stream,
-                400,
-                &json!({"error": "Request body must be valid JSON."}),
-            );
-            return;
-        }
-    };
-    let program_id = parsed.get("programId").and_then(Json::as_str).unwrap_or("");
-    let key = parsed.get("key").and_then(Json::as_str).unwrap_or("");
-    let input = parsed.get("input").cloned().unwrap_or(Json::Null);
-    let found = {
-        let programs = programs.lock().expect("programs");
-        programs
-            .iter()
-            .find(|program| program.id == program_id)
-            .and_then(|program| {
-                program
-                    .effects
-                    .iter()
-                    .find(|effect| effect.key == key)
-                    .cloned()
-                    .map(|effect| (program.language.clone(), effect))
-            })
-    };
-    let Some((language, effect)) = found else {
-        let _ = write_json(
-            &mut stream,
-            200,
-            &json!({"error": format!("No effect handler for `{key}`.")}),
-        );
-        return;
-    };
-    let response = match registry.run_effect(&language, &effect, key, &input) {
-        Ok(Some(value)) => json!({"value": value}),
-        Ok(None) => json!({"error": format!("No effect handler for `{key}`.")}),
-        Err(error) => json!({"error": error.to_string()}),
-    };
-    let _ = write_json(&mut stream, 200, &response);
-}
-
 struct StopAdapters(Arc<Registry>);
 
 impl Drop for StopAdapters {
     fn drop(&mut self) {
         self.0.shutdown();
     }
-}
-
-fn read_request(
-    stream: &mut TcpStream,
-) -> std::io::Result<(String, String, Vec<(String, String)>, Vec<u8>)> {
-    let mut reader = BufReader::new(stream);
-    let mut start = String::new();
-    reader.read_line(&mut start)?;
-    let mut parts = start.split_whitespace();
-    let method = parts.next().unwrap_or("").to_string();
-    let path = parts.next().unwrap_or("").to_string();
-    let mut headers = Vec::new();
-    let mut content_length = 0usize;
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line)?;
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            break;
-        }
-        if let Some((name, value)) = trimmed.split_once(':') {
-            if name.eq_ignore_ascii_case("content-length") {
-                content_length = value.trim().parse().unwrap_or(0);
-            }
-            headers.push((name.to_string(), value.trim().to_string()));
-        }
-    }
-    let mut body = vec![0; content_length];
-    reader.read_exact(&mut body)?;
-    Ok((method, path, headers, body))
-}
-
-fn write_json(stream: &mut TcpStream, status: u16, body: &Json) -> std::io::Result<()> {
-    let payload = body.to_string();
-    let reason = if status == 200 {
-        "OK"
-    } else if status == 400 {
-        "Bad Request"
-    } else {
-        "Unauthorized"
-    };
-    write!(
-        stream,
-        "HTTP/1.1 {status} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{payload}",
-        payload.len()
-    )?;
-    stream.flush()
 }
 
 fn terminate(child: &mut Child) {
