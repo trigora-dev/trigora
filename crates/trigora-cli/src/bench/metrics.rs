@@ -106,7 +106,7 @@ pub(in crate::bench) fn cpu_brand() -> String {
     }
     #[cfg(target_os = "linux")]
     {
-        if let Ok(info) = fs::read_to_string("/proc/cpuinfo") {
+        if let Ok(info) = std::fs::read_to_string("/proc/cpuinfo") {
             if let Some(model) = info.lines().find_map(|line| {
                 line.strip_prefix("model name")
                     .and_then(|rest| rest.split(':').nth(1))
