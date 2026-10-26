@@ -1,15 +1,4 @@
-use std::io::{BufRead, BufReader, Write};
-use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::{Arc, Mutex};
-
-use serde_json::{json, Value as Json};
-
-use crate::adapter::Registry;
-use crate::error::CliError;
-use crate::model::{Effect, Program};
-use crate::paths;
-use crate::versions::RUST_FRONTEND;
+use super::*;
 
 struct HelperIo {
     child: Child,
@@ -112,88 +101,6 @@ pub fn compiler_version(helper: &Helper) -> Result<String, CliError> {
         .and_then(Json::as_str)
         .unwrap_or("")
         .to_string())
-}
-
-pub fn discover(
-    root: &Path,
-    globs: &[String],
-    registry: &Registry,
-) -> Result<Vec<Program>, CliError> {
-    discover_in(root, globs, registry, false)
-}
-
-pub fn discover_pulse(
-    root: &Path,
-    globs: &[String],
-    registry: &Registry,
-) -> Result<Vec<Program>, CliError> {
-    discover_in(root, globs, registry, true)
-}
-
-fn discover_in(
-    root: &Path,
-    globs: &[String],
-    registry: &Registry,
-    pulse: bool,
-) -> Result<Vec<Program>, CliError> {
-    let files = glob_files(root, globs, registry);
-    if files.is_empty() {
-        return Err(CliError::new("No programs found")
-            .detail("Globs", globs.join(", "))
-            .detail("Root", root.display().to_string())
-            .hint("TypeScript default-exports an async program entry, Python marks one with `@program`, and Rust uses `pub async fn main`. Point `[project].programs` at those files in trigora.toml."));
-    }
-    let mut discovered = Vec::new();
-    let mut seen: Vec<(String, String)> = Vec::new();
-    for file in files {
-        let relative = path_relative(root, &file);
-        let Some(adapter) = registry.resolve(&relative) else {
-            return Err(CliError::new("No adapter for program")
-                .detail("File", relative.clone())
-                .hint("Install the toolchain for this language, or point `[project].programs` at files an installed adapter understands."));
-        };
-        adapter.available()?;
-        crate::adapter::compare_version(adapter, &relative)?;
-        let source =
-            std::fs::read_to_string(&file).map_err(|error| CliError::plain(error.to_string()))?;
-        let stem = file
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("program");
-        let id = adapter.program_id(stem, &file, root, &source);
-        let compiled = adapter.compile(&crate::adapter::CompileInput {
-            root,
-            relative: &relative,
-            source: &source,
-            program_id: &id,
-            file: &file,
-            pulse,
-        })?;
-        let program = Program {
-            id: id.clone(),
-            export_name: export_name(&compiled.artifact_json, &relative)?,
-            file: relative.clone(),
-            language: adapter.language().to_string(),
-            frontend_id: adapter.frontend_id().to_string(),
-            semantics_version: adapter.semantics_version().to_string(),
-            source,
-            artifact_json: compiled.artifact_json,
-            artifact_hash: compiled.artifact_hash,
-            compiler_version: compiled.compiler_version,
-            effects: compiled.effects,
-        };
-        if let Some((_, first)) = seen.iter().find(|(seen_id, _)| seen_id == &id) {
-            return Err(CliError::new("Duplicate program id")
-                .detail("Program", id)
-                .detail("First", first.clone())
-                .detail("Second", relative)
-                .hint("Use a unique default-export function name or file name for each program."));
-        }
-        seen.push((id, relative));
-        discovered.push(program);
-    }
-    discovered.sort_by(|left, right| left.id.cmp(&right.id));
-    Ok(discovered)
 }
 
 pub(crate) fn compile_typescript(
@@ -356,7 +263,7 @@ pub(crate) fn default_export(source: &str) -> String {
     "default".to_string()
 }
 
-fn export_name(artifact_json: &str, file: &str) -> Result<String, CliError> {
+pub(in crate::compile) fn export_name(artifact_json: &str, file: &str) -> Result<String, CliError> {
     let artifact: Json = serde_json::from_str(artifact_json).map_err(|_| {
         CliError::new("Invalid program artifact")
             .detail("File", file)
@@ -423,94 +330,6 @@ pub(crate) fn rust_program_id(stem: &str, file: &Path, root: &Path) -> String {
     stem.to_string()
 }
 
-fn glob_files(root: &Path, patterns: &[String], registry: &Registry) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    walk(root, &mut files, registry);
-    let mut matches = Vec::new();
-    for pattern in patterns {
-        let pattern = pattern.trim().trim_start_matches("./");
-        if !pattern.contains('*') && !pattern.contains('?') {
-            let absolute = root.join(pattern);
-            if absolute.is_file() {
-                matches.push(absolute);
-            }
-            continue;
-        }
-        let regex = glob_to_regex(pattern);
-        for file in &files {
-            let relative = path_relative(root, file);
-            if regex_match(&regex, &relative) {
-                matches.push(file.clone());
-            }
-        }
-    }
-    matches.sort();
-    matches.dedup();
-    matches
-}
-
-fn walk(dir: &Path, files: &mut Vec<PathBuf>, registry: &Registry) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if path.is_dir() {
-            if matches!(
-                name.as_ref(),
-                "node_modules" | "dist" | ".git" | "target" | ".trigora"
-            ) {
-                continue;
-            }
-            walk(&path, files, registry);
-        } else if path.is_file() && registry.matches_file(&name) {
-            files.push(path);
-        }
-    }
-}
-
-fn glob_to_regex(pattern: &str) -> String {
-    let mut expression = String::from("^");
-    let chars: Vec<char> = pattern.chars().collect();
-    let mut index = 0;
-    while index < chars.len() {
-        let ch = chars[index];
-        if ch == '*' && chars.get(index + 1) == Some(&'*') {
-            if chars.get(index + 2) == Some(&'/') {
-                expression.push_str("(?:.*/)?");
-                index += 3;
-            } else {
-                expression.push_str(".*");
-                index += 2;
-            }
-            continue;
-        }
-        if ch == '*' {
-            expression.push_str("[^/]*");
-            index += 1;
-            continue;
-        }
-        if ch == '?' {
-            expression.push_str("[^/]");
-            index += 1;
-            continue;
-        }
-        if " .+^${}()|[]\\".contains(ch) {
-            expression.push('\\');
-        }
-        expression.push(ch);
-        index += 1;
-    }
-    expression.push('$');
-    expression
-}
-
-fn regex_match(pattern: &str, value: &str) -> bool {
-    regex::Regex::new(pattern).is_ok_and(|regex| regex.is_match(value))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,13 +365,4 @@ mod tests {
         std::fs::write(&compiler, "@echo off\r\nexit /b 1\r\n").unwrap();
         compiler
     }
-}
-
-fn path_relative(root: &Path, file: &Path) -> String {
-    file.strip_prefix(root)
-        .unwrap_or(file)
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .join("/")
 }
