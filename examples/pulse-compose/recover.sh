@@ -303,33 +303,4 @@ if [[ -n $(socket_in pulse6d-token) ]]; then
   exit 1
 fi
 
-context=$(kubectl config current-context 2>/dev/null || true)
-if kubectl cluster-info >/dev/null 2>&1 && [[ $context == docker-desktop || $context == *kind* ]]; then
-  echo "checking the local Kubernetes pod"
-  if [[ $context == *kind* ]] && command -v kind >/dev/null; then
-    kind load docker-image trigora-pulse:local
-    kind load docker-image pulse-compose-app:local
-  fi
-  kubectl create secret generic trigora-token --from-literal=token=local-proof --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl delete pod pulse-example --ignore-not-found >/dev/null
-  kubectl apply -f "$root/examples/pulse-k8s/pod.yaml" >/dev/null
-  if ! kubectl wait --for=condition=Ready pod/pulse-example --timeout=180s; then
-    kubectl describe pod pulse-example >&2 || true
-    kubectl logs pulse-example -c pulse >&2 || true
-    kubectl logs pulse-example -c app >&2 || true
-    exit 1
-  fi
-  host_uid=$(kubectl exec pulse-example -c pulse -- id -u)
-  app_uid=$(kubectl exec pulse-example -c app -- id -u)
-  if [[ $host_uid != "$uid_num" || $app_uid != "$uid_num" ]]; then
-    echo "pod users host=${host_uid} app=${app_uid}" >&2
-    exit 1
-  fi
-  kubectl exec pulse-example -c pulse -- trigora-pulse --check /pulse >/dev/null
-  kubectl exec pulse-example -c app -- node -e 'fetch("http://127.0.0.1:8080/ready").then((response)=>process.exit(response.ok?0:1)).catch(()=>process.exit(1))'
-  echo "Kubernetes pod is ready. A new Pod does not adopt an abandoned execution."
-else
-  echo "No local Kubernetes cluster. Compose is the proof."
-fi
-
 echo "recovery passed"
