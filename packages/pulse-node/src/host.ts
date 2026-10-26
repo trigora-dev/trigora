@@ -45,6 +45,8 @@ export type PulseOptions = {
   effectTimeoutMs?: number;
   /** Called before the handler. Used to observe dispatch. */
   onEffect?: (key: string, executionId: string, attemptId: string) => void;
+  /** In-memory authority. Omitted credentials still exit instead of using this. */
+  ephemeral?: boolean;
 };
 
 export type NodeSpan = {
@@ -120,7 +122,8 @@ export class Pulse {
     fs.mkdirSync(dir, { recursive: true });
     const artifactPath = path.join(dir, 'artifact.json');
     fs.writeFileSync(artifactPath, artifactJson);
-    const child = spawn(options.bin, [dir, artifactPath], {
+    const args = options.ephemeral ? ['--ephemeral', dir, artifactPath] : [dir, artifactPath];
+    const child = spawn(options.bin, args, {
       stdio: ['ignore', 'ignore', 'pipe'],
       env: {
         ...process.env,

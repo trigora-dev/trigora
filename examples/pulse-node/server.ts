@@ -37,7 +37,7 @@ export function createExecutionServer(pulse: { start: () => Promise<string> }): 
 
 const bin = pulseBin();
 if (process.argv[1]?.endsWith('server.ts') || process.argv[1]?.endsWith('server.js')) {
-  const pulse = await Pulse.open({ source: sampleProgram, bin });
+  const pulse = await Pulse.open({ source: sampleProgram, bin, ephemeral: true });
   const server = createExecutionServer(pulse);
   server.listen(3478, '127.0.0.1', () => {
     console.log('pulse example listening on http://127.0.0.1:3478');

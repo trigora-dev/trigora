@@ -1,5 +1,6 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { beforeAll, describe, expect, it } from 'vitest';
@@ -27,11 +28,28 @@ beforeAll(() => {
 }, 180_000);
 
 describe('pulse node adapter', () => {
+  it('exits when durability is not configured', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pulse-closed-'));
+    const artifact = path.join(dir, 'artifact.json');
+    fs.writeFileSync(artifact, '{}');
+    const env = { ...process.env };
+    delete env.TRIGORA_TOKEN;
+    delete env.TRIGORA_API_BASE_URL;
+    delete env.TRIGORA_PULSE_AUTHORITY_URL;
+    delete env.TRIGORA_PULSE_WORKSPACE_ID;
+    delete env.TRIGORA_PULSE_WORKSPACE_TOKEN;
+    const result = spawnSync(pulseBin(), [dir, artifact], { encoding: 'utf8', env });
+    expect(result.status).toBe(2);
+    expect(result.stderr.toLowerCase()).toContain('durability is not configured');
+    expect(fs.existsSync(path.join(dir, 'pulse.sock'))).toBe(false);
+  });
+
   it('runs a compiled sdk effect and returns an accepted execution id', async () => {
     const calls: string[] = [];
     const pulse = await Pulse.open({
       source: sampleProgram,
       bin: pulseBin(),
+      ephemeral: true,
       onEffect: (key) => calls.push(key),
     });
     try {
@@ -50,6 +68,7 @@ describe('pulse node adapter', () => {
     const pulse = await Pulse.open({
       source: sampleProgram,
       bin: pulseBin(),
+      ephemeral: true,
       onEffect: (key) => calls.push(key),
     });
     try {
@@ -74,6 +93,7 @@ describe('pulse node adapter', () => {
     pulse = await Pulse.open({
       source: twoEffects,
       bin: pulseBin(),
+      ephemeral: true,
       onEffect: (key) => {
         calls.push(key);
         if (key === 'second' && !dropped) {
@@ -95,7 +115,7 @@ describe('pulse node adapter', () => {
   });
 
   it('returns the execution id from the http route', async () => {
-    const pulse = await Pulse.open({ source: sampleProgram, bin: pulseBin() });
+    const pulse = await Pulse.open({ source: sampleProgram, bin: pulseBin(), ephemeral: true });
     const server = createExecutionServer(pulse);
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
     try {
@@ -130,6 +150,7 @@ describe('async effect callbacks', () => {
     const pulse = await Pulse.open({
       source: oneEffect,
       bin: pulseBin(),
+      ephemeral: true,
       onEffect: (_key, executionId) => seen.push(executionId),
     });
     let first = true;
@@ -159,6 +180,7 @@ describe('async effect callbacks', () => {
     const pulse = await Pulse.open({
       source: oneEffect,
       bin: pulseBin(),
+      ephemeral: true,
       onEffect: () => seen.push(Date.now()),
     });
     pulse.setHandler('work', () => {
@@ -186,6 +208,7 @@ describe('async effect callbacks', () => {
     const pulse = await Pulse.open({
       source: oneEffect,
       bin: pulseBin(),
+      ephemeral: true,
       timings: true,
       effectTimeoutMs: 300,
       onEffect: (_key, _executionId, attemptId) => attempts.push(attemptId),

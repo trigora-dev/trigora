@@ -113,6 +113,7 @@ async function measureNode(bytes: number, warmup: number, samples: number, rustR
   const pulse = await Pulse.open({
     source: SOURCE,
     bin: pulseBin(),
+    ephemeral: true,
     timings: true,
     effectTimeoutMs: 30_000,
     artifactJson: echoArtifact(compiled.artifactJson, bytes),
@@ -208,6 +209,7 @@ async function throughputNode(): Promise<void> {
   const pulse = await Pulse.open({
     source: SOURCE,
     bin: pulseBin(),
+    ephemeral: true,
     timings: true,
     artifactJson: echoArtifact(compiled.artifactJson, 32),
   });
@@ -434,7 +436,7 @@ export default async function program() {
 `;
 
 async function concurrency(): Promise<void> {
-  const pulse = await Pulse.open({ source: ONE, bin: pulseBin(), timings: true });
+  const pulse = await Pulse.open({ source: ONE, bin: pulseBin(), ephemeral: true, timings: true });
   const marks: number[] = [];
   let calls = 0;
   pulse.setHandler('work', () => {
@@ -458,7 +460,12 @@ async function concurrency(): Promise<void> {
     await pulse.close();
   }
 
-  const stalled = await Pulse.open({ source: ONE, bin: pulseBin(), timings: true });
+  const stalled = await Pulse.open({
+    source: ONE,
+    bin: pulseBin(),
+    ephemeral: true,
+    timings: true,
+  });
   const stalledMarks: number[] = [];
   let stalledCalls = 0;
   stalled.setHandler('work', () => {
