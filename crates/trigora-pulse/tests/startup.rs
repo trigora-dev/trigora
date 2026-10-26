@@ -116,6 +116,59 @@ fn version_reports_the_protocol() {
 }
 
 #[test]
+fn missing_token_with_only_a_directory_exits_before_the_socket() {
+    let root = dir("closed-dir");
+    let mut command = Command::new(bin());
+    command.arg(&root);
+    clear_remote(&mut command);
+    let output = command.output().unwrap();
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr)
+        .to_lowercase()
+        .contains("durability is not configured"));
+    assert!(!root.join("pulse.sock").exists());
+}
+
+#[test]
+fn directory_only_binds_and_reports_its_version() {
+    let root = dir("listen");
+    let mut command = Command::new(bin());
+    command
+        .arg("--ephemeral")
+        .arg(&root)
+        .stderr(Stdio::null())
+        .stdout(Stdio::null());
+    let mut child = command.spawn().unwrap();
+    let bearer = wait_file(&root.join("bearer"));
+    let mut stream = UnixStream::connect(root.join("pulse.sock")).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    write_frame(
+        &mut stream,
+        &serde_json::json!({ "type": "auth", "bearer": bearer }),
+    );
+    let auth = read_frame(&mut stream);
+    assert_eq!(auth["type"], "authOk");
+    assert_eq!(auth["version"], "0.1.0");
+    assert_eq!(auth["protocol"], 1);
+    drop(stream);
+    let check = Command::new(bin())
+        .arg("--check")
+        .arg(&root)
+        .output()
+        .unwrap();
+    assert!(
+        check.status.success(),
+        "{}",
+        String::from_utf8_lossy(&check.stderr)
+    );
+    let _ = nix_kill(child.id(), libc::SIGTERM);
+    let status = child.wait().unwrap();
+    assert!(status.success());
+}
+
+#[test]
 fn ephemeral_warns_and_listens() {
     let root = dir("ephemeral");
     let artifact_path = root.join("artifact.json");

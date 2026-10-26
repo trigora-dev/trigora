@@ -175,6 +175,12 @@ enum Inbound {
 
 pub(crate) enum HostCommand {
     Start(String),
+    Resume(String),
+    Event {
+        execution_id: String,
+        name: String,
+        payload: String,
+    },
 }
 
 pub(crate) struct Connection {
@@ -222,7 +228,14 @@ impl Connection {
             );
             return Err(Error::new("bearer was rejected"));
         }
-        write_frame(&mut stream, &Frame::AuthOk).map_err(|err| Error::new(err.to_string()))?;
+        write_frame(
+            &mut stream,
+            &Frame::AuthOk {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+                protocol: super::protocol::ADAPTER_PROTOCOL,
+            },
+        )
+        .map_err(|err| Error::new(err.to_string()))?;
         let frame =
             read_frame(&mut stream).map_err(|err| Error::new(format!("register frame: {err}")))?;
         let Frame::Register {
@@ -280,6 +293,36 @@ impl Connection {
                 message: err.to_string(),
             },
         };
+        self.reply(frame);
+    }
+
+    pub(crate) fn reply_resume(&self, execution_id: &str, result: Result<()>) {
+        let frame = match result {
+            Ok(()) => Frame::Resumed {
+                execution_id: execution_id.to_string(),
+            },
+            Err(err) => Frame::ResumeError {
+                execution_id: execution_id.to_string(),
+                message: err.to_string(),
+            },
+        };
+        self.reply(frame);
+    }
+
+    pub(crate) fn reply_event(&self, execution_id: &str, result: Result<()>) {
+        let frame = match result {
+            Ok(()) => Frame::EventOk {
+                execution_id: execution_id.to_string(),
+            },
+            Err(err) => Frame::EventError {
+                execution_id: execution_id.to_string(),
+                message: err.to_string(),
+            },
+        };
+        self.reply(frame);
+    }
+
+    fn reply(&self, frame: Frame) {
         if let Ok(mut stream) = self.writer.lock() {
             let _ = write_frame(&mut *stream, &frame);
         }
@@ -374,6 +417,24 @@ impl Connection {
                         Frame::Start { execution_id } => {
                             if let Some(sender) = self.commands.lock().expect("commands").as_ref() {
                                 let _ = sender.send(HostCommand::Start(execution_id));
+                            }
+                        }
+                        Frame::Resume { execution_id } => {
+                            if let Some(sender) = self.commands.lock().expect("commands").as_ref() {
+                                let _ = sender.send(HostCommand::Resume(execution_id));
+                            }
+                        }
+                        Frame::Event {
+                            execution_id,
+                            name,
+                            payload,
+                        } => {
+                            if let Some(sender) = self.commands.lock().expect("commands").as_ref() {
+                                let _ = sender.send(HostCommand::Event {
+                                    execution_id,
+                                    name,
+                                    payload,
+                                });
                             }
                         }
                         _ => {}

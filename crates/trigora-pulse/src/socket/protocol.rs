@@ -14,7 +14,7 @@ pub enum Frame {
     #[serde(rename = "auth")]
     Auth { bearer: String },
     #[serde(rename = "authOk")]
-    AuthOk,
+    AuthOk { version: String, protocol: u32 },
     #[serde(rename = "authError")]
     AuthError { message: String },
     #[serde(rename = "register")]
@@ -41,6 +41,40 @@ pub enum Frame {
     },
     #[serde(rename = "startError")]
     StartError {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+        message: String,
+    },
+    #[serde(rename = "resume")]
+    Resume {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+    },
+    #[serde(rename = "resumed")]
+    Resumed {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+    },
+    #[serde(rename = "resumeError")]
+    ResumeError {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+        message: String,
+    },
+    #[serde(rename = "event")]
+    Event {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+        name: String,
+        payload: String,
+    },
+    #[serde(rename = "eventOk")]
+    EventOk {
+        #[serde(rename = "executionId")]
+        execution_id: String,
+    },
+    #[serde(rename = "eventError")]
+    EventError {
         #[serde(rename = "executionId")]
         execution_id: String,
         message: String,

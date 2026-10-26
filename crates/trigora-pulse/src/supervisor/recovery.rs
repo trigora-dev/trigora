@@ -310,13 +310,44 @@ impl Inner {
             self.note_waiting(execution_id, &pin.artifact_hash);
             return Ok(());
         };
-        match self.claim_and_admit(execution_id, &hash, &keys) {
+        self.claim_or_wait(execution_id, &hash, &keys)
+    }
+
+    /// Claim with this connection's artifact when the authority has not pinned
+    /// one yet. A pinned hash that does not match this connection waits.
+    pub(super) fn resume_from(
+        &self,
+        execution_id: &str,
+        connected_hash: &str,
+        connected_keys: &[String],
+    ) -> Result<()> {
+        let pin = self.authority.pin(execution_id)?;
+        let keys = canonical_keys(connected_keys);
+        let (hash, keys) = if pin.artifact_hash.is_empty() {
+            if connected_hash.is_empty() {
+                return Err(Error::new("artifact is not loaded"));
+            }
+            (connected_hash.to_string(), keys)
+        } else if pin.artifact_hash == connected_hash
+            && canonical_keys(&pin.handler_keys) == keys
+            && self.has_registration(connected_hash, connected_keys)
+        {
+            (pin.artifact_hash, canonical_keys(&pin.handler_keys))
+        } else {
+            self.note_waiting(execution_id, &pin.artifact_hash);
+            return Ok(());
+        };
+        self.claim_or_wait(execution_id, &hash, &keys)
+    }
+
+    fn claim_or_wait(&self, execution_id: &str, hash: &str, keys: &[String]) -> Result<()> {
+        match self.claim_and_admit(execution_id, hash, keys) {
             Ok(()) => {
                 self.clear_waiting(execution_id);
                 Ok(())
             }
             Err(err) if err.to_string() == "execution is owned" => {
-                self.note_waiting(execution_id, &hash);
+                self.note_waiting(execution_id, hash);
                 Ok(())
             }
             Err(err) => Err(err),
@@ -393,6 +424,26 @@ impl Inner {
             return Err(err);
         }
         Ok(())
+    }
+
+    pub(super) fn deliver_named_event(
+        &self,
+        execution_id: &str,
+        event_name: &str,
+        payload: &str,
+    ) -> Result<()> {
+        let view = self.authority.view(execution_id)?;
+        let matched: Vec<_> = view
+            .waits
+            .iter()
+            .filter(|wait| wait.event == event_name)
+            .map(|wait| wait.wait_id.clone())
+            .collect();
+        match matched.as_slice() {
+            [] => Err(Error::new("execution is not waiting")),
+            [wait_id] => self.deliver_event(execution_id, event_name, wait_id, payload),
+            _ => Err(Error::new("event name is ambiguous")),
+        }
     }
 
     pub(super) fn claim_and_admit(

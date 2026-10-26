@@ -38,7 +38,13 @@ impl Adapter {
         write_frame(&mut stream, &Frame::Auth { bearer })
             .map_err(|err| Error::new(err.to_string()))?;
         match read_frame(&mut stream).map_err(|err| Error::new(err.to_string()))? {
-            Frame::AuthOk => {}
+            Frame::AuthOk { version, protocol }
+                if version == env!("CARGO_PKG_VERSION") && protocol == crate::ADAPTER_PROTOCOL => {}
+            Frame::AuthOk { version, protocol } => {
+                return Err(Error::new(format!(
+                    "Incompatible Pulse host {version} protocol {protocol}"
+                )));
+            }
             Frame::AuthError { message } => return Err(Error::new(message)),
             _ => return Err(Error::new("expected authOk")),
         }

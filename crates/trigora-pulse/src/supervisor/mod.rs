@@ -97,6 +97,20 @@ impl Runtime {
         let initial_hash = artifact.envelope.artifact_hash.clone();
         let mut artifacts = HashMap::new();
         artifacts.insert(initial_hash.clone(), artifact);
+        Self::boot(authority, artifacts, initial_hash, config)
+    }
+
+    /// Bind the socket with no artifact. The first successful register installs one.
+    pub fn listen(authority: Arc<Authority>, config: Config) -> Result<Self> {
+        Self::boot(authority, HashMap::new(), String::new(), config)
+    }
+
+    fn boot(
+        authority: Arc<Authority>,
+        artifacts: HashMap<String, Artifact>,
+        initial_hash: String,
+        config: Config,
+    ) -> Result<Self> {
         let workers = config.workers.max(1);
         let listener = Listener::bind(&config.dir)?;
         let inner = Arc::new(Inner {
@@ -333,16 +347,59 @@ fn accept_loop(inner: Arc<Inner>) {
                     let writer = Arc::clone(&connection);
                     std::thread::spawn(move || {
                         while let Ok(command) = rx.recv() {
-                            let HostCommand::Start(id) = command;
-                            let hash = writer.artifact_hash.clone();
-                            let keys = writer.keys.clone();
-                            match commands.accept_execution(&id, &hash, &keys) {
-                                Ok(true) => {
-                                    writer.reply_start(&id, Ok(()));
-                                    commands.enqueue(id);
+                            match command {
+                                HostCommand::Start(id) => {
+                                    let hash = writer.artifact_hash.clone();
+                                    let keys = writer.keys.clone();
+                                    match commands.accept_execution(&id, &hash, &keys) {
+                                        Ok(true) => {
+                                            writer.reply_start(&id, Ok(()));
+                                            commands.enqueue(id);
+                                        }
+                                        Ok(false) => writer.reply_start(&id, Ok(())),
+                                        Err(err) => writer.reply_start(&id, Err(err)),
+                                    }
                                 }
-                                Ok(false) => writer.reply_start(&id, Ok(())),
-                                Err(err) => writer.reply_start(&id, Err(err)),
+                                HostCommand::Resume(id) => {
+                                    let hash = writer.artifact_hash.clone();
+                                    let keys = writer.keys.clone();
+                                    match commands.resume_from(&id, &hash, &keys) {
+                                        Ok(()) => {
+                                            let mismatched = commands
+                                                .waiting
+                                                .lock()
+                                                .expect("waiting")
+                                                .iter()
+                                                .any(|item| {
+                                                    item.execution_id == id
+                                                        && item.artifact_hash != hash
+                                                });
+                                            if mismatched {
+                                                writer.reply_resume(
+                                                    &id,
+                                                    Err(Error::new("waiting-for-version")),
+                                                );
+                                            } else {
+                                                writer.reply_resume(&id, Ok(()));
+                                            }
+                                        }
+                                        Err(err) => writer.reply_resume(&id, Err(err)),
+                                    }
+                                }
+                                HostCommand::Event {
+                                    execution_id,
+                                    name,
+                                    payload,
+                                } => {
+                                    writer.reply_event(
+                                        &execution_id,
+                                        commands.deliver_named_event(
+                                            &execution_id,
+                                            &name,
+                                            &payload,
+                                        ),
+                                    );
+                                }
                             }
                         }
                     });

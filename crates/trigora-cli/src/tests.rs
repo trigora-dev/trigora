@@ -24,6 +24,14 @@ fn pulse_start_parses_ephemeral() {
         parse_invocation(&arg(&["pulse", "start", "--ephemeral"])).unwrap(),
         Invocation::PulseStart { ephemeral: true }
     ));
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "connect", "--dir", "/pulse"])).unwrap(),
+        Invocation::PulseConnect { prepare: false, .. }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "connect", "--dir", "/pulse", "--prepare"])).unwrap(),
+        Invocation::PulseConnect { prepare: true, .. }
+    ));
 }
 
 #[test]

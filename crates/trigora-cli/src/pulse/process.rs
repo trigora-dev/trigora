@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::Child;
 use std::time::{Duration, Instant};
 
+use super::binary::{PULSE_PROTOCOL, PULSE_VERSION};
 use crate::error::CliError;
 
 pub(super) const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(10);
@@ -33,6 +34,38 @@ pub(super) fn wait_until_ready(
             .try_wait()
             .map_err(|error| CliError::plain(error.to_string()))?
         {
+            return Err(CliError::new("Pulse adapter exited")
+                .detail("Status", status.code().unwrap_or(1).to_string())
+                .with_code(status.code().unwrap_or(1)));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    Err(CliError::plain("Pulse did not become ready."))
+}
+
+pub(super) fn wait_adapter(
+    adapter: &mut Child,
+    signal: &std::sync::mpsc::Receiver<()>,
+    dir: &Path,
+) -> Result<(), CliError> {
+    let ready = dir.join("ready.json");
+    let started = Instant::now();
+    while started.elapsed() < Duration::from_secs(30) {
+        if ready.is_file() {
+            return Ok(());
+        }
+        if signal.try_recv().is_ok() {
+            return Err(CliError::plain("Pulse adapter stopped."));
+        }
+        if let Some(status) = adapter
+            .try_wait()
+            .map_err(|error| CliError::plain(error.to_string()))?
+        {
+            if status.code() == Some(3) {
+                return Err(CliError::new("Incompatible Pulse host")
+                    .detail("CLI", format!("{PULSE_VERSION} protocol {PULSE_PROTOCOL}"))
+                    .hint("Use the trigora-pulse binary built with this CLI."));
+            }
             return Err(CliError::new("Pulse adapter exited")
                 .detail("Status", status.code().unwrap_or(1).to_string())
                 .with_code(status.code().unwrap_or(1)));

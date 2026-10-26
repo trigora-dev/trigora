@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use trigora_pulse::{
-    select_remote, Authority, Config, RemoteClient, RemoteMode, Runtime, ADAPTER_PROTOCOL,
+    select_remote, Adapter, Authority, Config, RemoteClient, RemoteMode, Runtime, ADAPTER_PROTOCOL,
 };
 
 const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(10);
@@ -20,20 +20,27 @@ fn main() -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
+    if args.first().map(String::as_str) == Some("--check") {
+        let Some(dir) = args.get(1) else {
+            eprintln!("usage: trigora-pulse --check <directory>");
+            return ExitCode::from(2);
+        };
+        return match Adapter::connect(std::path::Path::new(dir)) {
+            Ok(_) => ExitCode::SUCCESS,
+            Err(err) => {
+                eprintln!("{err}");
+                ExitCode::from(1)
+            }
+        };
+    }
     let ephemeral = args.iter().any(|arg| arg == "--ephemeral");
     args.retain(|arg| arg != "--ephemeral");
-    let Some(dir) = args.first() else {
-        eprintln!("usage: trigora-pulse [--ephemeral] <directory> <artifact.json>");
-        return ExitCode::from(2);
-    };
-    let Some(artifact_path) = args.get(1) else {
-        eprintln!("usage: trigora-pulse [--ephemeral] <directory> <artifact.json>");
-        return ExitCode::from(2);
-    };
-    if args.len() != 2 {
-        eprintln!("usage: trigora-pulse [--ephemeral] <directory> <artifact.json>");
+    if args.is_empty() || args.len() > 2 {
+        eprintln!("usage: trigora-pulse [--ephemeral] <directory> [artifact.json]");
         return ExitCode::from(2);
     }
+    let dir = &args[0];
+    let artifact_path = args.get(1).cloned();
     let remote = if ephemeral {
         eprintln!("Pulse running in ephemeral mode.");
         eprintln!("Execution state will be lost when the host exits.");
@@ -57,19 +64,23 @@ fn main() -> ExitCode {
             }
         }
     };
-    let text = match fs::read_to_string(artifact_path) {
-        Ok(text) => text,
-        Err(err) => {
-            eprintln!("read {artifact_path}: {err}");
-            return ExitCode::from(1);
+    let artifact = if let Some(artifact_path) = artifact_path.as_deref() {
+        let text = match fs::read_to_string(artifact_path) {
+            Ok(text) => text,
+            Err(err) => {
+                eprintln!("read {artifact_path}: {err}");
+                return ExitCode::from(1);
+            }
+        };
+        match tcc_ir::decode_artifact(&text) {
+            Ok(artifact) => Some(artifact),
+            Err(err) => {
+                eprintln!("artifact: {err}");
+                return ExitCode::from(1);
+            }
         }
-    };
-    let artifact = match tcc_ir::decode_artifact(&text) {
-        Ok(artifact) => artifact,
-        Err(err) => {
-            eprintln!("artifact: {err}");
-            return ExitCode::from(1);
-        }
+    } else {
+        None
     };
     let mut config = Config::new(dir, "pulse");
     if let Ok(ms) = env::var("TRIGORA_PULSE_EFFECT_TIMEOUT_MS") {
@@ -112,7 +123,12 @@ fn main() -> ExitCode {
             }
         }
     }
-    let runtime = match Runtime::open(Arc::new(authority), artifact, config) {
+    let authority = Arc::new(authority);
+    let opened = match artifact {
+        Some(artifact) => Runtime::open(authority, artifact, config),
+        None => Runtime::listen(authority, config),
+    };
+    let runtime = match opened {
         Ok(runtime) => runtime,
         Err(err) => {
             eprintln!("{err}");

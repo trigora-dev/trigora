@@ -17,6 +17,10 @@ pub enum Invocation {
     PulseStart {
         ephemeral: bool,
     },
+    PulseConnect {
+        dir: String,
+        prepare: bool,
+    },
     Deploy {
         program: Option<String>,
     },
@@ -76,7 +80,7 @@ pub enum Invocation {
     version = env!("CARGO_PKG_VERSION"),
     about = "Durable execution for TypeScript, Python, and Rust",
     arg_required_else_help = true,
-    after_help = "Local commands use `trigora dev`. `deploy`, `whoami`, and `secrets` use Trigora Cloud.\nAdd `--remote` to programs, executions, start, send, result, and cancel to use Trigora Cloud.\n`trigora pulse start` runs this project on Pulse. `TRIGORA_TOKEN` is the remote credential."
+    after_help = "Local commands use `trigora dev`. `deploy`, `whoami`, and `secrets` use Trigora Cloud.\nAdd `--remote` to programs, executions, start, send, result, and cancel to use Trigora Cloud.\n`trigora pulse start` runs this project on Pulse. `trigora pulse connect` registers handlers with a host that is already running. `TRIGORA_TOKEN` is the remote credential."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -231,6 +235,15 @@ enum PulseCommand {
         #[arg(long)]
         ephemeral: bool,
     },
+    /// Compile programs and register effect handlers with a running host
+    Connect {
+        /// Socket directory the host already bound
+        #[arg(long)]
+        dir: String,
+        /// Write the handler manifest and exit without registering
+        #[arg(long)]
+        prepare: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -305,6 +318,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, CliError> {
         }),
         Command::Pulse { action } => match action {
             PulseCommand::Start { ephemeral } => Ok(Invocation::PulseStart { ephemeral }),
+            PulseCommand::Connect { dir, prepare } => Ok(Invocation::PulseConnect { dir, prepare }),
         },
         Command::Deploy { program } => Ok(Invocation::Deploy { program }),
         Command::Programs { remote } => Ok(Invocation::Programs { remote }),

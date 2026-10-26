@@ -3,16 +3,6 @@ import net from 'node:net';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const dir = process.argv[2];
-const manifestPath = process.argv[3];
-if (!dir || !manifestPath) {
-  console.error('usage: node pulse-adapter.mjs <directory> <manifest.json>');
-  process.exit(2);
-}
-
-const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
-const programs = Array.isArray(manifest.programs) ? manifest.programs : [];
-
 function send(socket, frame) {
   const body = Buffer.from(JSON.stringify(frame));
   const header = Buffer.alloc(4);
@@ -29,6 +19,10 @@ function toPlain(encoded) {
 
 function fromPlain(value) {
   return JSON.stringify(encode(value));
+}
+
+export function encodePayload(value) {
+  return fromPlain(value);
 }
 
 function decode(value) {
@@ -84,7 +78,15 @@ function encode(value) {
   throw new Error(`cannot encode ${typeof value} as a TCC value`);
 }
 
-function waitForSocket() {
+function clearReady(dir) {
+  try {
+    fs.unlinkSync(path.join(dir, 'ready.json'));
+  } catch {
+    // The marker is absent until this process finishes register.
+  }
+}
+
+function waitForSocket(dir) {
   const socketPath = path.join(dir, 'pulse.sock');
   const started = Date.now();
   return new Promise((resolve, reject) => {
@@ -94,7 +96,7 @@ function waitForSocket() {
         resolve(socketPath);
         return;
       }
-      if (Date.now() - started > 10_000) {
+      if (Date.now() - started > 30_000) {
         clearInterval(timer);
         reject(new Error('Pulse socket did not appear'));
       }
@@ -110,12 +112,12 @@ function connect(socketPath) {
   });
 }
 
-async function register(program) {
+async function register(dir, program) {
   const loaded = await import(pathToFileURL(program.module).href);
   const handlers = loaded.handlers ?? {};
   const bearer = fs.readFileSync(path.join(dir, 'bearer'), 'utf8');
   const artifact = fs.readFileSync(program.artifact, 'utf8');
-  const socketPath = await waitForSocket();
+  const socketPath = await waitForSocket(dir);
   const socket = await connect(socketPath);
   let buffer = Buffer.alloc(0);
   const waiters = [];
@@ -208,6 +210,17 @@ async function register(program) {
   if (auth.type === 'authError') {
     throw new Error(auth.message ?? 'authentication failed');
   }
+  const expectedVersion = process.env.TRIGORA_PULSE_EXPECT_VERSION;
+  const expectedProtocol = process.env.TRIGORA_PULSE_EXPECT_PROTOCOL;
+  if (
+    expectedVersion &&
+    (auth.version !== expectedVersion || String(auth.protocol) !== String(expectedProtocol))
+  ) {
+    console.error('Incompatible Pulse host');
+    console.error(`  Host: ${auth.version} protocol ${auth.protocol}`);
+    console.error(`  CLI: ${expectedVersion} protocol ${expectedProtocol}`);
+    process.exit(3);
+  }
   send(socket, {
     type: 'register',
     artifactHash: program.hash,
@@ -220,15 +233,54 @@ async function register(program) {
   if (registered.type === 'registerError') {
     throw new Error(registered.message ?? 'registration failed');
   }
+  return {
+    program,
+    send(frame) {
+      send(socket, frame);
+    },
+    waitFor,
+  };
 }
 
-try {
+export async function serve({ dir, manifestPath, onReady }) {
+  clearReady(dir);
+  const stop = () => {
+    clearReady(dir);
+    process.exit(0);
+  };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const programs = Array.isArray(manifest.programs) ? manifest.programs : [];
+  const sessions = [];
   for (const program of programs) {
-    await register(program);
+    sessions.push(await register(dir, program));
   }
   fs.writeFileSync(path.join(dir, 'ready.json'), JSON.stringify(manifest));
   console.log('ready');
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  if (onReady) {
+    await onReady(sessions);
+  }
+  await new Promise(() => {});
+}
+
+function invokedDirectly() {
+  const entry = process.argv[1];
+  if (!entry) {
+    return false;
+  }
+  return import.meta.url === pathToFileURL(path.resolve(entry)).href;
+}
+
+if (invokedDirectly()) {
+  const dir = process.argv[2];
+  const manifestPath = process.argv[3];
+  if (!dir || !manifestPath) {
+    console.error('usage: node pulse-adapter.mjs <directory> <manifest.json>');
+    process.exit(2);
+  }
+  serve({ dir, manifestPath }).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
 }

@@ -47,6 +47,9 @@ pub fn dispatch(args: &[String]) -> Result<(), CliError> {
         } => init::init(force, language, name, example),
         Invocation::Dev { host, port } => dev::dev(host, port),
         Invocation::PulseStart { ephemeral } => pulse::start(ephemeral),
+        Invocation::PulseConnect { dir, prepare } => {
+            pulse::connect(std::path::PathBuf::from(dir), prepare)
+        }
         Invocation::Deploy { program } => deploy_command(program),
         Invocation::Programs { remote } => commands::programs(remote),
         Invocation::Executions { remote } => commands::executions(remote),
