@@ -27,6 +27,12 @@ if ! docker info >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ -n "$(git -C "$root" status --porcelain)" ]]; then
+  echo "Error: working tree is dirty; commit changes before running production smoke." >&2
+  git -C "$root" status --short >&2
+  exit 1
+fi
+
 suffix=$(python3 -c 'import secrets,time; print(f"{int(time.time())}-{secrets.token_hex(4)}")')
 execution_id="pulse6e-${suffix}"
 host_name="pulse6e-host-${suffix}"

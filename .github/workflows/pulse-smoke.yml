@@ -23,6 +23,25 @@ jobs:
           repository: trigora-dev/tcc-engine
           ref: v26.10.4
           path: tcc-engine
+          fetch-tags: true
+      - name: Record the tested revisions
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          echo "source commit: $head"
+          echo "workflow sha: ${{ github.sha }}"
+          if [[ "$head" != "${{ github.sha }}" ]]; then
+            echo "checked-out commit does not match the workflow revision" >&2
+            exit 1
+          fi
+          tcc=$(git -C tcc-engine rev-parse HEAD)
+          tag=$(git -C tcc-engine describe --tags --exact-match HEAD)
+          echo "tcc-engine commit: $tcc"
+          echo "tcc-engine tag: $tag"
+          if [[ "$tag" != v26.10.4 ]]; then
+            echo "tcc-engine is not v26.10.4" >&2
+            exit 1
+          fi
       - uses: dtolnay/rust-toolchain@stable
       - uses: pnpm/action-setup@v5
         with:
@@ -45,3 +64,9 @@ jobs:
           unset TRIGORA_PULSE_WORKSPACE_TOKEN
           unset PULSE_IMAGE_PLATFORM
           ./release/pulse/production-smoke.sh
+          dirty=$(git -C tcc-engine status --porcelain)
+          if [[ -n "$dirty" ]]; then
+            echo "tcc-engine source changed during the smoke" >&2
+            printf '%s\n' "$dirty" >&2
+            exit 1
+          fi
