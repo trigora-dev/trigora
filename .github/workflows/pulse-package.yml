@@ -1,0 +1,99 @@
+name: pulse-package
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  native:
+    name: ${{ matrix.slot }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            slot: linux-x64
+          - os: ubuntu-24.04-arm
+            slot: linux-arm64
+          - os: macos-14
+            slot: darwin-arm64
+          - os: macos-15-intel
+            slot: darwin-x64
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: trigora-dev/tcc-engine
+          ref: v26.10.4
+          path: tcc-engine
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v5
+        if: matrix.slot == 'linux-x64'
+        with:
+          node-version: 22
+      - name: Build trigora-pulse
+        run: cargo build --release -p trigora-pulse
+      - name: Check the host version
+        run: |
+          set -euo pipefail
+          output=$(./target/release/trigora-pulse --version)
+          printf '%s\n' "$output"
+          python3 release/pulse/compatibility.py check-host --version-output "$output"
+      - name: Check the Node adapter handshake
+        if: matrix.slot == 'linux-x64'
+        run: bash release/pulse/handshake.sh target/release/trigora-pulse
+      - name: Build the local image
+        if: startsWith(matrix.slot, 'linux-')
+        run: |
+          set -euo pipefail
+          stage="${RUNNER_TEMP}/pulse-image"
+          mkdir -p "$stage"
+          cp target/release/trigora-pulse "$stage/trigora-pulse"
+          chmod +x "$stage/trigora-pulse"
+          cp crates/trigora-pulse/Dockerfile "$stage/Dockerfile"
+          docker build -t "trigora-pulse:candidate-${{ matrix.slot }}" "$stage"
+          echo "local candidate image trigora-pulse:candidate-${{ matrix.slot }}"
+          docker image inspect -f 'local candidate image id {{.Id}} architecture {{.Architecture}}' "trigora-pulse:candidate-${{ matrix.slot }}"
+          echo "This image id is a local candidate. It is not a GHCR release digest."
+      - name: Upload the binary
+        uses: actions/upload-artifact@v6
+        with:
+          name: binaries-${{ matrix.slot }}
+          path: target/release/trigora-pulse
+          if-no-files-found: error
+
+  bundle:
+    needs: native
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: binaries-*
+          path: native
+      - name: Write archives, checksums, and the compatibility manifest
+        run: |
+          set -euo pipefail
+          mkdir -p bins
+          for dir in native/binaries-*; do
+            slot="${dir#native/binaries-}"
+            mkdir -p "bins/$slot"
+            cp "$dir/trigora-pulse" "bins/$slot/trigora-pulse"
+            chmod +x "bins/$slot/trigora-pulse"
+          done
+          python3 release/pulse/compatibility.py assemble --bin-dir bins --out dist
+          python3 release/pulse/compatibility.py verify --dir dist
+      - name: Upload the unpublished bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: pulse-bundle
+          path: dist/
+          if-no-files-found: error

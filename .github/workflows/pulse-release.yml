@@ -1,0 +1,121 @@
+name: pulse-release
+
+# Publishes only when pulse-v1.0.0 is pushed on trigora-dev/trigora and the
+# protected release environment is approved. Phase 6E does not create that tag.
+on:
+  push:
+    tags: ['pulse-v1.0.0']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    permissions:
+      contents: read
+      actions: write
+    uses: ./.github/workflows/pulse-package.yml
+
+  publish:
+    needs: package
+    if: github.repository == 'trigora-dev/trigora' && github.ref == 'refs/tags/pulse-v1.0.0'
+    runs-on: ubuntu-24.04
+    environment: release
+    permissions:
+      id-token: write
+      contents: write
+      packages: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v7
+        with:
+          name: pulse-bundle
+          path: dist
+      - name: Check the tag, versions, and checksums
+        run: |
+          set -euo pipefail
+          python3 release/pulse/compatibility.py preflight \
+            --dir dist \
+            --repository "$GITHUB_REPOSITORY" \
+            --ref "$GITHUB_REF"
+      - name: Refuse an existing GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release ${GITHUB_REF_NAME} already exists" >&2
+            exit 1
+          fi
+      - name: Attest the release archives
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*.tar.gz
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push the multi-arch image
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import json; print(json.load(open("dist/pulse-compatibility.json"))["pulse_version"])')
+          test "$version" = "${GITHUB_REF_NAME#pulse-v}"
+          stage() {
+            local slot=$1
+            local dir=$2
+            mkdir -p "$dir"
+            tar -C "$dir" -xzf "dist/trigora-pulse-${version}-${slot}.tar.gz"
+            cp crates/trigora-pulse/Dockerfile "$dir/Dockerfile"
+            test -f "$dir/trigora-pulse"
+          }
+          stage linux-x64 ctx-amd64
+          stage linux-arm64 ctx-arm64
+          digest_of() {
+            python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["containerimage.digest"])' "$1"
+          }
+          docker buildx build \
+            --platform linux/amd64 \
+            --output "type=image,name=ghcr.io/trigora-dev/pulse,push-by-digest=true,name-canonical=true" \
+            --metadata-file amd64.json \
+            ctx-amd64
+          docker buildx build \
+            --platform linux/arm64 \
+            --output "type=image,name=ghcr.io/trigora-dev/pulse,push-by-digest=true,name-canonical=true" \
+            --metadata-file arm64.json \
+            ctx-arm64
+          amd=$(digest_of amd64.json)
+          arm=$(digest_of arm64.json)
+          case "$amd$arm" in
+            sha256:*sha256:*) ;;
+            *)
+              echo "image digests were not recorded" >&2
+              exit 1
+              ;;
+          esac
+          docker buildx imagetools create \
+            -t "ghcr.io/trigora-dev/pulse:${version}" \
+            "ghcr.io/trigora-dev/pulse@${amd}" \
+            "ghcr.io/trigora-dev/pulse@${arm}"
+          echo "published ghcr.io/trigora-dev/pulse:${version}"
+          echo "linux/amd64 digest ${amd}"
+          echo "linux/arm64 digest ${arm}"
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#pulse-v}
+          notes=$(printf '%s\n' \
+            "Trigora Pulse ${version}." \
+            "" \
+            "pulse-compatibility.json records the host version, adapter protocol, TCC Engine pin, and the CLI version that expects this host." \
+            "SHA256SUMS covers the platform archives." \
+            "The image is ghcr.io/trigora-dev/pulse:${version}.")
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Trigora Pulse ${version}" \
+            --notes "$notes"
