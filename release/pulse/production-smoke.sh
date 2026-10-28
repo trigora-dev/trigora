@@ -12,8 +12,8 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 compose=$root/examples/pulse-compose
-uid_num=${PULSE_UID:-1000}
-gid_num=${PULSE_GID:-1000}
+uid_num=${PULSE_UID:-$(id -u)}
+gid_num=${PULSE_GID:-$(id -g)}
 platform=${PULSE_IMAGE_PLATFORM:-}
 
 if [[ -z ${TRIGORA_TOKEN:-} || -z ${TRIGORA_TOKEN//[[:space:]]/} ]]; then
