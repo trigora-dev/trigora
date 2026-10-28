@@ -51,6 +51,8 @@ jobs:
           node-version: 22
       - name: Install the adapter dependencies
         run: pnpm install --frozen-lockfile
+      - name: Build the Node adapter
+        run: node packages/cli/scripts/build-adapter.mjs
       - name: Run the production-token smoke
         env:
           TRIGORA_TOKEN: ${{ secrets.TRIGORA_TOKEN }}
