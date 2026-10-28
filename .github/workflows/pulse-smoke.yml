@@ -1,0 +1,72 @@
+name: Pulse production smoke
+
+# Unpublished Phase 6E check. Dispatch only. It does not tag, push GHCR, or
+# create a GitHub Release. The native linux/amd64 runner is the architecture
+# gate. Apple Silicon emulation is not.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-amd64:
+    if: github.repository == 'trigora-dev/trigora'
+    runs-on: ubuntu-24.04
+    environment: release
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: trigora-dev/tcc-engine
+          ref: v26.10.4
+          path: tcc-engine
+          fetch-tags: true
+      - name: Record the tested revisions
+        run: |
+          set -euo pipefail
+          head=$(git rev-parse HEAD)
+          echo "source commit: $head"
+          echo "workflow sha: ${{ github.sha }}"
+          if [[ "$head" != "${{ github.sha }}" ]]; then
+            echo "checked-out commit does not match the workflow revision" >&2
+            exit 1
+          fi
+          tcc=$(git -C tcc-engine rev-parse HEAD)
+          tag=$(git -C tcc-engine describe --tags --exact-match HEAD)
+          echo "tcc-engine commit: $tcc"
+          echo "tcc-engine tag: $tag"
+          if [[ "$tag" != v26.10.4 ]]; then
+            echo "tcc-engine is not v26.10.4" >&2
+            exit 1
+          fi
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install the adapter dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Run the production-token smoke
+        env:
+          TRIGORA_TOKEN: ${{ secrets.TRIGORA_TOKEN }}
+        run: |
+          if [ -z "${TRIGORA_TOKEN}" ]; then
+            echo "TRIGORA_TOKEN is not set in the release environment." >&2
+            exit 2
+          fi
+          unset TRIGORA_PULSE_AUTHORITY_URL
+          unset TRIGORA_PULSE_WORKSPACE_ID
+          unset TRIGORA_PULSE_WORKSPACE_TOKEN
+          unset PULSE_IMAGE_PLATFORM
+          ./release/pulse/production-smoke.sh
+          dirty=$(git -C tcc-engine status --porcelain)
+          if [[ -n "$dirty" ]]; then
+            echo "tcc-engine source changed during the smoke" >&2
+            printf '%s\n' "$dirty" >&2
+            exit 1
+          fi
