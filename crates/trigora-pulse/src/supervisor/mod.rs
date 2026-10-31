@@ -1,6 +1,7 @@
 mod discovery;
 mod dispatch;
 mod lease;
+mod log;
 mod recovery;
 mod scheduler;
 mod state;
@@ -75,6 +76,7 @@ pub struct Config {
     pub lease_ms: u64,
     pub max_effect_attempts: u32,
     pub fault_after_commits: Option<u32>,
+    pub log_level: String,
 }
 
 impl Config {
@@ -88,6 +90,7 @@ impl Config {
             lease_ms: 60_000,
             max_effect_attempts: 2,
             fault_after_commits: None,
+            log_level: "info".to_string(),
         }
     }
 }
@@ -154,6 +157,7 @@ impl Runtime {
             waiting: Mutex::new(Vec::new()),
             timings: Mutex::new(Timings::default()),
             log_timings: std::env::var("TRIGORA_PULSE_TIMINGS").ok().as_deref() == Some("1"),
+            log: log::PulseLog::parse(&config.log_level),
             workers: Mutex::new(Vec::new()),
             accept: Mutex::new(None),
             renewers: Mutex::new(Vec::new()),
@@ -235,6 +239,10 @@ impl Runtime {
     /// observe the execution without taking someone else's lease.
     pub fn cancel(&self, execution_id: &str) -> Result<()> {
         self.inner.cancel_execution(execution_id)
+    }
+
+    pub(crate) fn log_lines(&self) -> Vec<String> {
+        self.inner.log.lines()
     }
 
     pub fn waiting(&self) -> Vec<VersionWait> {

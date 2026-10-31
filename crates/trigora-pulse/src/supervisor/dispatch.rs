@@ -7,6 +7,7 @@ use crate::drive::{self, Answer, Step};
 use crate::error::Result;
 use crate::socket::{DispatchError, TransportSample};
 
+use super::log::{commit_reason, is_connectivity, is_fence_loss};
 use super::state::{Phase, Slot};
 use super::{Dispatch, Inner, Span};
 
@@ -305,14 +306,32 @@ impl Inner {
                 }
                 self.commits_done.fetch_add(1, Ordering::SeqCst);
                 self.record_span(&id, &slot, commit);
+                self.log.commit_ok(&id, done.revision, commit);
+                if self.authority.has_remote() {
+                    self.log.authority("commit", true);
+                }
                 *slot.confirm.lock().expect("confirm") = Some(Ok(done.revision));
                 *phase = Phase::Runnable;
                 drop(phase);
                 self.wake_parent_of(&id);
                 self.enqueue(id);
             }
-            _ => {
+            Ok(_) => {
                 drop(phase);
+                self.log.fence_lost(&id);
+                self.log.commit_failed(&id, commit, "stale");
+                self.abandon(&id, &slot);
+            }
+            Err(err) => {
+                drop(phase);
+                let message = err.to_string();
+                if self.authority.has_remote() && is_connectivity(&message) {
+                    self.log.authority("commit", false);
+                }
+                if is_fence_loss(&message) {
+                    self.log.fence_lost(&id);
+                }
+                self.log.commit_failed(&id, commit, commit_reason(&message));
                 self.abandon(&id, &slot);
             }
         }

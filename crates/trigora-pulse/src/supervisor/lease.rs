@@ -2,6 +2,7 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 use std::time::Duration;
 
+use super::log::{is_connectivity, is_fence_loss};
 use super::state::{Phase, Slot};
 use super::Inner;
 
@@ -58,18 +59,26 @@ impl Inner {
             match self.authority.renew(&id, &self.owner, fence, self.lease_ms) {
                 Ok(renewed) if renewed.fence == fence => {
                     failures = 0;
+                    self.log.authority("renew", true);
                     slot.lease_until
                         .store(renewed.lease_until, Ordering::SeqCst);
                     self.note_park_signals(&id, &slot, &renewed);
                 }
                 Ok(_) => {
+                    self.log.fence_lost(&id);
                     self.lose_ownership(&id, &slot);
                     break;
                 }
                 Err(err) => {
                     let message = err.to_string();
-                    let fatal = message == "stale owner" || message == "execution is owned";
+                    if is_connectivity(&message) {
+                        self.log.authority("renew", false);
+                    }
+                    let fatal = is_fence_loss(&message);
                     failures += 1;
+                    if fatal {
+                        self.log.fence_lost(&id);
+                    }
                     if fatal || failures >= 3 {
                         self.lose_ownership(&id, &slot);
                         break;

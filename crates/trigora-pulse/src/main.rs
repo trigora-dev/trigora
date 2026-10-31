@@ -86,6 +86,10 @@ fn main() -> ExitCode {
     let owner = process_owner();
     eprintln!("Pulse owner {owner}");
     let mut config = Config::new(dir, owner);
+    config.log_level = match env::var("TRIGORA_PULSE_LOG_LEVEL") {
+        Ok(value) if value.trim() == "debug" => "debug".to_string(),
+        _ => "info".to_string(),
+    };
     if let Ok(ms) = env::var("TRIGORA_PULSE_EFFECT_TIMEOUT_MS") {
         if let Ok(ms) = ms.parse::<u64>() {
             config.effect_timeout = Duration::from_millis(ms);

@@ -1,10 +1,11 @@
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::authority::{handler_digest, timers_of, Discovered, Readiness, Renewed};
 use crate::error::{Error, Result};
 
+use super::log::{is_connectivity, refusal_reason};
 use super::state::{Phase, Slot};
 use super::Inner;
 
@@ -156,7 +157,18 @@ impl Inner {
         }
         let digest = handler_digest(&registered.keys);
         let after = self.discover_cursor.lock().expect("cursor").clone();
-        let page = self.authority.discover(&registered.hash, &digest, &after)?;
+        let page = match self.authority.discover(&registered.hash, &digest, &after) {
+            Ok(page) => {
+                self.log.authority("discover", true);
+                page
+            }
+            Err(err) => {
+                if is_connectivity(&err.to_string()) {
+                    self.log.authority("discover", false);
+                }
+                return Err(err);
+            }
+        };
         if page.is_empty() {
             *self.discover_cursor.lock().expect("cursor") = String::new();
             return Ok(Poll::Idle);
@@ -202,21 +214,43 @@ impl Inner {
         if self.slot(execution_id).is_some() || self.in_backlog(execution_id) {
             return Ok(Admit::Advanced);
         }
+        let started = Instant::now();
         let restored = match self.restore_claimed(execution_id, &registered.hash, &registered.keys)
         {
             Ok(restored) => restored,
-            Err(err) if expected_skip(&err) => return Ok(Admit::Refused),
-            Err(err) => return Err(err),
+            Err(err) if expected_skip(&err) => {
+                self.log.claim(
+                    execution_id,
+                    "refused",
+                    None,
+                    started.elapsed(),
+                    Some(refusal_reason(&err.to_string())),
+                );
+                return Ok(Admit::Refused);
+            }
+            Err(err) => {
+                if is_connectivity(&err.to_string()) {
+                    self.log.authority("discover", false);
+                }
+                return Err(err);
+            }
         };
+        self.log.authority("discover", true);
+        let fence = restored.fence;
+        let elapsed = started.elapsed();
         let keys = crate::authority::canonical_keys(&registered.keys);
         // A cancel or child result can make this claim terminal. That outcome
         // is still uncommitted, so it has to run. Parking is only for a wait
         // that this claim did not wake.
         if restored.suspended && !restored.terminal {
             self.park_new(execution_id, restored, registered.hash.clone(), keys);
+            self.log
+                .claim(execution_id, "parked", Some(fence), elapsed, None);
             return Ok(Admit::Advanced);
         }
         if !self.take_active() {
+            self.log
+                .claim(execution_id, "acquired", Some(fence), elapsed, None);
             return Ok(Admit::NeedsActive);
         }
         self.launch(
@@ -228,6 +262,8 @@ impl Inner {
             registered.hash.clone(),
             keys,
         );
+        self.log
+            .claim(execution_id, "acquired", Some(fence), elapsed, None);
         Ok(Admit::Advanced)
     }
 
@@ -271,13 +307,24 @@ impl Inner {
             let fence = slot.fence.load(Ordering::SeqCst);
             match self.authority.renew(&id, &self.owner, fence, self.lease_ms) {
                 Ok(renewed) if renewed.fence == fence => {
+                    self.log.authority("renew", true);
                     slot.lease_until
                         .store(renewed.lease_until, Ordering::SeqCst);
                     self.note_park_signals(&id, &slot, &renewed);
                 }
-                Ok(_) => self.lose_ownership(&id, &slot),
-                Err(err) if fatal_renewal(&err) => self.lose_ownership(&id, &slot),
-                Err(_) => {}
+                Ok(_) => {
+                    self.log.fence_lost(&id);
+                    self.lose_ownership(&id, &slot);
+                }
+                Err(err) if fatal_renewal(&err) => {
+                    self.log.fence_lost(&id);
+                    self.lose_ownership(&id, &slot);
+                }
+                Err(err) => {
+                    if is_connectivity(&err.to_string()) {
+                        self.log.authority("renew", false);
+                    }
+                }
             }
         }
     }

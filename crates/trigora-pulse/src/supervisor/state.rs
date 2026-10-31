@@ -11,6 +11,7 @@ use crate::authority::Authority;
 use crate::drive::{Answer, Memory};
 use crate::socket::{Connection, Listener};
 
+use super::log::PulseLog;
 use super::{Dispatch, Timings, VersionWait};
 
 pub(super) enum Phase {
@@ -108,6 +109,7 @@ pub(super) struct Inner {
     pub(super) waiting: Mutex<Vec<VersionWait>>,
     pub(super) timings: Mutex<Timings>,
     pub(super) log_timings: bool,
+    pub(super) log: PulseLog,
     pub(super) workers: Mutex<Vec<JoinHandle<()>>>,
     pub(super) accept: Mutex<Option<JoinHandle<()>>>,
     pub(super) renewers: Mutex<Vec<JoinHandle<()>>>,

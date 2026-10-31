@@ -141,6 +141,15 @@ fn a_v2_worker_cannot_claim_a_v1_execution() {
     assert_eq!(waiting[0].execution_id, "exec");
     assert_eq!(waiting[0].artifact_hash, "v1");
     assert_eq!(waiting[0].reason, "waiting-for-version");
+    let logged = host.runtime.log_lines();
+    assert!(
+        logged.iter().any(|line| {
+            line.contains("\"event\":\"waiting-for-version\"")
+                && line.contains("\"artifactHash\":\"v1\"")
+        }),
+        "{logged:?}"
+    );
+    assert!(logged.iter().all(|line| !line.contains("TRIGORA_TOKEN")));
     assert!(waiting[0].message.contains("artifact v1"));
     assert!(waiting[0].message.contains("Deploy a worker"));
     let held = authority.view("exec").unwrap();

@@ -15,6 +15,7 @@ use crate::authority::{canonical_keys, Claimed, Commit};
 use crate::drive::{self, Memory};
 use crate::error::{Error, Result};
 
+use super::log::{commit_reason, is_connectivity, is_fence_loss, refusal_reason};
 use super::state::{version_wait, Phase, Slot};
 use super::Inner;
 
@@ -203,6 +204,7 @@ impl Inner {
         snapshot.revision = started.revision.saturating_add(1);
         let bytes = encode_continuation(&snapshot)
             .map_err(|err| Error::new(format!("encode continuation: {err}")))?;
+        let commit_started = Instant::now();
         let committed = self.authority.commit(&Commit {
             execution_id: id.to_string(),
             owner_token: self.owner.clone(),
@@ -214,7 +216,28 @@ impl Inner {
             waits: None,
             artifact_hash: artifact_hash.to_string(),
             handler_keys: keys.clone(),
-        })?;
+        });
+        let elapsed = commit_started.elapsed();
+        let committed = match committed {
+            Ok(committed) => {
+                self.log.commit_ok(id, committed.revision, elapsed);
+                if self.authority.has_remote() {
+                    self.log.authority("commit", true);
+                }
+                committed
+            }
+            Err(err) => {
+                let message = err.to_string();
+                if self.authority.has_remote() && is_connectivity(&message) {
+                    self.log.authority("commit", false);
+                }
+                if is_fence_loss(&message) {
+                    self.log.fence_lost(id);
+                }
+                self.log.commit_failed(id, elapsed, commit_reason(&message));
+                return Err(err);
+            }
+        };
         snapshot.revision = committed.revision;
         let engine = Engine::resume(artifact, snapshot, &self.caps)
             .map_err(|err| Error::new(err.to_string()))?;
@@ -316,7 +339,7 @@ impl Inner {
         } else if self.has_registration(&pin.artifact_hash, &pin.handler_keys) {
             (pin.artifact_hash, pin.handler_keys)
         } else {
-            self.note_waiting(execution_id, &pin.artifact_hash);
+            self.note_version_mismatch(execution_id, &pin.artifact_hash);
             return Ok(());
         };
         self.claim_or_wait(execution_id, &hash, &keys)
@@ -343,7 +366,7 @@ impl Inner {
         {
             (pin.artifact_hash, canonical_keys(&pin.handler_keys))
         } else {
-            self.note_waiting(execution_id, &pin.artifact_hash);
+            self.note_version_mismatch(execution_id, &pin.artifact_hash);
             return Ok(());
         };
         self.claim_or_wait(execution_id, &hash, &keys)
@@ -461,7 +484,22 @@ impl Inner {
         artifact_hash: &str,
         handler_keys: &[String],
     ) -> Result<()> {
-        let restored = self.restore_claimed(execution_id, artifact_hash, handler_keys)?;
+        let started = Instant::now();
+        let restored = match self.restore_claimed(execution_id, artifact_hash, handler_keys) {
+            Ok(restored) => restored,
+            Err(err) => {
+                let message = err.to_string();
+                self.log.claim(
+                    execution_id,
+                    "refused",
+                    None,
+                    started.elapsed(),
+                    Some(refusal_reason(&message)),
+                );
+                return Err(err);
+            }
+        };
+        let fence = restored.fence;
         self.admit(
             execution_id.to_string(),
             restored.engine,
@@ -470,6 +508,13 @@ impl Inner {
             restored.lease_until,
             artifact_hash.to_string(),
             canonical_keys(handler_keys),
+        );
+        self.log.claim(
+            execution_id,
+            "acquired",
+            Some(fence),
+            started.elapsed(),
+            None,
         );
         Ok(())
     }
@@ -543,6 +588,19 @@ impl Inner {
             if let Err(err) = self.resume_execution(&id) {
                 self.note_failure(&id, err.to_string());
             }
+        }
+    }
+
+    fn note_version_mismatch(&self, execution_id: &str, artifact_hash: &str) {
+        let already = self
+            .waiting
+            .lock()
+            .expect("waiting")
+            .iter()
+            .any(|item| item.execution_id == execution_id);
+        self.note_waiting(execution_id, artifact_hash);
+        if !already {
+            self.log.waiting_for_version(execution_id, artifact_hash);
         }
     }
 
