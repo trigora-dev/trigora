@@ -1,3 +1,4 @@
+mod discovery;
 mod dispatch;
 mod lease;
 mod recovery;
@@ -151,9 +152,18 @@ impl Runtime {
             workers: Mutex::new(Vec::new()),
             accept: Mutex::new(None),
             renewers: Mutex::new(Vec::new()),
+            discover: Mutex::new(None),
+            discover_cursor: Mutex::new(String::new()),
+            discover_blocked: Mutex::new(None),
+            discover_blocked_active: AtomicBool::new(false),
             me: OnceLock::new(),
         });
         let _ = inner.me.set(Arc::downgrade(&inner));
+        if inner.authority.has_remote() {
+            let recovery = Arc::clone(&inner);
+            let handle = std::thread::spawn(move || recovery.recovery_loop());
+            *inner.discover.lock().expect("discover") = Some(handle);
+        }
         let accept_inner = Arc::clone(&inner);
         let accept = std::thread::spawn(move || accept_loop(accept_inner));
         *inner.accept.lock().expect("accept") = Some(accept);
@@ -489,6 +499,9 @@ impl Inner {
         }
         let workers = std::mem::take(&mut *self.workers.lock().expect("workers"));
         for handle in workers {
+            let _ = handle.join();
+        }
+        if let Some(handle) = self.discover.lock().expect("discover").take() {
             let _ = handle.join();
         }
         let renewers = std::mem::take(&mut *self.renewers.lock().expect("renewers"));

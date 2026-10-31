@@ -18,7 +18,13 @@ impl Inner {
             Step::Disconnected => self.park_for_adapter(id, slot),
             Step::Commit(commit) => self.begin_commit(id, slot, commit),
             Step::EnsureChild(child) => self.ensure_child(id, slot, child),
-            Step::Suspended => self.settle(slot, Phase::Suspended, &self.suspended),
+            Step::Suspended => {
+                if self.authority.has_remote() {
+                    self.park_retained(slot);
+                } else {
+                    self.settle(slot, Phase::Suspended, &self.suspended);
+                }
+            }
             Step::Finished => self.settle(slot, Phase::Completed, &self.completed),
             Step::Cancelled => self.settle(slot, Phase::Cancelled, &self.cancelled),
             Step::Failed(message) => {

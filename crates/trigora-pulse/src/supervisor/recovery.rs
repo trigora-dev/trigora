@@ -18,6 +18,15 @@ use crate::error::{Error, Result};
 use super::state::{version_wait, Phase, Slot};
 use super::Inner;
 
+pub(super) struct Restored {
+    pub(super) engine: Engine,
+    pub(super) memory: Memory,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    pub(super) suspended: bool,
+    pub(super) terminal: bool,
+}
+
 impl Inner {
     pub(super) fn has_adapter(
         &self,
@@ -452,6 +461,25 @@ impl Inner {
         artifact_hash: &str,
         handler_keys: &[String],
     ) -> Result<()> {
+        let restored = self.restore_claimed(execution_id, artifact_hash, handler_keys)?;
+        self.admit(
+            execution_id.to_string(),
+            restored.engine,
+            restored.memory,
+            restored.fence,
+            restored.lease_until,
+            artifact_hash.to_string(),
+            canonical_keys(handler_keys),
+        );
+        Ok(())
+    }
+
+    pub(super) fn restore_claimed(
+        &self,
+        execution_id: &str,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<Restored> {
         let started = Instant::now();
         let artifact = self.artifact(artifact_hash)?;
         let claimed = self.authority.claim(
@@ -488,20 +516,19 @@ impl Inner {
             .expect("timings")
             .restore
             .push(started.elapsed());
-        self.admit(
-            execution_id.to_string(),
+        let status = engine.continuation().status;
+        Ok(Restored {
+            suspended: status == ContinuationStatus::Suspended,
+            terminal: terminal_status(status),
             engine,
-            Memory {
+            memory: Memory {
                 journal: claimed.journal,
                 revision: claimed.revision,
                 last_effect: None,
             },
-            claimed.fence,
-            claimed.lease_until,
-            artifact_hash.to_string(),
-            canonical_keys(handler_keys),
-        );
-        Ok(())
+            fence: claimed.fence,
+            lease_until: claimed.lease_until,
+        })
     }
 
     pub(super) fn resume_waiting(&self) {

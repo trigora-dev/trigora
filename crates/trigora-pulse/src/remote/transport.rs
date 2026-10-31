@@ -150,6 +150,20 @@ impl Endpoint {
         }
     }
 
+    pub(super) fn is_gateway(&self) -> bool {
+        matches!(self.route, Route::Gateway)
+    }
+
+    pub(super) fn discover_path(&self, query: &str) -> String {
+        let rest = match &self.route {
+            Route::Authority { workspace } => {
+                format!("v1/workspaces/{workspace}/discover?{query}")
+            }
+            Route::Gateway => format!("v1/pulse/discover?{query}"),
+        };
+        join_path(&self.base_path, &rest)
+    }
+
     pub(super) fn execution_path(&self, execution_id: &str, action: &str) -> String {
         let rest = match &self.route {
             Route::Authority { workspace } => {

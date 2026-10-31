@@ -126,6 +126,23 @@ pub struct Renewed {
     pub owner: String,
     pub fence: u64,
     pub lease_until: u64,
+    pub timer_due: bool,
+    pub cancel_requested: bool,
+    pub has_accepted_event: bool,
+    pub child_ready: bool,
+    pub next_wake_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Readiness {
+    Runnable,
+    Parkable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Discovered {
+    pub execution_id: String,
+    pub readiness: Readiness,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -13,10 +13,10 @@ use std::sync::Mutex;
 
 use serde_json::json;
 
-use crate::authority::{Claimed, Commit, CommitResult, View};
+use crate::authority::{Claimed, Commit, CommitResult, Discovered, Readiness, View};
 use crate::error::{Error, Result};
 
-use protocol::{QueryResponse, RenewResponse};
+use protocol::{DiscoverBody, QueryResponse, RenewResponse};
 use sqlite::CacheEntry;
 use transport::{parse_origin, Endpoint, Route};
 
@@ -208,6 +208,39 @@ impl RemoteClient {
         self.claim_sqlite(execution_id, owner, lease_ms, artifact_hash, handler_keys)
     }
 
+    pub fn is_gateway(&self) -> bool {
+        self.endpoint.is_gateway()
+    }
+
+    pub fn discover(
+        &self,
+        artifact_hash: &str,
+        handler_digest: &str,
+        after: &str,
+    ) -> Result<Vec<Discovered>> {
+        let query = format!(
+            "artifactHash={artifact_hash}&handlerDigest={handler_digest}&after={after}&limit=20"
+        );
+        let found: DiscoverBody = self
+            .endpoint
+            .call_json("GET", &self.endpoint.discover_path(&query))?;
+        found
+            .executions
+            .into_iter()
+            .map(|row| {
+                let readiness = match row.readiness.as_str() {
+                    "parkable" => Readiness::Parkable,
+                    "runnable" => Readiness::Runnable,
+                    _ => return Err(Error::new("discovery readiness is invalid")),
+                };
+                Ok(Discovered {
+                    execution_id: row.execution_id,
+                    readiness,
+                })
+            })
+            .collect()
+    }
+
     pub fn renew(
         &self,
         execution_id: &str,
@@ -224,6 +257,11 @@ impl RemoteClient {
             owner: renewed.owner,
             fence: renewed.fence,
             lease_until: renewed.lease_until,
+            timer_due: renewed.timer_due,
+            cancel_requested: renewed.cancel_requested,
+            has_accepted_event: renewed.has_accepted_event,
+            child_ready: renewed.child_ready,
+            next_wake_at: renewed.next_wake_at,
         })
     }
 

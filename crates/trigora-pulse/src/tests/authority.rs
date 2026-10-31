@@ -127,6 +127,14 @@ fn same_bytes_with_different_journal_or_timers_conflict() {
 }
 
 #[test]
+fn handler_digest_is_the_canonical_key_json() {
+    assert_eq!(
+        handler_digest(&["deliver".into()]),
+        "3065db38b733dbee5e1b167029d6b5bc4fde9e46bce6225d172b855282fc2d43"
+    );
+}
+
+#[test]
 fn claim_reports_a_due_timer_only_after_the_clock() {
     let authority = Authority::new();
     authority.open("exec", "A", 1_000).unwrap();

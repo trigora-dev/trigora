@@ -88,6 +88,15 @@ fn main() -> ExitCode {
             config.effect_timeout = Duration::from_millis(ms);
         }
     }
+    if let Ok(value) = env::var("TRIGORA_PULSE_MAX_ACTIVE") {
+        match value.parse::<usize>() {
+            Ok(cap) if cap > 0 => config.cap = cap,
+            _ => {
+                eprintln!("TRIGORA_PULSE_MAX_ACTIVE must be a positive integer");
+                return ExitCode::from(2);
+            }
+        }
+    }
     if let Ok(ms) = env::var("TRIGORA_PULSE_LEASE_MS") {
         if let Ok(ms) = ms.parse::<u64>() {
             if ms > 0 {

@@ -10,11 +10,13 @@ use std::sync::{Arc, Mutex};
 
 pub use types::{
     AcceptedEvent, CancelReceipt, Claimed, Commit, CommitQuery, CommitResult, CreatedChild,
-    EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, Renewed, StartedChild,
-    TimerRow, VersionPin, View, WaitRow,
+    Discovered, EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, Readiness,
+    Renewed, StartedChild, TimerRow, VersionPin, View, WaitRow,
 };
 
-pub(crate) use identity::{canonical_keys, commit_identity, sha256, timers_of, waits_of};
+pub(crate) use identity::{
+    canonical_keys, commit_identity, handler_digest, sha256, timers_of, waits_of,
+};
 
 use crate::error::{Error, Result};
 
@@ -54,6 +56,26 @@ impl Authority {
 
     pub fn has_remote(&self) -> bool {
         self.remote.is_some()
+    }
+
+    /// Automatic discovery is only the token gateway. A direct authority
+    /// connection and the in-memory stand-in do not poll.
+    pub fn discovers(&self) -> bool {
+        self.remote
+            .as_ref()
+            .is_some_and(|remote| remote.is_gateway())
+    }
+
+    pub fn discover(
+        &self,
+        artifact_hash: &str,
+        handler_digest: &str,
+        after: &str,
+    ) -> Result<Vec<Discovered>> {
+        let Some(remote) = &self.remote else {
+            return Ok(Vec::new());
+        };
+        remote.discover(artifact_hash, handler_digest, after)
     }
 
     pub fn open(&self, execution_id: &str, owner_token: &str, lease_ms: u64) -> Result<Claimed> {

@@ -101,6 +101,8 @@ impl Inner {
             renewing: AtomicBool::new(false),
             cancel: AtomicBool::new(false),
             child_ready: AtomicBool::new(false),
+            parked_until: AtomicU64::new(0),
+            park_timer: AtomicBool::new(false),
             artifact_hash,
             handler_keys,
         });
@@ -200,6 +202,22 @@ impl Inner {
             .iter()
             .any(|item| item.id == id)
     }
+    pub(super) fn active_full(&self) -> bool {
+        let queue = self.queue.lock().expect("queue");
+        queue.inflight >= self.cap || !queue.backlog.is_empty()
+    }
+
+    /// Reserve one active slot. The caller launches the engine or gives it back.
+    pub(super) fn take_active(&self) -> bool {
+        let mut queue = self.queue.lock().expect("queue");
+        if queue.inflight >= self.cap || !queue.backlog.is_empty() {
+            return false;
+        }
+        queue.inflight += 1;
+        queue.max_inflight = queue.max_inflight.max(queue.inflight);
+        true
+    }
+
     pub(super) fn release_inflight(&self) {
         let next = {
             let mut queue = self.queue.lock().expect("queue");

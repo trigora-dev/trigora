@@ -45,6 +45,8 @@ pub(super) struct SqliteClaimResponse {
     pub(super) cancel_requested: bool,
     #[serde(default)]
     pub(super) intent: Option<IntentJson>,
+    #[serde(default)]
+    pub(super) timer_due: bool,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +126,29 @@ pub(super) struct RenewResponse {
     pub(super) owner: String,
     pub(super) fence: u64,
     pub(super) lease_until: u64,
+    #[serde(default)]
+    pub(super) timer_due: bool,
+    #[serde(default)]
+    pub(super) cancel_requested: bool,
+    #[serde(default)]
+    pub(super) has_accepted_event: bool,
+    #[serde(default)]
+    pub(super) child_ready: bool,
+    #[serde(default)]
+    pub(super) next_wake_at: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DiscoverBody {
+    pub(super) executions: Vec<DiscoverRow>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DiscoverRow {
+    pub(super) execution_id: String,
+    pub(super) readiness: String,
 }
 
 #[derive(Deserialize)]

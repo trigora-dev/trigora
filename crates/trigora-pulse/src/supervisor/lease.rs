@@ -60,10 +60,10 @@ impl Inner {
                     failures = 0;
                     slot.lease_until
                         .store(renewed.lease_until, Ordering::SeqCst);
+                    self.note_park_signals(&id, &slot, &renewed);
                 }
                 Ok(_) => {
-                    slot.live.store(false, Ordering::SeqCst);
-                    self.abandon(&id, &slot);
+                    self.lose_ownership(&id, &slot);
                     break;
                 }
                 Err(err) => {
@@ -71,8 +71,7 @@ impl Inner {
                     let fatal = message == "stale owner" || message == "execution is owned";
                     failures += 1;
                     if fatal || failures >= 3 {
-                        slot.live.store(false, Ordering::SeqCst);
-                        self.abandon(&id, &slot);
+                        self.lose_ownership(&id, &slot);
                         break;
                     }
                     std::thread::sleep(Duration::from_millis(50 * u64::from(failures)));

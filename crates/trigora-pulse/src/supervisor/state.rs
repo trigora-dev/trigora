@@ -55,6 +55,8 @@ pub(super) struct Slot {
     pub(super) renewing: AtomicBool,
     pub(super) cancel: AtomicBool,
     pub(super) child_ready: AtomicBool,
+    pub(super) parked_until: AtomicU64,
+    pub(super) park_timer: AtomicBool,
     pub(super) artifact_hash: String,
     pub(super) handler_keys: Vec<String>,
 }
@@ -109,6 +111,10 @@ pub(super) struct Inner {
     pub(super) workers: Mutex<Vec<JoinHandle<()>>>,
     pub(super) accept: Mutex<Option<JoinHandle<()>>>,
     pub(super) renewers: Mutex<Vec<JoinHandle<()>>>,
+    pub(super) discover: Mutex<Option<JoinHandle<()>>>,
+    pub(super) discover_cursor: Mutex<String>,
+    pub(super) discover_blocked: Mutex<Option<String>>,
+    pub(super) discover_blocked_active: AtomicBool,
     pub(super) me: OnceLock<Weak<Inner>>,
 }
 

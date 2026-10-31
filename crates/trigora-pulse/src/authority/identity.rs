@@ -5,6 +5,11 @@ use tcc_state::{Continuation, ContinuationStatus, PendingOp, WaitKind};
 
 use super::types::{JournalRow, TimerRow, WaitRow};
 
+pub(crate) fn handler_digest(keys: &[String]) -> String {
+    let encoded = serde_json::to_string(&canonical_keys(keys)).unwrap_or_else(|_| "[]".to_string());
+    sha256(encoded.as_bytes())
+}
+
 pub(crate) fn canonical_keys(keys: &[String]) -> Vec<String> {
     let mut keys = keys.to_vec();
     keys.sort();

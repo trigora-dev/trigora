@@ -52,10 +52,18 @@ pub(super) fn renew(
         return Err(Error::new("stale owner"));
     }
     record.lease_until = clock.saturating_add(lease_ms);
+    let next_wake_at = record.timers.iter().map(|timer| timer.due_at).min();
+    let timer_due = record.status == ContinuationStatus::Suspended
+        && next_wake_at.is_some_and(|due| due <= clock);
     Ok(Renewed {
         owner: owner_token.to_string(),
         fence: record.fence,
         lease_until: record.lease_until,
+        timer_due,
+        cancel_requested: record.cancel_requested,
+        has_accepted_event: record.event.is_some(),
+        child_ready: false,
+        next_wake_at,
     })
 }
 

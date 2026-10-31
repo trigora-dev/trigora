@@ -1,6 +1,10 @@
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tcc_state::{encode_continuation, Continuation, ContinuationStatus, PendingOp, WaitKind};
+
+use crate::authority::Commit;
 use crate::{Adapter, Authority, Reply};
 
 use super::common::*;
@@ -106,4 +110,45 @@ fn a_late_callback_does_not_advance_after_ownership_is_lost() {
     let view = authority.view("exec").expect("view");
     assert_eq!(view.revision, 0);
     assert!(view.journal.is_empty());
+}
+
+#[test]
+fn remote_claim_uses_the_authority_clock_for_a_timer() {
+    let server = crate::remote::serve();
+    let authority = Authority::new().with_remote(server.client());
+    authority.advance_clock(1_000).unwrap();
+    authority.open("timer", "A", 1_000).unwrap();
+    let mut continuation = Continuation::start("timer", "artifact", 1, "ts.subset.v1", 0, 0);
+    continuation.revision = 1;
+    continuation.status = ContinuationStatus::Suspended;
+    continuation.pending = Some(PendingOp::Wait {
+        kind: WaitKind::Timer {
+            resume_at_ms: 5_000,
+        },
+    });
+    authority
+        .commit(&Commit {
+            execution_id: "timer".into(),
+            owner_token: "A".into(),
+            fence: 1,
+            expected_revision: 0,
+            continuation: encode_continuation(&continuation).unwrap(),
+            journal: BTreeMap::new(),
+            timers: None,
+            waits: None,
+            artifact_hash: "artifact".into(),
+            handler_keys: Vec::new(),
+        })
+        .unwrap();
+    authority.advance_clock(2_500).unwrap();
+    let early = authority
+        .claim("timer", "B", 1_000, "artifact", &[])
+        .unwrap();
+    assert!(!early.timer_due);
+    authority.advance_clock(5_000).unwrap();
+    let due = authority
+        .claim("timer", "C", 1_000, "artifact", &[])
+        .unwrap();
+    assert!(due.timer_due);
+    assert_eq!(due.revision, 1);
 }
