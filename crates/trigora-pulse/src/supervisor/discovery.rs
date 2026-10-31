@@ -208,11 +208,11 @@ impl Inner {
             Err(err) if expected_skip(&err) => return Ok(Admit::Refused),
             Err(err) => return Err(err),
         };
-        if restored.terminal {
-            return Ok(Admit::Refused);
-        }
         let keys = crate::authority::canonical_keys(&registered.keys);
-        if restored.suspended {
+        // A cancel or child result can make this claim terminal. That outcome
+        // is still uncommitted, so it has to run. Parking is only for a wait
+        // that this claim did not wake.
+        if restored.suspended && !restored.terminal {
             self.park_new(execution_id, restored, registered.hash.clone(), keys);
             return Ok(Admit::Advanced);
         }
@@ -321,18 +321,25 @@ impl Inner {
 
     fn registered_adapter(&self) -> Option<Registered> {
         let connections = self.connections.lock().expect("connections");
-        connections.iter().find_map(|connection| {
+        for connection in connections.iter() {
             if !connection.alive() {
-                return None;
+                continue;
             }
             let hash = connection.artifact_hash.clone();
-            let keys = connection.keys.clone();
-            if self.has_registration(&hash, &keys) {
-                Some(Registered { hash, keys })
-            } else {
-                None
+            let installed = self
+                .artifacts
+                .lock()
+                .expect("artifacts")
+                .contains_key(&hash);
+            if !installed {
+                continue;
             }
-        })
+            return Some(Registered {
+                hash,
+                keys: connection.keys.clone(),
+            });
+        }
+        None
     }
 }
 
