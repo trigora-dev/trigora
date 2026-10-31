@@ -75,7 +75,11 @@ impl RemoteClient {
         }
         let digest = authority::sha256(&commit.continuation);
         let identity = authority::commit_identity(next, &digest, &commit.journal, &timers, &waits);
-        let cached = self.prepare(&commit.execution_id, &commit.owner_token)?;
+        let cached = match self.prepare(&commit.execution_id, &commit.owner_token) {
+            Ok(entry) => entry,
+            Err(err) if err.to_string() == "invalid owner" => blank_entry(&commit.owner_token),
+            Err(err) => return Err(err),
+        };
         let changed = changed_rows(&cached.journal, &commit.journal)?;
         let unchanged =
             !cached.continuation.is_empty() && authority::sha256(&cached.continuation) == digest;
@@ -443,23 +447,27 @@ impl RemoteClient {
         }
         match self.fetch_entry(execution_id, owner) {
             Ok(entry) => Ok(entry),
-            Err(err) if err.to_string() == "unknown execution" => Ok(CacheEntry {
-                journal: BTreeMap::new(),
-                revision: 0,
-                continuation: Vec::new(),
-                timers: Vec::new(),
-                waits: Vec::new(),
-                status: ContinuationStatus::Runnable,
-                owner: owner.to_string(),
-                fence: 1,
-                lease_until: 0,
-            }),
+            Err(err) if err.to_string() == "unknown execution" => Ok(blank_entry(owner)),
             Err(err) => Err(err),
         }
     }
 
     pub(super) fn fetch_entry(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
         self.fetch_sqlite(execution_id, owner)
+    }
+}
+
+fn blank_entry(owner: &str) -> CacheEntry {
+    CacheEntry {
+        journal: BTreeMap::new(),
+        revision: 0,
+        continuation: Vec::new(),
+        timers: Vec::new(),
+        waits: Vec::new(),
+        status: ContinuationStatus::Runnable,
+        owner: owner.to_string(),
+        fence: 1,
+        lease_until: 0,
     }
 }
 
