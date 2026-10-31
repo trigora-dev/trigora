@@ -247,6 +247,19 @@ impl Authority {
         ownership::view(&self.lock(), execution_id)
     }
 
+    /// Read the committed record as a specific owner. A shared remote client
+    /// remembers the last caller, and that hint is not a lease.
+    pub(crate) fn read_as(&self, execution_id: &str, owner: &str) -> Result<View> {
+        if let Some(remote) = &self.remote {
+            return remote.view_as(execution_id, owner);
+        }
+        let view = ownership::view(&self.lock(), execution_id)?;
+        if view.owner.as_deref() != Some(owner) {
+            return Err(Error::new("invalid owner"));
+        }
+        Ok(view)
+    }
+
     /// Read a child's committed continuation. The caller is the parent execution,
     /// not the child's owner, so this does not require the child's lease.
     pub fn view_child(&self, child_id: &str, parent_id: &str) -> Result<View> {

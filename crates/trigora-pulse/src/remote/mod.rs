@@ -300,7 +300,13 @@ impl RemoteClient {
             .expect("owner")
             .clone()
             .ok_or_else(|| crate::error::Error::new("unknown owner"))?;
-        self.view_entry(self.fetch_entry(execution_id, &owner)?)
+        self.view_as(execution_id, &owner)
+    }
+
+    /// Read with an explicit owner. Does not change the owner hint a later
+    /// `view` uses, so a refused claim cannot hide the live lease.
+    pub(crate) fn view_as(&self, execution_id: &str, owner: &str) -> Result<View> {
+        self.view_entry(self.fetch_entry(execution_id, owner)?)
     }
 
     pub fn connections_opened(&self) -> usize {
