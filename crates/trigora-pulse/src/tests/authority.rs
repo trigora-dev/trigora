@@ -127,6 +127,21 @@ fn same_bytes_with_different_journal_or_timers_conflict() {
 }
 
 #[test]
+fn a_process_owner_is_fresh_for_each_process() {
+    let first = crate::process_owner();
+    let second = crate::process_owner();
+    assert_ne!(first, second);
+    assert!(first.starts_with("pulse-"));
+    assert!(second.starts_with("pulse-"));
+    assert!(first.len() <= 128);
+    assert!(first.chars().all(|ch| ch.is_ascii_alphanumeric()
+        || ch == '-'
+        || ch == '_'
+        || ch == '.'
+        || ch == ':'));
+}
+
+#[test]
 fn handler_digest_is_the_canonical_key_json() {
     assert_eq!(
         handler_digest(&["deliver".into()]),

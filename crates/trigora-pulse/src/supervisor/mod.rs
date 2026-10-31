@@ -22,6 +22,11 @@ use crate::socket::{Connection, HostCommand, Listener};
 
 use state::{Inner, Phase, QueueState};
 
+/// One owner for this process. A replacement process gets a different id.
+pub fn process_owner() -> String {
+    format!("pulse-{}", uuid::Uuid::new_v4().simple())
+}
+
 #[derive(Debug, Clone)]
 pub struct Dispatch {
     pub execution_id: String,

@@ -6,7 +6,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use trigora_pulse::{
-    select_remote, Adapter, Authority, Config, RemoteClient, RemoteMode, Runtime, ADAPTER_PROTOCOL,
+    process_owner, select_remote, Adapter, Authority, Config, RemoteClient, RemoteMode, Runtime,
+    ADAPTER_PROTOCOL,
 };
 
 const SHUTDOWN_DEADLINE: Duration = Duration::from_secs(10);
@@ -82,7 +83,9 @@ fn main() -> ExitCode {
     } else {
         None
     };
-    let mut config = Config::new(dir, "pulse");
+    let owner = process_owner();
+    eprintln!("Pulse owner {owner}");
+    let mut config = Config::new(dir, owner);
     if let Ok(ms) = env::var("TRIGORA_PULSE_EFFECT_TIMEOUT_MS") {
         if let Ok(ms) = ms.parse::<u64>() {
             config.effect_timeout = Duration::from_millis(ms);
