@@ -179,7 +179,9 @@ export PULSE_LOG_DIR=$log_dir
 export TRIGORA_PULSE_AUTHORITY_URL="http://host.docker.internal:${port}"
 export TRIGORA_PULSE_WORKSPACE_ID=ws
 export TRIGORA_PULSE_WORKSPACE_TOKEN=workspace-token
+export TRIGORA_PULSE_LEASE_MS=2000
 unset TRIGORA_TOKEN || true
+unset TRIGORA_API_BASE_URL || true
 
 version_of() {
   curl -fsS -H "authorization: Bearer workspace-token" \
@@ -241,6 +243,9 @@ if docker logs pulse6d-host 2>&1 | grep -q "Pulse shutdown exceeded"; then
   exit 1
 fi
 docker compose -f "$here/compose.yaml" down --remove-orphans >/dev/null
+
+echo "waiting for the stopped host's lease to expire"
+sleep 3
 
 echo "resuming recover-1 on a fresh host"
 export PULSE_EXECUTION_ID=

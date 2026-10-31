@@ -2,7 +2,9 @@
 
 Two local containers share one Unix socket. The Pulse container runs only `trigora-pulse`. The app container compiles the program, registers its handlers, and runs the effect callbacks. The program writes `a 1` to the effect log, waits for an event named `continue`, then writes `b 2`.
 
-`examples/pulse-compose/recover.sh` is the automated proof:
+`examples/pulse-compose/recover.sh` is the manual-recovery proof. `examples/pulse-compose/discover.sh` is the automatic-recovery proof: the replacement receives neither an execution id nor a resume command.
+
+`recover.sh`:
 
 1. Effect A commits, and effect B has not run.
 2. Both containers stop with exit code 0.
@@ -16,6 +18,7 @@ Docker is required. On macOS the script cross-compiles the Linux binaries inside
 
 ```bash
 ./examples/pulse-compose/recover.sh
+TRIGORA_TOKEN=... TRIGORA_API_BASE_URL=https://... ./examples/pulse-compose/discover.sh
 ```
 
 The script builds `trigora-pulse:local` and `pulse-compose-app:local`, then prints `recovery passed`.
@@ -34,4 +37,4 @@ The socket directory is a Docker named volume. A Docker Desktop bind mount canno
 
 Both containers use one numeric uid. The host rejects a peer uid that is not its own. `1000` is this example's choice.
 
-A new container does not search for an abandoned execution. Resume happens only when `PULSE_RESUME_EXECUTION_ID` names an id the caller already has. `PULSE_PROGRAM` selects the source file (`program.ts` when unset). A different artifact on a pinned execution waits.
+`recover.sh` resumes a known id. `discover.sh` does not give the replacement an id. `PULSE_PROGRAM` selects the source file (`program.ts` when unset). An explicit resume of a different artifact waits. An incompatible discovery worker does not claim the execution.

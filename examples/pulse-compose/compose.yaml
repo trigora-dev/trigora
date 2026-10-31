@@ -1,7 +1,8 @@
 # UID 1000 is this example's choice. Both services use the same numeric user.
 # A deployment can pick another uid as long as both containers use it and that
 # user can write the shared socket directory. The host still rejects a different peer uid.
-# This stack does not look for an abandoned execution. Resume uses PULSE_RESUME_EXECUTION_ID.
+# A TRIGORA_TOKEN host discovers abandoned executions. Without that token,
+# resume uses PULSE_RESUME_EXECUTION_ID.
 name: pulse6d
 services:
   pulse:
@@ -9,9 +10,12 @@ services:
     container_name: pulse6d-host
     user: '${PULSE_UID:-1000}:${PULSE_GID:-1000}'
     environment:
+      TRIGORA_TOKEN: ${TRIGORA_TOKEN:-}
+      TRIGORA_API_BASE_URL: ${TRIGORA_API_BASE_URL:-}
       TRIGORA_PULSE_AUTHORITY_URL: ${TRIGORA_PULSE_AUTHORITY_URL:-}
-      TRIGORA_PULSE_WORKSPACE_ID: ${TRIGORA_PULSE_WORKSPACE_ID:-ws}
-      TRIGORA_PULSE_WORKSPACE_TOKEN: ${TRIGORA_PULSE_WORKSPACE_TOKEN:-workspace-token}
+      TRIGORA_PULSE_WORKSPACE_ID: ${TRIGORA_PULSE_WORKSPACE_ID:-}
+      TRIGORA_PULSE_WORKSPACE_TOKEN: ${TRIGORA_PULSE_WORKSPACE_TOKEN:-}
+      TRIGORA_PULSE_LEASE_MS: ${TRIGORA_PULSE_LEASE_MS:-}
     extra_hosts:
       - 'host.docker.internal:host-gateway'
     volumes:
