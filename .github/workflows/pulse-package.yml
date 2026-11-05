@@ -23,7 +23,7 @@ jobs:
             slot: linux-x64
           - os: ubuntu-24.04-arm
             slot: linux-arm64
-          - os: macos-14
+          - os: macos-15
             slot: darwin-arm64
           - os: macos-15-intel
             slot: darwin-x64
@@ -35,6 +35,10 @@ jobs:
           ref: v26.10.4
           path: tcc-engine
       - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v5
+        if: matrix.slot == 'linux-x64'
+        with:
+          version: 10.33.0
       - uses: actions/setup-node@v5
         if: matrix.slot == 'linux-x64'
         with:
