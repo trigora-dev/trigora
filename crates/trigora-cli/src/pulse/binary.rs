@@ -4,7 +4,7 @@ use std::process::Command;
 
 use crate::error::CliError;
 
-pub(super) const PULSE_VERSION: &str = "0.1.0";
+pub(super) const PULSE_VERSION: &str = "1.0.0";
 pub(super) const PULSE_PROTOCOL: u32 = 1;
 
 pub(super) fn resolve_pulse_bin(cwd: &Path, exe: &Path) -> Result<PathBuf, CliError> {

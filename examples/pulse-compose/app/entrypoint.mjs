@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 
 const dir = process.env.PULSE_DIR ?? '/pulse';
 const adapter = process.env.TRIGORA_PULSE_ADAPTER;
-process.env.TRIGORA_PULSE_EXPECT_VERSION ??= '0.1.0';
+process.env.TRIGORA_PULSE_EXPECT_VERSION ??= '1.0.0';
 process.env.TRIGORA_PULSE_EXPECT_PROTOCOL ??= '1';
 
 const prepared = spawnSync('trigora', ['pulse', 'connect', '--dir', dir, '--prepare'], {

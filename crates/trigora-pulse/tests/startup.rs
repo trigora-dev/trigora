@@ -112,7 +112,7 @@ fn version_reports_the_protocol() {
     let output = Command::new(bin()).arg("--version").output().unwrap();
     assert!(output.status.success());
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("trigora-pulse 0.1.0 protocol 1"));
+    assert!(text.contains("trigora-pulse 1.0.0 protocol 1"));
 }
 
 #[test]
@@ -150,7 +150,7 @@ fn directory_only_binds_and_reports_its_version() {
     );
     let auth = read_frame(&mut stream);
     assert_eq!(auth["type"], "authOk");
-    assert_eq!(auth["version"], "0.1.0");
+    assert_eq!(auth["version"], "1.0.0");
     assert_eq!(auth["protocol"], 1);
     drop(stream);
     let check = Command::new(bin())

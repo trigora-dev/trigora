@@ -133,7 +133,7 @@ fn an_incompatible_host_is_rejected_before_the_socket() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{stderr}");
     assert!(stderr.contains("9.9.9"), "{stderr}");
-    assert!(stderr.contains("0.1.0"), "{stderr}");
+    assert!(stderr.contains("1.0.0"), "{stderr}");
     assert!(!root.join(".trigora/pulse/socket-created").exists());
     assert!(!root.join(".trigora/pulse/pulse.sock").exists());
 }
