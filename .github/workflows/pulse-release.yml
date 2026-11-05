@@ -111,11 +111,13 @@ jobs:
           }
           docker buildx build \
             --platform linux/amd64 \
+            --provenance=false \
             --output "type=image,name=ghcr.io/trigora-dev/pulse,push-by-digest=true,name-canonical=true" \
             --metadata-file amd64.json \
             ctx-amd64
           docker buildx build \
             --platform linux/arm64 \
+            --provenance=false \
             --output "type=image,name=ghcr.io/trigora-dev/pulse,push-by-digest=true,name-canonical=true" \
             --metadata-file arm64.json \
             ctx-arm64
