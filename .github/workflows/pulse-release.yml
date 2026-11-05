@@ -112,13 +112,15 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --provenance=false \
-            --output "type=image,name=ghcr.io/trigora-dev/pulse,push-by-digest=true,name-canonical=true" \
+            --push \
+            -t "ghcr.io/trigora-dev/pulse:${version}-linux-amd64" \
             --metadata-file amd64.json \
             ctx-amd64
           docker buildx build \
             --platform linux/arm64 \
             --provenance=false \
-            --output "type=image,name=ghcr.io/trigora-dev/pulse,push-by-digest=true,name-canonical=true" \
+            --push \
+            -t "ghcr.io/trigora-dev/pulse:${version}-linux-arm64" \
             --metadata-file arm64.json \
             ctx-arm64
           amd=$(digest_of amd64.json)
@@ -132,8 +134,8 @@ jobs:
           esac
           docker buildx imagetools create \
             -t "ghcr.io/trigora-dev/pulse:${version}" \
-            "ghcr.io/trigora-dev/pulse@${amd}" \
-            "ghcr.io/trigora-dev/pulse@${arm}"
+            "ghcr.io/trigora-dev/pulse:${version}-linux-amd64" \
+            "ghcr.io/trigora-dev/pulse:${version}-linux-arm64"
           echo "published ghcr.io/trigora-dev/pulse:${version}"
           echo "linux/amd64 digest ${amd}"
           echo "linux/arm64 digest ${arm}"
