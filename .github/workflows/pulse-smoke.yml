@@ -135,7 +135,7 @@ jobs:
           unset TRIGORA_PULSE_AUTHORITY_URL
           unset TRIGORA_PULSE_WORKSPACE_ID
           unset TRIGORA_PULSE_WORKSPACE_TOKEN
-          export PULSE_IMAGE_PLATFORM=linux/arm64
+          unset PULSE_IMAGE_PLATFORM
           export PULSE_CANDIDATE_DIR="${RUNNER_TEMP}/pulse-candidate"
           ./release/pulse/production-smoke.sh
           dirty=$(git -C tcc-engine status --porcelain)

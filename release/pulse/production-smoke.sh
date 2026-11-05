@@ -70,7 +70,12 @@ else
   mkdir -p "$src/crates" "$src/tcc-engine" "$linux_target" "$cargo_home"
   cp "$root/Cargo.toml" "$root/Cargo.lock" "$src/"
   cp -R "$root/crates/trigora-pulse" "$root/crates/trigora-cli" "$root/crates/trigora-local" "$src/crates/"
-  rsync -a --exclude target --exclude .git "$root/../tcc-engine/" "$src/tcc-engine/"
+  if [[ -d $root/tcc-engine/crates ]]; then
+    engine=$root/tcc-engine
+  else
+    engine=$root/../tcc-engine
+  fi
+  rsync -a --exclude target --exclude .git "$engine/" "$src/tcc-engine/"
   docker_run=(docker run --rm)
   if [[ -n $platform ]]; then
     docker_run+=(--platform "$platform")
