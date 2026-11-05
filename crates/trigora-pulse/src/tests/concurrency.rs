@@ -2,6 +2,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use tcc_state::ContinuationStatus;
+
 use crate::{Adapter, Authority, Reply};
 
 use super::common::*;
@@ -110,7 +112,7 @@ fn blocked_callbacks_do_not_stall_the_other_executions() {
     config.workers = 4;
     config.cap = 20;
     config.effect_timeout = Duration::from_secs(10);
-    let host = Host::open("mix", authority, program, config);
+    let host = Host::open("mix", Arc::clone(&authority), program, config);
     let release = Arc::new((Mutex::new(false), Condvar::new()));
     let gate = Arc::clone(&release);
     let adapter = Adapter::connect(&dir).unwrap();
@@ -149,6 +151,16 @@ fn blocked_callbacks_do_not_stall_the_other_executions() {
     assert!(host.runtime.backlogged());
     assert!(host.runtime.max_inflight() <= 20);
     assert_eq!(host.runtime.completed(), 90);
+    for index in 0..90 {
+        let view = authority.view(&format!("fast-{index}")).expect("fast view");
+        assert_eq!(view.status, ContinuationStatus::Completed, "fast-{index}");
+    }
+    for index in 0..10 {
+        let view = authority.view(&format!("block-{index}")).expect("blocked view");
+        assert_ne!(view.status, ContinuationStatus::Completed, "block-{index}");
+        assert_ne!(view.status, ContinuationStatus::Failed, "block-{index}");
+        assert_ne!(view.status, ContinuationStatus::Cancelled, "block-{index}");
+    }
     *release.0.lock().expect("gate") = true;
     release.1.notify_all();
     assert!(host.runtime.wait_until(

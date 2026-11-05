@@ -20,7 +20,7 @@ use protocol::{DiscoverBody, QueryResponse, RenewResponse};
 use sqlite::CacheEntry;
 use transport::{parse_origin, Endpoint, Route};
 
-pub(super) const HARD_CONTINUATION_MAX: usize = 16 * 1024 * 1024;
+pub(crate) const HARD_CONTINUATION_MAX: usize = 16 * 1024 * 1024;
 
 #[derive(Debug)]
 pub enum RemoteMode {

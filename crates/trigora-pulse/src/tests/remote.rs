@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use tcc_state::{encode_continuation, Continuation, ContinuationStatus, PendingOp, WaitKind};
+use tcc_state::{encode_continuation, Continuation, ContinuationStatus, PendingOp, Value, WaitKind};
 
 use crate::authority::Commit;
 use crate::{Adapter, Authority, Reply};
@@ -151,4 +151,98 @@ fn remote_claim_uses_the_authority_clock_for_a_timer() {
         .unwrap();
     assert!(due.timer_due);
     assert_eq!(due.revision, 1);
+}
+
+fn serialized_continuation(id: &str, revision: u64, target: usize) -> Vec<u8> {
+    fn encode(id: &str, revision: u64, pad: usize) -> Vec<u8> {
+        let mut continuation = Continuation::start(id, "artifact", 1, "ts.subset.v1", 0, 0);
+        continuation.revision = revision;
+        continuation.status = ContinuationStatus::Completed;
+        if pad > 0 {
+            continuation.result = Some(Value::String("x".repeat(pad)));
+        }
+        encode_continuation(&continuation).expect("encode")
+    }
+    let empty = encode(id, revision, 0).len();
+    let each = encode(id, revision, 1).len() - empty;
+    let mut pad = target.saturating_sub(empty) / each.max(1);
+    for _ in 0..8 {
+        let bytes = encode(id, revision, pad);
+        match bytes.len().cmp(&target) {
+            std::cmp::Ordering::Equal => return bytes,
+            std::cmp::Ordering::Less => pad += target - bytes.len(),
+            std::cmp::Ordering::Greater => {
+                let over = bytes.len() - target;
+                pad = pad.saturating_sub(over.max(1));
+            }
+        }
+    }
+    panic!("serialized continuation did not land on {target} bytes");
+}
+
+fn boundary_commit(id: &str, fence: u64, expected: u64, continuation: Vec<u8>) -> Commit {
+    Commit {
+        execution_id: id.to_string(),
+        owner_token: "A".to_string(),
+        fence,
+        expected_revision: expected,
+        continuation,
+        journal: BTreeMap::new(),
+        timers: None,
+        waits: None,
+        artifact_hash: "artifact".to_string(),
+        handler_keys: Vec::new(),
+    }
+}
+
+#[test]
+fn an_oversized_serialized_continuation_is_rejected_before_a_request() {
+    let limit = crate::remote::HARD_CONTINUATION_MAX;
+    let mut bytes = serialized_continuation("limit-over", 1, limit);
+    bytes.push(0);
+    assert_eq!(bytes.len(), limit + 1);
+    let client = crate::RemoteClient::sqlite("http://127.0.0.1:1", "ws", "workspace-token", limit)
+        .expect("client");
+    let err = client
+        .commit(&boundary_commit("limit-over", 1, 0, bytes))
+        .expect_err("oversize must be rejected");
+    assert!(
+        err.to_string().starts_with("TRIGORA_CHECKPOINT_TOO_LARGE"),
+        "{err}"
+    );
+    assert_eq!(client.connections_opened(), 0);
+}
+
+#[test]
+fn a_serialized_continuation_at_16_mib_is_stored_and_one_extra_byte_is_not() {
+    let server = crate::remote::serve();
+    let client = server.client();
+    let limit = crate::remote::HARD_CONTINUATION_MAX;
+    let id = "limit-exact";
+    let claimed = client
+        .claim(id, "A", 60_000, "artifact", &[])
+        .expect("claim");
+    let bytes = serialized_continuation(id, 1, limit);
+    assert_eq!(bytes.len(), limit);
+    client
+        .commit(&boundary_commit(id, claimed.fence, 0, bytes.clone()))
+        .expect("exact commit");
+    let stored = client.fresh().view_as(id, "A").expect("stored");
+    assert_eq!(stored.revision, 1);
+    assert_eq!(stored.continuation.expect("stored bytes").len(), limit);
+
+    let mut over = bytes;
+    over.push(0);
+    let opened = client.connections_opened();
+    let err = client
+        .commit(&boundary_commit(id, claimed.fence, 1, over))
+        .expect_err("one extra byte must be rejected");
+    assert!(
+        err.to_string().starts_with("TRIGORA_CHECKPOINT_TOO_LARGE"),
+        "{err}"
+    );
+    assert_eq!(client.connections_opened(), opened);
+    let again = client.fresh().view_as(id, "A").expect("unchanged");
+    assert_eq!(again.revision, 1);
+    assert_eq!(again.continuation.expect("unchanged bytes").len(), limit);
 }
