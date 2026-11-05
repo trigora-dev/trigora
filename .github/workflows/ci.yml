@@ -47,6 +47,27 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
 
+  node-adapter:
+    name: node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v5
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+      - run: pnpm install
+      - name: build node helper
+        run: node packages/cli/scripts/build-adapter.mjs
+      - run: pnpm typecheck
+      - run: pnpm test
+
   python-cli:
     runs-on: ubuntu-latest
     steps:

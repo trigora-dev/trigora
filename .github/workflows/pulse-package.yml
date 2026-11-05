@@ -47,7 +47,14 @@ jobs:
           output=$(./target/release/trigora-pulse --version)
           printf '%s\n' "$output"
           python3 release/pulse/compatibility.py check-host --version-output "$output"
-      - name: Check the Node adapter handshake
+      - name: Check the Node adapter handshake on Node 22
+        if: matrix.slot == 'linux-x64'
+        run: bash release/pulse/handshake.sh target/release/trigora-pulse
+      - uses: actions/setup-node@v5
+        if: matrix.slot == 'linux-x64'
+        with:
+          node-version: 24
+      - name: Check the Node adapter handshake on Node 24
         if: matrix.slot == 'linux-x64'
         run: bash release/pulse/handshake.sh target/release/trigora-pulse
       - name: Build the local image

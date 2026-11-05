@@ -10,7 +10,7 @@ CLI runtime commands target the local runtime by default. Add `--remote` to targ
 - `trigora bench` measures one healthy local run. `trigora verify` checks recovery after checkpoints. Both stay on the local runtime.
 - `trigora deploy` compiles locally, uploads programs, and replaces the project's triggers to match `trigora.toml`
 
-Requires **Node 22** and `--experimental-sqlite` (the published `trigora` binary sets this flag). `TRIGORA_TOKEN` authenticates Cloud commands. It does not change which host a runtime command uses.
+Node 22 and Node 24 are the supported runtimes for the npm launcher and the TypeScript adapter. `TRIGORA_TOKEN` authenticates Cloud commands. It does not change which host a runtime command uses.
 
 ## Install
 
