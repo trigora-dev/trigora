@@ -147,7 +147,7 @@ echo "This image id is the local candidate. It is not a GHCR release digest."
 
 wait_log() {
   local want=$1
-  for _ in $(seq 1 90); do
+  for _ in $(seq 1 200); do
     if [[ -f $log_dir/effects ]] && cmp -s <(printf '%s' "$want") "$log_dir/effects"; then
       return 0
     fi

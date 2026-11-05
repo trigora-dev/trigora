@@ -166,7 +166,6 @@ impl RemoteClient {
         artifact_hash: &str,
         handler_keys: &[String],
     ) -> Result<Claimed> {
-        self.remember(owner);
         let claimed: SqliteClaimResponse = self.endpoint.post_json(
             &self.endpoint.execution_path(execution_id, "sql-claim"),
             owner,
@@ -176,6 +175,7 @@ impl RemoteClient {
                 "handlerKeys": handler_keys,
             }),
         )?;
+        self.remember(owner);
         if claimed.revision == 0 || claimed.continuation_digest.is_empty() {
             return Ok(Claimed {
                 revision: claimed.revision,

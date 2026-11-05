@@ -464,6 +464,9 @@ impl Inner {
         event_name: &str,
         payload: &str,
     ) -> Result<()> {
+        if self.slot(execution_id).is_none() {
+            return Err(Error::new("execution is not waiting"));
+        }
         let view = self.authority.view(execution_id)?;
         let matched: Vec<_> = view
             .waits

@@ -62,6 +62,7 @@ impl Inner {
                 interruptible_sleep(self, Duration::from_millis(200));
                 continue;
             }
+            self.resume_waiting();
             match self.poll_discover() {
                 Ok(Poll::Progress) => {
                     failures = 0;

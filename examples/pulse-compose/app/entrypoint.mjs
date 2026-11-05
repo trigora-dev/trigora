@@ -73,7 +73,7 @@ await serve({
 });
 
 async function release(session, executionId) {
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
     session.send({
       type: 'event',

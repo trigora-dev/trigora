@@ -246,3 +246,18 @@ fn a_serialized_continuation_at_16_mib_is_stored_and_one_extra_byte_is_not() {
     assert_eq!(again.revision, 1);
     assert_eq!(again.continuation.expect("unchanged bytes").len(), limit);
 }
+
+#[test]
+fn a_refused_claim_keeps_the_previous_owner_hint() {
+    let server = crate::remote::serve();
+    let client = server.client();
+    client
+        .claim("refused-owner", "A", 60_000, "artifact", &[])
+        .expect("claim");
+    let err = client
+        .claim("refused-owner", "B", 60_000, "artifact", &[])
+        .expect_err("owned");
+    assert_eq!(err.to_string(), "execution is owned");
+    let view = client.view("refused-owner").expect("previous owner still reads");
+    assert_eq!(view.owner.as_deref(), Some("A"));
+}
