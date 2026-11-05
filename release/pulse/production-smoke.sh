@@ -44,9 +44,14 @@ mkdir -p "$log_dir"
 commit=$(git -C "$root" rev-parse HEAD)
 
 cleanup() {
+  local status=$?
   docker rm -f "$host_name" "$app_name" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
-  rm -rf "$work"
+  if [[ -n ${work:-} && -d $work ]]; then
+    docker run --rm --user 0:0 -v "$work":/work --entrypoint rm rust:1-bookworm -rf /work >/dev/null 2>&1 || true
+    rm -rf "$work" || true
+  fi
+  exit "$status"
 }
 trap cleanup EXIT
 
