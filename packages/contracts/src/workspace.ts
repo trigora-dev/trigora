@@ -135,6 +135,24 @@ export type GetUsageResponse = {
     storageByteSeconds: number;
     storageCents: number;
   };
+  products: {
+    cloud: {
+      durableOperations: number;
+      durableOperationsCents: number;
+      cpuMs: number;
+      cpuCents: number;
+      storageByteSeconds: number;
+      storageCents: number;
+      cents: number;
+    };
+    pulse: {
+      durableOperations: number;
+      durableOperationsCents: number;
+      storageByteSeconds: number;
+      storageCents: number;
+      cents: number;
+    };
+  };
   credit: {
     includedCents: number | null;
     grossCents: number;

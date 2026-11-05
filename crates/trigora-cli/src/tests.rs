@@ -15,6 +15,26 @@ use crate::parse_invocation;
 static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
+fn pulse_start_parses_ephemeral() {
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "start"])).unwrap(),
+        Invocation::PulseStart { ephemeral: false }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "start", "--ephemeral"])).unwrap(),
+        Invocation::PulseStart { ephemeral: true }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "connect", "--dir", "/pulse"])).unwrap(),
+        Invocation::PulseConnect { prepare: false, .. }
+    ));
+    assert!(matches!(
+        parse_invocation(&arg(&["pulse", "connect", "--dir", "/pulse", "--prepare"])).unwrap(),
+        Invocation::PulseConnect { prepare: true, .. }
+    ));
+}
+
+#[test]
 fn bench_and_verify_parse_their_flags() {
     assert!(matches!(
         parse_invocation(&arg(&["bench", "order-agent"])).unwrap(),
@@ -531,9 +551,9 @@ fn sample(id: &str) -> Program {
         frontend_id: "typescript".to_string(),
         semantics_version: "ts.subset.v1".to_string(),
         source: String::new(),
-        artifact_json: r#"{"envelope":{"artifact_hash":"abc","engine_format_version":1,"language_semantics_version":"ts.subset.v1","frontend_id":"typescript","frontend_version":"26.10.3"},"program":{"entry":0,"functions":[{"id":0,"name":"program"}]}}"#.to_string(),
+        artifact_json: r#"{"envelope":{"artifact_hash":"abc","engine_format_version":1,"language_semantics_version":"ts.subset.v1","frontend_id":"typescript","frontend_version":"26.10.4"},"program":{"entry":0,"functions":[{"id":0,"name":"program"}]}}"#.to_string(),
         artifact_hash: "abc".to_string(),
-        compiler_version: "26.10.3".to_string(),
+        compiler_version: "26.10.4".to_string(),
         effects: Vec::<Effect>::new(),
     }
 }

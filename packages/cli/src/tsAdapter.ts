@@ -1,9 +1,14 @@
 import { compile, PACKAGE_VERSION } from '@tcc-engine/frontend-typescript';
 
 import {
+  buildHandlerModule,
+  pulseCompileSource,
   extractTypeScriptEffects,
   extractTypeScriptEffectSources,
+  type HandlerModule,
 } from './lib/localRuntime/extractEffects';
+
+export { buildHandlerModule, pulseCompileSource, type HandlerModule };
 
 export const compilerVersion = PACKAGE_VERSION;
 
@@ -30,10 +35,11 @@ export function compileProgram(
   source: string,
   filename: string,
   programId: string,
+  options?: { allowPromise?: boolean },
 ): CompiledProgram {
   const artifact = compile(source, { filename });
   const sources = extractTypeScriptEffectSources(source, filename);
-  const handlers = extractTypeScriptEffects(source, filename);
+  const handlers = extractTypeScriptEffects(source, filename, options);
   return {
     artifactJson: JSON.stringify(artifact),
     artifactHash: artifact.envelope.artifact_hash,

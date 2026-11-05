@@ -1,8 +1,8 @@
 {
-  "extends": "../tooling/tsconfig/base.json",
+  "extends": "../tooling/tsconfig/node.json",
   "compilerOptions": {
-    "lib": ["ES2022", "DOM"],
-    "noEmit": true
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["./typescript/**/*.ts"]
+  "include": ["./pulse-node/**/*.ts"]
 }

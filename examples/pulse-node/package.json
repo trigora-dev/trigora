@@ -1,0 +1,8 @@
+{
+  "name": "pulse-node-example",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@trigora/pulse-node": "workspace:*"
+  }
+}

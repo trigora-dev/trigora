@@ -1,0 +1,530 @@
+use std::collections::BTreeMap;
+
+use serde_json::json;
+use tcc_state::{decode_continuation, ContinuationStatus};
+
+use super::protocol::{
+    checkpoint_frame, manifest_timers, manifest_waits, split_frame, CancelReceiptBody,
+    CreatedChildJson, EventJson, EventReceiptBody, IntentJson, SqliteClaimResponse,
+    SqliteCommitResponse, SqliteRestoreHeader, StartedChildJson, VersionBody,
+};
+use super::RemoteClient;
+use crate::authority::{
+    self, timers_of, waits_of, AcceptedEvent, CancelReceipt, Claimed, Commit, CommitResult,
+    CreatedChild, EventReceipt, InvokeIntent, InvokeReceipt, InvokeSpec, JournalRow, StartedChild,
+    TimerRow, WaitRow,
+};
+use crate::error::{Error, Result};
+
+#[derive(Clone)]
+pub(crate) struct CacheEntry {
+    pub(super) journal: BTreeMap<String, JournalRow>,
+    pub(super) revision: u64,
+    pub(super) continuation: Vec<u8>,
+    pub(super) timers: Vec<TimerRow>,
+    pub(super) waits: Vec<WaitRow>,
+    pub(super) status: ContinuationStatus,
+    pub(super) owner: String,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+}
+
+impl RemoteClient {
+    pub fn pin(&self, execution_id: &str) -> Result<crate::authority::VersionPin> {
+        let found: VersionBody = self.endpoint.call_json(
+            "GET",
+            &self.endpoint.execution_path(execution_id, "sql-version"),
+        )?;
+        Ok(crate::authority::VersionPin {
+            revision: found.revision,
+            artifact_hash: found.artifact_hash,
+            handler_keys: found.handler_keys,
+        })
+    }
+
+    pub(super) fn commit_sqlite(&self, commit: &Commit) -> Result<CommitResult> {
+        self.remember(&commit.owner_token);
+        if commit.continuation.len() > self.max_continuation {
+            return Err(checkpoint_too_large(self.max_continuation));
+        }
+        let continuation = decode_continuation(&commit.continuation)
+            .map_err(|err| Error::new(format!("continuation decode failed: {err}")))?;
+        if continuation.execution_id != commit.execution_id {
+            return Err(Error::new("continuation execution id mismatch"));
+        }
+        let next = commit
+            .expected_revision
+            .checked_add(1)
+            .ok_or_else(|| Error::new("revision overflow"))?;
+        if continuation.revision != next {
+            return Err(Error::new(
+                "continuation revision does not match the commit",
+            ));
+        }
+        let timers = timers_of(&continuation);
+        let waits = waits_of(&continuation);
+        if let Some(given) = &commit.timers {
+            if given != &timers {
+                return Err(Error::new("inconsistent timer metadata"));
+            }
+        }
+        if let Some(given) = &commit.waits {
+            if given != &waits {
+                return Err(Error::new("inconsistent wait metadata"));
+            }
+        }
+        let digest = authority::sha256(&commit.continuation);
+        let identity = authority::commit_identity(next, &digest, &commit.journal, &timers, &waits);
+        let cached = match self.prepare(&commit.execution_id, &commit.owner_token) {
+            Ok(entry) => entry,
+            Err(err) if err.to_string() == "invalid owner" => blank_entry(&commit.owner_token),
+            Err(err) => return Err(err),
+        };
+        let changed = changed_rows(&cached.journal, &commit.journal)?;
+        let unchanged =
+            !cached.continuation.is_empty() && authority::sha256(&cached.continuation) == digest;
+        let raw: &[u8] = if unchanged { &[] } else { &commit.continuation };
+        let header = json!({
+            "ownerToken": commit.owner_token,
+            "fence": commit.fence,
+            "expectedRevision": commit.expected_revision,
+            "continuationDigest": digest,
+            "continuationBytes": raw.len(),
+            "identity": identity,
+            "journal": changed.iter().map(|row| json!({
+                "key": row.key,
+                "idempotencyKey": row.idempotency_key,
+                "status": row.status,
+                "input": row.input,
+                "result": row.result,
+            })).collect::<Vec<_>>(),
+            "timers": timers.iter().map(|timer| json!({"branch": timer.branch, "dueAt": timer.due_at})).collect::<Vec<_>>(),
+            "waits": waits.iter().map(|wait| json!({"waitId": wait.wait_id, "event": wait.event})).collect::<Vec<_>>(),
+            "artifactHash": commit.artifact_hash,
+            "handlerKeys": commit.handler_keys,
+        });
+        let body = checkpoint_frame(&header, raw)?;
+        let posted: Result<SqliteCommitResponse> = self.endpoint.post_bytes(
+            &self
+                .endpoint
+                .execution_path(&commit.execution_id, "sql-commits"),
+            &commit.owner_token,
+            &body,
+        );
+        let response = match posted {
+            Ok(response) => response,
+            Err(err) if err.to_string().starts_with("authority ") => {
+                if let Ok(found) = self.reconcile(&commit.execution_id, next, &identity) {
+                    if found.accepted
+                        && found.owner.as_deref() == Some(commit.owner_token.as_str())
+                        && found.fence == commit.fence
+                    {
+                        return Ok(CommitResult {
+                            revision: found.revision,
+                            owner: found.owner,
+                            fence: found.fence,
+                            lease_until: found.lease_until,
+                            idempotent: true,
+                        });
+                    }
+                }
+                return Err(err);
+            }
+            Err(err) => return Err(err),
+        };
+        if response.identity != identity || response.revision != next {
+            return Err(Error::new("commit conflict"));
+        }
+        self.cache.lock().expect("cache").insert(
+            commit.execution_id.clone(),
+            CacheEntry {
+                journal: commit.journal.clone(),
+                revision: response.revision,
+                continuation: commit.continuation.clone(),
+                timers,
+                waits,
+                status: continuation.status,
+                owner: response.owner.clone(),
+                fence: response.fence,
+                lease_until: response.lease_until,
+            },
+        );
+        Ok(CommitResult {
+            revision: response.revision,
+            owner: Some(response.owner),
+            fence: response.fence,
+            lease_until: response.lease_until,
+            idempotent: response.idempotent,
+        })
+    }
+
+    pub(super) fn claim_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<Claimed> {
+        let claimed: SqliteClaimResponse = self.endpoint.post_json(
+            &self.endpoint.execution_path(execution_id, "sql-claim"),
+            owner,
+            &json!({
+                "leaseMs": lease_ms,
+                "artifactHash": artifact_hash,
+                "handlerKeys": handler_keys,
+            }),
+        )?;
+        self.remember(owner);
+        if claimed.revision == 0 || claimed.continuation_digest.is_empty() {
+            return Ok(Claimed {
+                revision: claimed.revision,
+                fence: claimed.fence,
+                lease_until: claimed.lease_until,
+                continuation: None,
+                journal: BTreeMap::new(),
+                timers: Vec::new(),
+                waits: Vec::new(),
+                timer_due: claimed.timer_due,
+                status: ContinuationStatus::Runnable,
+                event: accepted_event(claimed.event),
+                cancel_requested: claimed.cancel_requested,
+                intent: accepted_intent(claimed.intent),
+            });
+        }
+        let entry = self.fetch_sqlite(execution_id, owner)?;
+        let status = entry.status;
+        self.cache
+            .lock()
+            .expect("cache")
+            .insert(execution_id.to_string(), entry.clone());
+        Ok(Claimed {
+            revision: entry.revision,
+            fence: claimed.fence,
+            lease_until: claimed.lease_until,
+            continuation: Some(entry.continuation),
+            journal: entry.journal,
+            timers: entry.timers,
+            waits: entry.waits,
+            timer_due: claimed.timer_due,
+            status,
+            event: accepted_event(claimed.event),
+            cancel_requested: claimed.cancel_requested,
+            intent: accepted_intent(claimed.intent),
+        })
+    }
+
+    pub(super) fn record_invoke_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        spec: &InvokeSpec,
+    ) -> Result<InvokeReceipt> {
+        self.remember(owner);
+        let receipt: CancelReceiptBody = self.endpoint.post_json(
+            &self.endpoint.execution_path(execution_id, "sql-invoke"),
+            owner,
+            &json!({
+                "fence": fence,
+                "invokeId": spec.invoke_id,
+                "childExecutionId": spec.child_execution_id,
+                "programName": spec.program_name,
+                "arguments": spec.arguments,
+            }),
+        )?;
+        Ok(InvokeReceipt {
+            revision: receipt.revision,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn ensure_child_sqlite(
+        &self,
+        parent_id: &str,
+        offered: Option<&InvokeSpec>,
+    ) -> Result<InvokeReceipt> {
+        let body = match offered {
+            Some(spec) => json!({
+                "invokeId": spec.invoke_id,
+                "childExecutionId": spec.child_execution_id,
+                "programName": spec.program_name,
+                "arguments": spec.arguments,
+            }),
+            None => json!({}),
+        };
+        let receipt: CancelReceiptBody = self.endpoint.post_json(
+            &self.endpoint.execution_path(parent_id, "sql-child"),
+            "child",
+            &body,
+        )?;
+        Ok(InvokeReceipt {
+            revision: receipt.revision,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn start_created_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        lease_ms: u64,
+        artifact_hash: &str,
+        handler_keys: &[String],
+    ) -> Result<StartedChild> {
+        self.remember(owner);
+        let started: StartedChildJson = self.endpoint.post_json(
+            &self.endpoint.execution_path(execution_id, "sql-start"),
+            owner,
+            &json!({
+                "leaseMs": lease_ms,
+                "artifactHash": artifact_hash,
+                "handlerKeys": handler_keys,
+            }),
+        )?;
+        Ok(StartedChild {
+            parent_execution_id: started.parent_execution_id,
+            invoke_id: started.invoke_id,
+            program_name: started.program_name,
+            arguments: started.arguments,
+            revision: started.revision,
+            fence: started.fence,
+            lease_until: started.lease_until,
+            initialized: started.initialized,
+        })
+    }
+
+    pub(super) fn created_child_sqlite(&self, execution_id: &str) -> Result<CreatedChild> {
+        let found: CreatedChildJson = self.endpoint.call_json(
+            "GET",
+            &self.endpoint.execution_path(execution_id, "sql-created"),
+        )?;
+        Ok(CreatedChild {
+            parent_execution_id: found.parent_execution_id,
+            invoke_id: found.invoke_id,
+            child_execution_id: found.child_execution_id,
+            program_name: found.program_name,
+            arguments: found.arguments,
+        })
+    }
+
+    pub(super) fn request_cancel_sqlite(&self, execution_id: &str) -> Result<CancelReceipt> {
+        let receipt: CancelReceiptBody = self.endpoint.post_json(
+            &self.endpoint.execution_path(execution_id, "sql-cancel"),
+            "cancel",
+            &json!({}),
+        )?;
+        Ok(CancelReceipt {
+            revision: receipt.revision,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn accept_event_sqlite(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        fence: u64,
+        event_name: &str,
+        wait_id: &str,
+        payload: &str,
+    ) -> Result<EventReceipt> {
+        self.remember(owner);
+        let receipt: EventReceiptBody = self.endpoint.post_json(
+            &self.endpoint.execution_path(execution_id, "sql-events"),
+            owner,
+            &json!({
+                "fence": fence,
+                "waitId": wait_id,
+                "eventName": event_name,
+                "payload": payload,
+            }),
+        )?;
+        Ok(EventReceipt {
+            revision: receipt.revision,
+            fence: receipt.fence,
+            idempotent: receipt.idempotent,
+        })
+    }
+
+    pub(super) fn fetch_child(&self, execution_id: &str, parent_id: &str) -> Result<CacheEntry> {
+        self.fetch_restore(execution_id, "", Some(parent_id))
+    }
+
+    pub(super) fn fetch_sqlite(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
+        self.fetch_restore(execution_id, owner, None)
+    }
+
+    fn fetch_restore(
+        &self,
+        execution_id: &str,
+        owner: &str,
+        parent_id: Option<&str>,
+    ) -> Result<CacheEntry> {
+        let mut path = self.endpoint.execution_path(execution_id, "sql-restore");
+        if let Some(parent_id) = parent_id {
+            path.push_str("?parent=");
+            path.push_str(&query_encode(parent_id));
+        }
+        let response =
+            self.endpoint
+                .call("GET", &path, owner, None, "application/trigora-checkpoint")?;
+        let (header, continuation) = split_frame(&response.body)?;
+        let header: SqliteRestoreHeader =
+            serde_json::from_slice(header).map_err(|err| Error::new(err.to_string()))?;
+        if header.revision == 0 || header.continuation_digest.is_empty() {
+            return Ok(CacheEntry {
+                journal: BTreeMap::new(),
+                revision: header.revision,
+                continuation: Vec::new(),
+                timers: Vec::new(),
+                waits: Vec::new(),
+                status: ContinuationStatus::Runnable,
+                owner: header.owner,
+                fence: header.fence,
+                lease_until: header.lease_until,
+            });
+        }
+        if continuation.len() as u64 != header.continuation_bytes {
+            return Err(Error::new("corrupt blob"));
+        }
+        if authority::sha256(continuation) != header.continuation_digest {
+            return Err(Error::new("corrupt blob"));
+        }
+        let decoded = decode_continuation(continuation)
+            .map_err(|err| Error::new(format!("restore: {err}")))?;
+        if decoded.execution_id != execution_id {
+            return Err(Error::new("continuation execution id mismatch"));
+        }
+        let timers = timers_of(&decoded);
+        let waits = waits_of(&decoded);
+        if manifest_timers(&header.timers) != timers || manifest_waits(&header.waits) != waits {
+            return Err(Error::new("inconsistent timer metadata"));
+        }
+        let mut journal = BTreeMap::new();
+        for row in header.journal {
+            journal.insert(
+                row.key.clone(),
+                JournalRow {
+                    key: row.key,
+                    idempotency_key: row.idempotency_key,
+                    status: row.status,
+                    input: row.input,
+                    result: row.result,
+                },
+            );
+        }
+        let identity = authority::commit_identity(
+            header.revision,
+            &header.continuation_digest,
+            &journal,
+            &timers,
+            &waits,
+        );
+        if identity != header.identity {
+            return Err(Error::new("commit conflict"));
+        }
+        Ok(CacheEntry {
+            journal,
+            revision: header.revision,
+            continuation: continuation.to_vec(),
+            timers,
+            waits,
+            status: decoded.status,
+            owner: header.owner,
+            fence: header.fence,
+            lease_until: header.lease_until,
+        })
+    }
+
+    pub(super) fn remember(&self, owner: &str) {
+        *self.owner_hint.lock().expect("owner") = Some(owner.to_string());
+    }
+
+    pub(super) fn prepare(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
+        if let Some(entry) = self.cache.lock().expect("cache").get(execution_id).cloned() {
+            return Ok(entry);
+        }
+        match self.fetch_entry(execution_id, owner) {
+            Ok(entry) => Ok(entry),
+            Err(err) if err.to_string() == "unknown execution" => Ok(blank_entry(owner)),
+            Err(err) => Err(err),
+        }
+    }
+
+    pub(super) fn fetch_entry(&self, execution_id: &str, owner: &str) -> Result<CacheEntry> {
+        self.fetch_sqlite(execution_id, owner)
+    }
+}
+
+fn blank_entry(owner: &str) -> CacheEntry {
+    CacheEntry {
+        journal: BTreeMap::new(),
+        revision: 0,
+        continuation: Vec::new(),
+        timers: Vec::new(),
+        waits: Vec::new(),
+        status: ContinuationStatus::Runnable,
+        owner: owner.to_string(),
+        fence: 1,
+        lease_until: 0,
+    }
+}
+
+fn accepted_intent(intent: Option<IntentJson>) -> Option<InvokeIntent> {
+    intent.map(|intent| InvokeIntent {
+        invoke_id: intent.invoke_id,
+        child_execution_id: intent.child_execution_id,
+        program_name: intent.program_name,
+        arguments: intent.arguments,
+        digest: intent.digest,
+    })
+}
+
+fn accepted_event(event: Option<EventJson>) -> Option<AcceptedEvent> {
+    event.map(|event| AcceptedEvent {
+        wait_id: event.wait_id,
+        event: event.event,
+        payload: event.payload,
+    })
+}
+
+fn changed_rows(
+    old: &BTreeMap<String, JournalRow>,
+    new: &BTreeMap<String, JournalRow>,
+) -> Result<Vec<JournalRow>> {
+    for key in old.keys() {
+        if !new.contains_key(key) {
+            return Err(Error::new("deleted journal key"));
+        }
+    }
+    Ok(new
+        .iter()
+        .filter(|(key, row)| old.get(*key) != Some(*row))
+        .map(|(_, row)| row.clone())
+        .collect())
+}
+
+fn query_encode(value: &str) -> String {
+    let mut out = String::new();
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+fn checkpoint_too_large(limit: usize) -> Error {
+    let label = if limit.is_multiple_of(1024 * 1024) {
+        format!("{} MiB", limit / (1024 * 1024))
+    } else {
+        format!("{limit} bytes")
+    };
+    Error::new(format!(
+        "TRIGORA_CHECKPOINT_TOO_LARGE\nContinuation exceeds the configured {label} limit. Store large data externally and retain a reference in the durable program state."
+    ))
+}

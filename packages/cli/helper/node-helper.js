@@ -1,6 +1,12 @@
 import readline from 'node:readline';
 
-import { compilerVersion, compileProgram, runHandler } from './ts-adapter.js';
+import {
+  buildHandlerModule,
+  compilerVersion,
+  compileProgram,
+  pulseCompileSource,
+  runHandler,
+} from './ts-adapter.js';
 
 const handlers = new Map();
 
@@ -20,7 +26,10 @@ function handle(message) {
   if (message.op === 'compile') {
     let compiled;
     try {
-      compiled = compileProgram(message.source, message.filename, message.programId);
+      const source = message.pulse
+        ? pulseCompileSource(message.source, message.filename)
+        : message.source;
+      compiled = compileProgram(source, message.filename, message.programId);
     } catch (error) {
       reply({
         id: message.id,
@@ -48,6 +57,24 @@ function handle(message) {
       engineFormatVersion: compiled.engineFormatVersion,
       effects: compiled.effects,
     });
+    return;
+  }
+  if (message.op === 'handlerModule') {
+    try {
+      const built = buildHandlerModule(message.source, message.filename, message.file);
+      reply({
+        id: message.id,
+        ok: true,
+        moduleSource: built.source,
+        keys: built.keys,
+      });
+    } catch (error) {
+      reply({
+        id: message.id,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     return;
   }
   if (message.op === 'effect') {

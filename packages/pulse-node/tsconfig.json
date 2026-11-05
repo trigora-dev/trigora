@@ -1,0 +1,9 @@
+{
+  "extends": "../../tooling/tsconfig/node.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "../cli/src/tsAdapter.ts", "../cli/src/lib/localRuntime/extractEffects.ts"]
+}

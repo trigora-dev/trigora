@@ -1,0 +1,218 @@
+use serde::Deserialize;
+
+use crate::authority::{TimerRow, WaitRow};
+use crate::error::{Error, Result};
+
+#[derive(Deserialize)]
+pub(super) struct WireRow {
+    pub(super) key: String,
+    #[serde(rename = "idempotencyKey")]
+    pub(super) idempotency_key: String,
+    pub(super) status: String,
+    pub(super) input: String,
+    pub(super) result: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SqliteCommitResponse {
+    pub(super) revision: u64,
+    pub(super) owner: String,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    pub(super) idempotent: bool,
+    pub(super) identity: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct VersionBody {
+    pub(super) revision: u64,
+    pub(super) artifact_hash: String,
+    pub(super) handler_keys: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SqliteClaimResponse {
+    pub(super) revision: u64,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    pub(super) continuation_digest: String,
+    #[serde(default)]
+    pub(super) event: Option<EventJson>,
+    #[serde(default)]
+    pub(super) cancel_requested: bool,
+    #[serde(default)]
+    pub(super) intent: Option<IntentJson>,
+    #[serde(default)]
+    pub(super) timer_due: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct IntentJson {
+    pub(super) invoke_id: String,
+    pub(super) child_execution_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+    pub(super) digest: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct StartedChildJson {
+    pub(super) parent_execution_id: String,
+    pub(super) invoke_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+    pub(super) revision: u64,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    pub(super) initialized: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CreatedChildJson {
+    pub(super) parent_execution_id: String,
+    pub(super) invoke_id: String,
+    pub(super) child_execution_id: String,
+    pub(super) program_name: String,
+    pub(super) arguments: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EventJson {
+    pub(super) wait_id: String,
+    pub(super) event: String,
+    pub(super) payload: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct EventReceiptBody {
+    pub(super) revision: u64,
+    pub(super) fence: u64,
+    pub(super) idempotent: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct CancelReceiptBody {
+    pub(super) revision: u64,
+    pub(super) idempotent: bool,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct SqliteRestoreHeader {
+    pub(super) revision: u64,
+    pub(super) owner: String,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    pub(super) identity: String,
+    pub(super) continuation_digest: String,
+    pub(super) continuation_bytes: u64,
+    pub(super) journal: Vec<WireRow>,
+    pub(super) timers: Vec<TimerJson>,
+    pub(super) waits: Vec<WaitJson>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct RenewResponse {
+    pub(super) owner: String,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+    #[serde(default)]
+    pub(super) timer_due: bool,
+    #[serde(default)]
+    pub(super) cancel_requested: bool,
+    #[serde(default)]
+    pub(super) has_accepted_event: bool,
+    #[serde(default)]
+    pub(super) child_ready: bool,
+    #[serde(default)]
+    pub(super) next_wake_at: Option<u64>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DiscoverBody {
+    pub(super) executions: Vec<DiscoverRow>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct DiscoverRow {
+    pub(super) execution_id: String,
+    pub(super) readiness: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct QueryResponse {
+    pub(super) accepted: bool,
+    pub(super) revision: u64,
+    pub(super) identity: String,
+    pub(super) owner: String,
+    pub(super) fence: u64,
+    pub(super) lease_until: u64,
+}
+
+#[derive(Deserialize)]
+pub(super) struct TimerJson {
+    pub(super) branch: String,
+    #[serde(rename = "dueAt")]
+    pub(super) due_at: u64,
+}
+
+#[derive(Deserialize)]
+pub(super) struct WaitJson {
+    #[serde(rename = "waitId")]
+    pub(super) wait_id: String,
+    pub(super) event: String,
+}
+
+pub(super) fn manifest_timers(timers: &[TimerJson]) -> Vec<TimerRow> {
+    timers
+        .iter()
+        .map(|timer| TimerRow {
+            branch: timer.branch.clone(),
+            due_at: timer.due_at,
+        })
+        .collect()
+}
+
+pub(super) fn manifest_waits(waits: &[WaitJson]) -> Vec<WaitRow> {
+    waits
+        .iter()
+        .map(|wait| WaitRow {
+            wait_id: wait.wait_id.clone(),
+            event: wait.event.clone(),
+        })
+        .collect()
+}
+
+pub(super) fn checkpoint_frame(header: &serde_json::Value, continuation: &[u8]) -> Result<Vec<u8>> {
+    let json = serde_json::to_vec(header).map_err(|err| Error::new(err.to_string()))?;
+    let len = u32::try_from(json.len()).map_err(|_| Error::new("checkpoint frame is invalid"))?;
+    let mut frame = Vec::with_capacity(4 + json.len() + continuation.len());
+    frame.extend_from_slice(&len.to_be_bytes());
+    frame.extend_from_slice(&json);
+    frame.extend_from_slice(continuation);
+    Ok(frame)
+}
+
+pub(super) fn split_frame(bytes: &[u8]) -> Result<(&[u8], &[u8])> {
+    if bytes.len() < 4 {
+        return Err(Error::new("checkpoint frame is invalid"));
+    }
+    let len = u32::from_be_bytes(bytes[..4].try_into().expect("4 bytes")) as usize;
+    if bytes.len() < 4 + len {
+        return Err(Error::new("checkpoint frame is invalid"));
+    }
+    Ok((&bytes[4..4 + len], &bytes[4 + len..]))
+}
