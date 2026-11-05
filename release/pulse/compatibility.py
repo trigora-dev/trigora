@@ -165,11 +165,7 @@ def assemble(root: Path, bin_dir: Path, out_dir: Path) -> None:
             raise SystemExit(f"missing binary for {slot}: {binary}")
         name = archive_name(version, slot)
         destination = out_dir / name
-        with tarfile.open(destination, "w:gz") as archive:
-            info = archive.gettarinfo(binary, arcname="trigora-pulse")
-            info.mode = 0o755
-            with binary.open("rb") as handle:
-                archive.addfile(info, handle)
+        pack_binary(binary, destination)
         names.append(name)
     write_sums(out_dir, names)
     manifest = {
@@ -210,6 +206,33 @@ def verify_bundle(root: Path, directory: Path) -> dict[str, object]:
     return manifest
 
 
+def pack_binary(binary: Path, destination: Path) -> None:
+    with tarfile.open(destination, "w:gz") as archive:
+        info = archive.gettarinfo(binary, arcname="trigora-pulse")
+        info.mode = 0o755
+        with binary.open("rb") as handle:
+            archive.addfile(info, handle)
+
+
+def replace_linux(root: Path, directory: Path, amd64: Path, arm64: Path) -> None:
+    """Put the smoked Linux binaries into the bundle and recompute checksums.
+
+    The image and the Linux archives then contain those binaries. A later
+    package rebuild does not replace them.
+    """
+    version = str(identity(root)["pulse_version"])
+    binaries = {"linux-x64": amd64, "linux-arm64": arm64}
+    for slot, binary in binaries.items():
+        if not binary.is_file():
+            raise SystemExit(f"missing smoked binary for {slot}: {binary}")
+        name = archive_name(version, slot)
+        destination = directory / name
+        if not destination.is_file():
+            raise SystemExit(f"missing archive {name}")
+        pack_binary(binary, destination)
+    write_sums(directory, [archive_name(version, slot) for slot in PLATFORMS])
+
+
 def preflight(root: Path, directory: Path, repository: str, ref: str) -> None:
     if repository != REPOSITORY:
         raise SystemExit(f"repository is {repository}")
@@ -243,6 +266,11 @@ def main(argv: list[str]) -> int:
     gate.add_argument("--repository", required=True)
     gate.add_argument("--ref", required=True)
 
+    smoked = sub.add_parser("replace-linux")
+    smoked.add_argument("--dir", type=Path, required=True)
+    smoked.add_argument("--amd64", type=Path, required=True)
+    smoked.add_argument("--arm64", type=Path, required=True)
+
     args = parser.parse_args(argv)
     root = args.root.resolve()
     if args.command == "check-host":
@@ -253,6 +281,13 @@ def main(argv: list[str]) -> int:
         verify_bundle(root, args.dir.resolve())
     elif args.command == "preflight":
         preflight(root, args.dir.resolve(), args.repository, args.ref)
+    elif args.command == "replace-linux":
+        replace_linux(
+            root,
+            args.dir.resolve(),
+            args.amd64.resolve(),
+            args.arm64.resolve(),
+        )
     return 0
 
 

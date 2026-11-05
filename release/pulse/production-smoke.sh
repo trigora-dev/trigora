@@ -277,6 +277,13 @@ if [[ $a_count != 1 || $b_count != 1 ]]; then
   exit 1
 fi
 
+if [[ -n ${PULSE_CANDIDATE_DIR:-} ]]; then
+  mkdir -p "$PULSE_CANDIDATE_DIR"
+  cp "$bins/trigora-pulse" "$PULSE_CANDIDATE_DIR/trigora-pulse"
+  checksum=$(python3 -c 'import hashlib, pathlib, sys; print(hashlib.sha256(pathlib.Path(sys.argv[1]).read_bytes()).hexdigest())' "$PULSE_CANDIDATE_DIR/trigora-pulse")
+  printf 'commit=%s\narchitecture=%s\nimage=%s\nsha256=%s\n' "$commit" "$image_arch" "$image_id" "$checksum" >"$PULSE_CANDIDATE_DIR/candidate.txt"
+fi
+
 echo "production-token recovery passed"
 echo "source commit: $commit"
 echo "execution id: $execution_id"

@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     environment: release
     permissions:
+      actions: read
       id-token: write
       contents: write
       packages: write
@@ -32,6 +33,37 @@ jobs:
         with:
           name: pulse-bundle
           path: dist
+      - name: Install the smoked Linux binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow pulse-smoke.yml \
+            --commit "$GITHUB_SHA" \
+            --json databaseId,conclusion \
+            --jq '[.[] | select(.conclusion=="success")][0].databaseId')
+          if [[ -z $run || $run == null ]]; then
+            echo "linux/amd64 and linux/arm64 smokes have not passed for $GITHUB_SHA" >&2
+            exit 1
+          fi
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name pulse-candidate-linux-amd64 --dir smoked/amd64
+          gh run download "$run" --repo "$GITHUB_REPOSITORY" --name pulse-candidate-linux-arm64 --dir smoked/arm64
+          test -f smoked/amd64/trigora-pulse
+          test -f smoked/arm64/trigora-pulse
+          amd_commit=$(sed -n 's/^commit=//p' smoked/amd64/candidate.txt)
+          arm_commit=$(sed -n 's/^commit=//p' smoked/arm64/candidate.txt)
+          if [[ $amd_commit != "$GITHUB_SHA" || $arm_commit != "$GITHUB_SHA" ]]; then
+            echo "smoked commits do not match $GITHUB_SHA" >&2
+            echo "amd64 ${amd_commit}" >&2
+            echo "arm64 ${arm_commit}" >&2
+            exit 1
+          fi
+          python3 release/pulse/compatibility.py replace-linux \
+            --dir dist \
+            --amd64 smoked/amd64/trigora-pulse \
+            --arm64 smoked/arm64/trigora-pulse
       - name: Check the tag, versions, and checksums
         run: |
           set -euo pipefail
