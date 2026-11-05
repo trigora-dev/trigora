@@ -43,6 +43,7 @@ jobs:
         if: matrix.slot == 'linux-x64'
         with:
           node-version: 22
+          package-manager-cache: false
       - name: Build trigora-pulse
         run: cargo build --release -p trigora-pulse
       - name: Check the host version
@@ -58,6 +59,7 @@ jobs:
         if: matrix.slot == 'linux-x64'
         with:
           node-version: 24
+          package-manager-cache: false
       - name: Check the Node adapter handshake on Node 24
         if: matrix.slot == 'linux-x64'
         run: bash release/pulse/handshake.sh target/release/trigora-pulse
