@@ -62,8 +62,20 @@ jobs:
           ref: v26.10.4
           path: tcc-engine
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
       - name: Build the CLI binaries the Node tests launch
-        run: cargo build -p trigora-cli -p trigora-local
+        run: |
+          cargo build -p trigora-cli -p trigora-local
+          mkdir -p packages/cli/vendor/trigora-local/linux-x64
+          mkdir -p packages/cli/vendor/trigora/linux-x64
+          mkdir -p packages/cli/vendor/tcc-rust-compile/linux-x64
+          cp target/debug/trigora-local packages/cli/vendor/trigora-local/linux-x64/trigora-local
+          cp target/debug/trigora packages/cli/vendor/trigora/linux-x64/trigora
+          cp target/debug/tcc-rust-compile packages/cli/vendor/tcc-rust-compile/linux-x64/tcc-rust-compile
+          chmod +x packages/cli/vendor/trigora-local/linux-x64/trigora-local
+          chmod +x packages/cli/vendor/trigora/linux-x64/trigora
+          chmod +x packages/cli/vendor/tcc-rust-compile/linux-x64/tcc-rust-compile
       - uses: pnpm/action-setup@v5
         with:
           version: 10.33.0
