@@ -22,7 +22,7 @@
   ·
   <a href="https://trigora.dev/docs/quickstart"><b>Cloud</b></a>
   ·
-  <a href="https://trigora.dev/docs/pulse"><b>Pulse</b></a>
+  <a href="https://trigora.dev/docs/pulse/overview"><b>Pulse</b></a>
 </p>
 
 # Trigora
@@ -169,7 +169,7 @@ docker pull ghcr.io/trigora-dev/pulse:1.0.0
 
 Pulse supports **Node.js 22 and 24**, uses protocol version 1, and supports serialized continuations up to **16 MiB**.
 
-[Read the Pulse documentation](https://trigora.dev/docs/pulse) · [View the v1.0.0 release](https://github.com/trigora-dev/trigora/releases/tag/pulse-v1.0.0)
+[Read the Pulse documentation](https://trigora.dev/docs/pulse/overview) · [View the v1.0.0 release](https://github.com/trigora-dev/trigora/releases/tag/pulse-v1.0.0)
 
 ## Repository map
 
@@ -218,7 +218,7 @@ The public research covers:
 
 - **Website:** [trigora.dev](https://trigora.dev)
 - **Cloud:** [cloud.trigora.dev](https://cloud.trigora.dev)
-- **Pulse:** [Pulse documentation](https://trigora.dev/docs/pulse)
+- **Pulse:** [Pulse documentation](https://trigora.dev/docs/pulse/overview)
 - **Pulse v1.0.0:** [GitHub Release](https://github.com/trigora-dev/trigora/releases/tag/pulse-v1.0.0)
 - **Docs:** [trigora.dev/docs](https://trigora.dev/docs)
 - **Research:** [trigora.dev/research](https://trigora.dev/research)
