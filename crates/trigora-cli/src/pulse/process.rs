@@ -86,12 +86,31 @@ pub(super) fn wait_child(child: &mut Child, limit: Duration) -> Option<std::proc
     child.try_wait().ok().flatten()
 }
 
-pub(super) fn signal(child: &Child, sig: i32) -> Result<(), CliError> {
-    let pid = child.id() as i32;
-    let result = unsafe { libc::kill(pid, sig) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(CliError::plain("could not signal the Pulse host"))
+pub(super) fn request_stop(child: &mut Child) -> Result<(), CliError> {
+    signal(child, false)
+}
+
+pub(super) fn force_stop(child: &mut Child) -> Result<(), CliError> {
+    signal(child, true)
+}
+
+fn signal(child: &mut Child, force: bool) -> Result<(), CliError> {
+    #[cfg(unix)]
+    {
+        let sig = if force { libc::SIGKILL } else { libc::SIGTERM };
+        let pid = child.id() as i32;
+        let result = unsafe { libc::kill(pid, sig) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(CliError::plain("could not signal the Pulse host"))
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = force;
+        child
+            .kill()
+            .map_err(|error| CliError::plain(error.to_string()))
     }
 }

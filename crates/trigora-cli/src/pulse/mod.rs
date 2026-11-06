@@ -16,7 +16,9 @@ mod binary;
 mod process;
 
 use binary::{host_version, resolve_pulse_bin, PULSE_PROTOCOL, PULSE_VERSION};
-use process::{signal, wait_adapter, wait_child, wait_until_ready, SHUTDOWN_DEADLINE};
+use process::{
+    force_stop, request_stop, wait_adapter, wait_child, wait_until_ready, SHUTDOWN_DEADLINE,
+};
 
 pub fn start(ephemeral: bool) -> Result<(), CliError> {
     let root = std::env::current_dir().map_err(|error| CliError::plain(error.to_string()))?;
@@ -52,7 +54,7 @@ pub fn start(ephemeral: bool) -> Result<(), CliError> {
     let mut adapter_child = match spawn_adapter(&prepared, &dir, &root) {
         Ok(child) => child,
         Err(error) => {
-            let _ = signal(&host, libc::SIGKILL);
+            let _ = force_stop(&mut host);
             let _ = host.wait();
             return Err(error);
         }
@@ -63,12 +65,12 @@ pub fn start(ephemeral: bool) -> Result<(), CliError> {
     });
     let ready = wait_until_ready(&mut host, &mut adapter_child, &rx, &dir);
     if let Err(error) = ready {
-        let _ = signal(&host, libc::SIGTERM);
+        let _ = request_stop(&mut host);
         if wait_child(&mut host, SHUTDOWN_DEADLINE).is_none() {
-            let _ = signal(&host, libc::SIGKILL);
+            let _ = force_stop(&mut host);
             let _ = host.wait();
         }
-        let _ = signal(&adapter_child, libc::SIGTERM);
+        let _ = request_stop(&mut adapter_child);
         let _ = adapter_child.wait();
         clear_ready(&dir);
         return Err(error);
@@ -76,7 +78,7 @@ pub fn start(ephemeral: bool) -> Result<(), CliError> {
     loop {
         match host.try_wait() {
             Ok(Some(status)) => {
-                let _ = signal(&adapter_child, libc::SIGTERM);
+                let _ = request_stop(&mut adapter_child);
                 let _ = adapter_child.wait();
                 clear_ready(&dir);
                 if status.success() {
@@ -90,9 +92,9 @@ pub fn start(ephemeral: bool) -> Result<(), CliError> {
             Err(error) => return Err(CliError::plain(error.to_string())),
         }
         if rx.recv_timeout(Duration::from_millis(200)).is_ok() {
-            let _ = signal(&host, libc::SIGTERM);
+            let _ = request_stop(&mut host);
             if let Some(status) = wait_child(&mut host, SHUTDOWN_DEADLINE) {
-                let _ = signal(&adapter_child, libc::SIGTERM);
+                let _ = request_stop(&mut adapter_child);
                 let _ = adapter_child.wait();
                 clear_ready(&dir);
                 if status.success() {
@@ -103,9 +105,9 @@ pub fn start(ephemeral: bool) -> Result<(), CliError> {
                     .detail("Status", code.to_string())
                     .with_code(code));
             }
-            let _ = signal(&host, libc::SIGKILL);
+            let _ = force_stop(&mut host);
             let _ = host.wait();
-            let _ = signal(&adapter_child, libc::SIGKILL);
+            let _ = force_stop(&mut adapter_child);
             let _ = adapter_child.wait();
             clear_ready(&dir);
             return Err(CliError::new("Pulse shutdown exceeded 10 seconds.").with_code(1));
@@ -127,7 +129,7 @@ pub fn connect(dir: PathBuf, prepare_only: bool) -> Result<(), CliError> {
         let _ = tx.send(());
     });
     if let Err(error) = wait_adapter(&mut adapter, &rx, &dir) {
-        let _ = signal(&adapter, libc::SIGTERM);
+        let _ = request_stop(&mut adapter);
         let _ = adapter.wait();
         clear_ready(&dir);
         return Err(error);
@@ -150,7 +152,7 @@ pub fn connect(dir: PathBuf, prepare_only: bool) -> Result<(), CliError> {
             Err(error) => return Err(CliError::plain(error.to_string())),
         }
         if rx.recv_timeout(Duration::from_millis(200)).is_ok() {
-            let _ = signal(&adapter, libc::SIGTERM);
+            let _ = request_stop(&mut adapter);
             let _ = adapter.wait();
             clear_ready(&dir);
             return Ok(());
