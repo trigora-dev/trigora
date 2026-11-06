@@ -20,14 +20,18 @@
   ·
   <a href="https://github.com/trigora-dev/tcc-engine"><b>TCC Engine</b></a>
   ·
-  <a href="https://cloud.trigora.dev"><b>Cloud</b></a>
+  <a href="https://trigora.dev/docs/quickstart"><b>Cloud</b></a>
+  ·
+  <a href="https://trigora.dev/docs/pulse"><b>Pulse</b></a>
 </p>
 
 # Trigora
 
 **Durable execution without history replay.**
 
-Trigora is a high-performance, lightweight durable execution platform for long-lived AI agents and programs. Powered by the TCC Engine, it restores committed program state instead of replaying execution history.
+Trigora is a high-performance, lightweight durable execution platform for long-running AI agents and workflows. Powered by the TCC Engine, it restores committed program state directly from checkpoints instead of replaying execution history.
+
+Run on **Trigora Cloud** with fully managed compute and durability, or use **Trigora Pulse** to run on your own infrastructure while Trigora handles checkpointing, coordination, and recovery.
 
 ⚡ **Ultra-fast recovery** — as fast as 0.06 ms.
 
@@ -137,13 +141,43 @@ It provides:
 
 **[Start building on Trigora Cloud →](https://cloud.trigora.dev)**
 
+## Trigora Pulse
+
+**Your infrastructure. Trigora's durability.**
+
+[Trigora Pulse v1.0.0](https://github.com/trigora-dev/trigora/releases/tag/pulse-v1.0.0) brings TCC-powered durable execution to your own infrastructure.
+
+Run long-running AI agents and workflows in your own containers while Trigora handles checkpoint persistence, distributed coordination, and recovery.
+
+Pulse provides:
+
+- **Bring your own compute** — Run workloads on your own infrastructure without paying Trigora for compute.
+- **Checkpoint-based recovery** — Resume directly from committed continuations without replaying completed execution.
+- **Automatic recovery** — Discover and resume interrupted executions after process or container failure.
+- **Distributed coordination** — Lease-based ownership and fencing prevent competing workers from simultaneously owning an execution.
+- **Durable workflows** — Support for effects, callbacks, waits, and child executions.
+- **Flexible deployment** — Native Linux AMD64 and ARM64 images, with Docker and Kubernetes support.
+- **Shared billing** — Cloud and Pulse use the same workspace credits, with Pulse billed for durable operations and storage.
+
+### Getting started
+
+Pull the official Pulse image:
+
+```sh
+docker pull ghcr.io/trigora-dev/pulse:1.0.0
+```
+
+Pulse supports **Node.js 22 and 24**, uses protocol version 1, and supports serialized continuations up to **16 MiB**.
+
+[Read the Pulse documentation](https://trigora.dev/docs/pulse) · [View the v1.0.0 release](https://github.com/trigora-dev/trigora/releases/tag/pulse-v1.0.0)
+
 ## Repository map
 
 Trigora is split into focused repositories.
 
 | Repository | What it contains |
 | --- | --- |
-| **[trigora](https://github.com/trigora-dev/trigora)** | CLI, local runtime, public contracts, and ecosystem entry point |
+| **[trigora](https://github.com/trigora-dev/trigora)** | CLI, local runtime, Pulse execution host, public contracts, and release coordination |
 | **[trigora-typescript](https://github.com/trigora-dev/trigora-typescript)** | TypeScript authoring SDK and API client |
 | **[trigora-python](https://github.com/trigora-dev/trigora-python)** | Python authoring SDK and API client |
 | **[trigora-rust](https://github.com/trigora-dev/trigora-rust)** | Rust authoring SDK and API client |
@@ -151,7 +185,7 @@ Trigora is split into focused repositories.
 
 ### This repository
 
-`trigora-dev/trigora` contains the Trigora CLI, the native local runtime used by `trigora dev`, shared public contracts, and release coordination. Language-specific authoring APIs and the TCC Engine are maintained in their respective repositories above.
+`trigora-dev/trigora` contains the Trigora CLI, the native local runtime used by `trigora dev`, the Trigora Pulse execution host, shared public contracts, and release coordination. Language-specific authoring APIs and the TCC Engine are maintained in their respective repositories above.
 
 ## TCC Engine
 
@@ -184,6 +218,8 @@ The public research covers:
 
 - **Website:** [trigora.dev](https://trigora.dev)
 - **Cloud:** [cloud.trigora.dev](https://cloud.trigora.dev)
+- **Pulse:** [Pulse documentation](https://trigora.dev/docs/pulse)
+- **Pulse v1.0.0:** [GitHub Release](https://github.com/trigora-dev/trigora/releases/tag/pulse-v1.0.0)
 - **Docs:** [trigora.dev/docs](https://trigora.dev/docs)
 - **Research:** [trigora.dev/research](https://trigora.dev/research)
 - **TCC Engine:** [github.com/trigora-dev/tcc-engine](https://github.com/trigora-dev/tcc-engine)
